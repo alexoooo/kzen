@@ -4,33 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository purpose
 
-This is a **Gradle composite-build umbrella** that has no source of its own. `settings.gradle.kts` pulls in five sibling repositories under `..` via `includeBuild`:
+This is a **Gradle composite-build umbrella** that has no source of its own. `settings.gradle.kts` pulls in seven sibling directories under `..` via `includeBuild` — five with Kotlin source, plus two artifact-only includes:
 
 - `../kzen-lib` — context-management core (Kotlin Multiplatform: common/jvm/js)
 - `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module)
 - `../kzen-project` — office automation project (KMP)
 - `../kzen-launcher` — UI for selecting / launching a project (KMP)
 - `../kzen-shell` — JVM-only desktop shell that boots the launcher and reverse-proxies child processes
-- `../kzen-sample-plugin`, `../kzen-proj`, `../kzen-repo` also live alongside but are NOT part of the composite
+- `../kzen-repo` (forked-artifact mirror, no Kotlin source) and `../kzen-sample-plugin` (Maven sample, no Gradle source) are also `includeBuild`d but contain nothing to bump
+- `../kzen-proj` (legacy directory) lives alongside and is NOT in the composite
 
 Cloning just `kzen` is not enough — every sibling listed above must exist at `../<name>` for Gradle to resolve the build. The point of the composite is to let changes in `kzen-lib` flow into `kzen-auto`/`kzen-project`/`kzen-launcher`/`kzen-shell` without going through Maven Local.
 
 ## Build & run
 
-All commands assume the working directory is `C:\Users\ostro\IdeaProjects\kzen` (or any of the included builds — Gradle resolves substitutions either way). The wrapper is Gradle 9.3 on Java 25.
+All commands assume the working directory is `C:\Users\ostro\IdeaProjects\kzen` (or any of the included builds — Gradle resolves *artifact substitutions* either way; *task addressing* does NOT — see the gotcha below). The wrapper is Gradle 9.2.1 on Java 25.
 
 ```powershell
 # Build everything (delegates into all five included builds)
 ./gradlew build
 
-# Build one included build only
+# Build one included build only — root-project tasks of the included build
 ./gradlew :kzen-auto:build
 ./gradlew :kzen-shell:build
 
 # Run an included build's JVM main jar (after `./gradlew jar` in that build)
 java -jar ../kzen-auto/kzen-auto-jvm/build/libs/kzen-auto-jvm-*.jar
-java -jar ../kzen-shell/build/libs/kzen-shell-0.29.0.jar
+java -jar ../kzen-shell/build/libs/kzen-shell-0.29.1-SNAPSHOT.jar
 ```
+
+**Gotcha — composite task addressing.** From the umbrella, `./gradlew :kzen-lib:<task>` reaches the *root project* of the included `kzen-lib` build, but the umbrella does NOT flatten included builds' subprojects into its own project tree. So `./gradlew :kzen-lib-common:publishToMavenLocal` from `kzen/` fails with "project 'kzen-lib-common' not found in root project 'kzen'". To run subproject tasks (e.g. `:kzen-lib-common:publishToMavenLocal`, `:kzen-launcher-jvm:jar`), `cd` into the sibling and invoke its own `./gradlew`. The aggregating root-level task (`./gradlew :kzen-lib:publishToMavenLocal`) also fails because the kzen-lib root has no `maven-publish` plugin — only the three subprojects do. Pattern: `cd ../kzen-lib && ./gradlew publishToMavenLocal`.
+
+**Gotcha — Java 25 toolchain vs PATH `java`.** Gradle compiles with the JDK 25 toolchain regardless of your PATH, but `java -jar <built>.jar` uses whatever `java` is first on `PATH` (often Java 8 on this machine, which fails with `UnsupportedClassVersionError: class file version 69.0`). Run with an explicit Java 25: `& "C:/Users/ostro/.jdks/temurin-25.0.3/bin/java" -jar build/libs/...jar` (the user's IntelliJ-managed JDK pool lives at `~/.jdks/`).
 
 ### Per-included-build dev loops
 
@@ -46,11 +51,19 @@ End-user runtime entry point is `tech.kzen.shell.KzenShellMainKt`, which boots K
 
 All five included builds pin the same JVM/Kotlin baseline; if you bump one, bump all of them:
 
-- Kotlin `2.3.0`, Ktor `3.3.3`, JVM toolchain & target `25`
+- Kotlin `2.3.21`, Ktor `3.3.3`, JVM toolchain & target `25`
 - Jackson 3.x (`tools.jackson.module:jackson-module-kotlin:3.0.3`) — note the `tools.jackson` group, not the legacy `com.fasterxml.jackson` one
-- Kotlin/JS frontends use `org.jetbrains.kotlin-wrappers:kotlin-wrappers-catalog:2025.12.11` (declared in each `settings.gradle.kts` of the JS-bearing builds, exposed as the `kotlinWrappers` version catalog)
+- Kotlin/JS frontends use `org.jetbrains.kotlin-wrappers:kotlin-wrappers-catalog:2025.12.11` (declared in `settings.gradle.kts` of `kzen-auto` and `kzen-launcher` only — `kzen-project` and `kzen-lib` pull wrappers transitively; exposed as the `kotlinWrappers` version catalog). **Bumping past `2026.2.11` requires migrating away from `kotlin-react-legacy` (removed in wrappers `2026.2.20`)** — `kzen-auto-js` and `kzen-launcher-js` use the legacy `RBuilder`/`RClass`/`RComponent` DSL across many files, so a wrappers upgrade is gated on that React DSL migration.
 
 Repository order in subprojects matters: `mavenCentral()` first, then JetBrains Space mirrors for kotlin-wrappers / kotlinx-html, then `https://raw.githubusercontent.com/alexoooo/kzen-repo/master/artifacts` for forked artifacts, then `mavenLocal()` last.
+
+## Toolchain bumps
+
+When bumping Kotlin (even patch versions like `2.3.0` → `2.3.21`):
+
+- Each JS-bearing sibling (`kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher`) needs `./gradlew kotlinUpgradeYarnLock` run *before* checks/distribution tasks — otherwise `:kotlinStoreYarnLock` fails because resolved transitive JS dependencies shifted. The 4 regenerated `kotlin-js-store/yarn.lock` files must be committed alongside the version bump.
+- `:kzen-auto-plugin:publishToMavenLocal` must run before any non-composite consumer picks up the new bytecode — including external plugins compiled against the previous Kotlin and any standalone (per-repo, non-umbrella) build of `kzen-project`. Inside the composite umbrella Gradle substitutes the artifact so the published copy can lag, but in any other context `kzen-auto-plugin` is the gating step.
+- Recommended verification order: `kzen-lib` → `kzen-auto` (with `:kzen-auto-plugin:publishToMavenLocal` first) → `kzen-project` ‖ `kzen-launcher` → `kzen-shell`.
 
 ## Architecture
 
@@ -58,7 +71,7 @@ Repository order in subprojects matters: `mavenCentral()` first, then JetBrains 
 
 `kzen-shell` is the desktop entry point and the only piece a packaged user actually launches. Its job is to **act as a single-port reverse proxy in front of multiple child JVM processes**:
 
-1. `KzenShellMain.main` calls `kzenShellInit` → `KzenShellContext.start()` which downloads & unzips the launcher artifact (currently hard-coded to `file:///C:/Users/ostro/IdeaProjects/kzen-launcher/.../kzen-launcher-0.29.0.zip`) into `../work/kzen-launcher/...` if missing, then spawns it as `main.jar` on a free port.
+1. `KzenShellMain.main` calls `kzenShellInit` → `KzenShellContext.start()` which downloads & unzips the launcher artifact (currently hard-coded to `file:///C:/Users/ostro/IdeaProjects/kzen-launcher/.../kzen-launcher-0.29.1-SNAPSHOT.zip`) into `../work/kzen-launcher/...` if missing, then spawns it as `main.jar` on a free port.
 2. Ktor binds `127.0.0.1:8080` and routes `/<name>/<subpath>` to the child process registered as `<name>` in `ProcessRegistry`. The literal name `main` is rewritten to whichever process was registered with `attributes["location"] == <launcherDir>/main.jar` — i.e. the launcher.
 3. `/shell/project/start|stop` and `/shell/project` are the only first-class endpoints; everything else is a generic GET/PUT/POST proxy implemented in `ProxyHandler`.
 4. `ProjectRegistry` (a Guava cache) tracks user-launched projects; each project is its own jar started by `MainJarRunner` on its own free port and reverse-proxied through the same name-prefix scheme.
@@ -79,15 +92,13 @@ Each of these is a Gradle multi-module project with a fixed three-module shape:
 
 ### Versioning
 
-- `kzen-shell` is `0.29.0` (release)
-- `kzen-lib`, `kzen-auto`, `kzen-project` are `0.29.0-SNAPSHOT`
-- `kzen-launcher` is `0.29.0` (release)
+- `kzen-shell`, `kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher` are all `0.29.1-SNAPSHOT`
 
-When cutting a release, bump all five `build.gradle.kts` `version =` lines together; the shell's hard-coded launcher zip path in `KzenShellMain.kt` (line ~44) must also be updated.
+When cutting a release, bump all five `build.gradle.kts` `version =` lines together; the shell's hard-coded launcher zip path in `KzenShellMain.kt` (line ~44) and the launcher's hard-coded project zip path in `KzenLauncherMain.kt` (line ~99) must also be updated. Note: the launcher and project distribution zips (`kzen-launcher-<v>.zip`, `kzen-project-<v>.zip`) are NOT produced by any Gradle task — they're hand-zipped from the `<sibling>-jvm/build/libs/` outputs (rename the fat jar to `main.jar`, bundle with `dependencies/`).
 
 ## Working with this repo from Claude
 
 - Editing source: navigate into the relevant sibling directory (`cd ../kzen-auto` etc.) — the files under `kzen/` itself are only Gradle glue and `.gitignore`d build artifacts.
 - The `build/` directory at this root only contains aggregated reports; nothing is compiled here directly.
-- Don't run `./gradlew build` casually — the composite drags every sibling through compile + test + KMP JS bundling, which is a multi-minute operation. Prefer `./gradlew :<included-build>:<task>` when iterating.
+- Don't run `./gradlew build` casually — the composite drags every sibling through compile + test + KMP JS bundling, which is a multi-minute operation. Prefer `./gradlew :<included-build>:<task>` when the task lives on the included build's *root* project, or `cd ../<sibling> && ./gradlew <task>` when it lives on a *subproject* (the more common case — e.g. `publishToMavenLocal`, `:kzen-launcher-jvm:jar`).
 - Logs from running launcher/project processes land under each sibling's `logs/` directory, not under `kzen/`.
