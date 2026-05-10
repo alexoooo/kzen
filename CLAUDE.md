@@ -18,7 +18,7 @@ Cloning just `kzen` is not enough — every sibling listed above must exist at `
 
 ## Build & run
 
-All commands assume the working directory is `C:\Users\ostro\IdeaProjects\kzen` (or any of the included builds — Gradle resolves *artifact substitutions* either way; *task addressing* does NOT — see the gotcha below). The wrapper is Gradle 9.2.1 on Java 25.
+All commands assume the working directory is `C:\Users\ostro\IdeaProjects\kzen` (or any of the included builds — Gradle resolves *artifact substitutions* either way; *task addressing* does NOT — see the gotcha below). The wrapper is Gradle 9.5.0 on Java 25.
 
 ```powershell
 # Build everything (delegates into all five included builds)
@@ -69,7 +69,7 @@ All five included builds pin the same JVM/Kotlin baseline; if you bump one, bump
 - Kotlin `2.3.21`, Ktor `3.4.3`, JVM toolchain & target `25`
 - Jackson 3.x (`tools.jackson.module:jackson-module-kotlin:3.1.3`, `tools.jackson.dataformat:jackson-dataformat-yaml:3.1.3`) — note the `tools.jackson` group, not the legacy `com.fasterxml.jackson` one
 - Logback `1.5.32`, kotlinx-coroutines `1.11.0`, Guava `33.6.0-jre`, kotlinx-datetime `0.8.0`, Selenium `4.41.0`, WebDriverManager `6.3.4`, Commons IO `2.22.0`
-- Kotlin/JS frontends use `org.jetbrains.kotlin-wrappers:kotlin-wrappers-catalog:2025.12.11` (declared in `settings.gradle.kts` of `kzen-auto` and `kzen-launcher` only — `kzen-project` and `kzen-lib` pull wrappers transitively; exposed as the `kotlinWrappers` version catalog). **Bumping past `2026.2.11` requires migrating away from `kotlin-react-legacy` (removed in wrappers `2026.2.20`)** — `kzen-auto-js` and `kzen-launcher-js` use the legacy `RBuilder`/`RClass`/`RComponent` DSL across many files, so a wrappers upgrade is gated on that React DSL migration.
+- Kotlin/JS frontends use `org.jetbrains.kotlin-wrappers:kotlin-wrappers-catalog:2025.12.11` (declared in `settings.gradle.kts` of `kzen-auto` and `kzen-launcher` only — `kzen-project` and `kzen-lib` pull wrappers transitively; exposed as the `kotlinWrappers` version catalog). **Empirical wrappers ceiling is `2025.12.11` for now, NOT `2026.2.11`.** Two independent constraints stack: (a) wrappers `2026.2.20` removes `kotlin-react-legacy` (`RBuilder`/`RClass`/`RComponent`), which `kzen-auto-js` and `kzen-launcher-js` use across many files; (b) **already at wrappers `2026.2.11`**, the React `key` attribute changes from `String` to `Key?` (a typed wrapper) and `ChangeEvent<C>` requires two type arguments, breaking dozens of jsMain sites in `kzen-auto-js` (e.g. `AttributePathValueEditor.kt:355`, `BooleanAttributeEditor.kt:91`, `OutputTableController.kt`, many `key = "..."` props). Bumping the wrappers catalog at all therefore requires a coordinated React-DSL touch-up across `kzen-auto-js`/`kzen-launcher-js` source, not just the version pin.
 
 Repository order in subprojects matters: `mavenCentral()` first, then JetBrains Space mirrors for kotlin-wrappers / kotlinx-html, then `https://raw.githubusercontent.com/alexoooo/kzen-repo/master/artifacts` for forked artifacts, then `mavenLocal()` last.
 
