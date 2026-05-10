@@ -1,0 +1,10 @@
+.gradle/
+.idea/
+.kotlin/
+build/
+.github/*
+!.github/copilot-instructions.md
+.claude/settings.local.json
+.claude/.credentials.json
+.claude/cache/
+.claude/logs/
