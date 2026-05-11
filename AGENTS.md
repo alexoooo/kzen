@@ -1,16 +1,16 @@
-# CLAUDE.md
+# kzen umbrella — AI agent guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI agents (Claude Code, Codex, Cursor, etc.) when working in the kzen composite-build umbrella.
 
 ## Repository purpose
 
 This is a **Gradle composite-build umbrella** that has no source of its own. `settings.gradle.kts` pulls in seven sibling directories under `..` via `includeBuild` — five with Kotlin source, plus two artifact-only includes:
 
-- `../kzen-lib` — context-management core (Kotlin Multiplatform: common/jvm/js)
-- `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module)
-- `../kzen-project` — office automation project (KMP)
-- `../kzen-launcher` — UI for selecting / launching a project (KMP)
-- `../kzen-shell` — JVM-only desktop shell that boots the launcher and reverse-proxies child processes
+- `../kzen-lib` — context-management core (Kotlin Multiplatform: common/jvm/js) → [docs](../kzen-lib/AGENTS.md), [architecture concept map](../kzen-lib/docs/architecture.md)
+- `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module) → [docs](../kzen-auto/AGENTS.md), [architecture](../kzen-auto/docs/architecture.md)
+- `../kzen-project` — office automation project (KMP) → [docs](../kzen-project/AGENTS.md)
+- `../kzen-launcher` — UI for selecting / launching a project (KMP) → [docs](../kzen-launcher/AGENTS.md)
+- `../kzen-shell` — JVM-only desktop shell that boots the launcher and reverse-proxies child processes → [docs](../kzen-shell/AGENTS.md)
 - `../kzen-repo` (forked-artifact mirror, no Kotlin source) and `../kzen-sample-plugin` (Maven sample, no Gradle source) are also `includeBuild`d but contain nothing to bump
 - `../kzen-proj` (legacy directory) lives alongside and is NOT in the composite
 
@@ -48,17 +48,17 @@ java -jar ../kzen-shell/build/libs/kzen-shell-0.29.1-SNAPSHOT.jar
 **Gotcha — IntelliJ run/debug of a KMP-consuming JVM main is incompatible with composite-includes of KMP libraries.** When a KMP module (e.g. `kzen-lib-common`) is reached via `includeBuild` from a consumer that depends on it across a KMP source-set boundary (e.g. `kzen-auto-common/jvmMain` depending on `kzen-lib-common-jvm`), IntelliJ's Gradle Tooling-API model assigns the cross-build source-set output **Provided scope** in the consumer's IDE module. Provided is on the compile classpath but excluded from the runtime classpath, so any IDE-launched JVM main that depends on classes from the included KMP build fails at launch with `NoClassDefFoundError`, even though `./gradlew dependencyInsight --configuration runtimeClasspath` correctly resolves the artifact through the composite. Tried and failed: Application run config + "Add provided to classpath", flipping IntelliJ's "Build and run using" between Gradle and IDEA, Invalidate Caches + Reload, `kotlin.mpp.import.enableKgpDependencyResolution=false` in `gradle.properties`. The bug also reproduces in standalone kzen-auto if its own `settings.gradle.kts` adds `includeBuild("../kzen-lib")` — so don't add it.
 
 **Working policy:**
-- For run/debug of `KzenAutoMain`, `BackendDevelopment`, `FrontendDevelopment`, `KzenProjectApp`, `KzenLauncherMain`, `KzenShellMain` — open the relevant sibling (`kzen-auto`, `kzen-project`, `kzen-launcher`, `kzen-shell`) as its OWN IntelliJ project, not via the umbrella. Standalone resolution comes from mavenLocal at the version `Dependencies.kt` asks for; no composite involved on the consumer side, so no Provided-scope mapping.
+- For run/debug of `KzenAutoMain`, `BackendDevelopment`, `FrontendDevelopment`, `KzenProjectMain`, `KzenLauncherMain`, `KzenShellMain` — open the relevant sibling (`kzen-auto`, `kzen-project`, `kzen-launcher`, `kzen-shell`) as its OWN IntelliJ project, not via the umbrella. Standalone resolution comes from mavenLocal at the version `Dependencies.kt` asks for; no composite involved on the consumer side, so no Provided-scope mapping.
 - The umbrella IntelliJ project is for: cross-sibling reads/greps, multi-sibling refactors driven by IntelliJ, and aggregate CLI builds (`./gradlew build`, `./gradlew :<sibling>:<root-task>`). It is NOT for IDE-launched JVM run/debug of KMP-consuming entry points.
 - Do NOT add `includeBuild("../kzen-lib")` (or any other KMP sibling) to a sibling's own `settings.gradle.kts` solely to enable umbrella workflows — it breaks that sibling's own standalone run/debug. Accept the KGP NPM coordination consequence (workaround above).
 
 ### Per-included-build dev loops
 
-Each sibling has its own README; the recurring pattern for `kzen-auto`, `kzen-project`, `kzen-launcher` is two terminals — one for live JVM reload, one for live JS reload:
+Each sibling has its own AGENTS.md (and README); the recurring pattern for `kzen-auto`, `kzen-project`, `kzen-launcher` is two terminals — one for live JVM reload, one for live JS reload:
 
 - **kzen-auto** — `tech.kzen.auto.server.dev.BackendDevelopment` (IDE) + `./gradlew -t :kzen-auto-jvm:classes`; `tech.kzen.auto.server.dev.FrontendDevelopment` (IDE) + `./gradlew -t :kzen-auto-js:build -x test -PjsWatch`
 - **kzen-launcher** — `tech.kzen.launcher.server.dev.FrontendDevelopment` (IDE) + `./gradlew -t :kzen-launcher-js:build -x test -PjsWatch`
-- **kzen-project** — `KzenProjectApp` (IDE, `--server.port=8081`) + `./gradlew -t :kzen-project-js:run` (proxy on 8080 with webpack-served JS, everything else from 8081)
+- **kzen-project** — `tech.kzen.project.server.KzenProjectMain` (IDE, `--server.port=8081`) + `./gradlew -t :kzen-project-js:run` (proxy on 8080 with webpack-served JS, everything else from 8081). The README says `KzenProjectApp` — that class doesn't exist; use `KzenProjectMain`.
 
 End-user runtime entry point is `tech.kzen.shell.KzenShellMainKt`, which boots Ktor on `127.0.0.1:8080` and opens the desktop UI.
 
@@ -106,13 +106,15 @@ Each of these is a Gradle multi-module project with a fixed three-module shape:
 
 `kzen-shell` is the odd one out: pure JVM, single-module, lives at `src/main/kotlin/tech/kzen/shell/`.
 
+For foundational concepts shared across all KMP siblings (the Notation → Definition → Instance three-layer model, CQRS, suffix conventions), see [`../kzen-lib/docs/architecture.md`](../kzen-lib/docs/architecture.md).
+
 ### Versioning
 
 - `kzen-shell`, `kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher` are all `0.29.1-SNAPSHOT`
 
 When cutting a release, bump all five `build.gradle.kts` `version =` lines together; the shell's hard-coded launcher zip path in `KzenShellMain.kt` (line ~44) and the launcher's hard-coded project zip path in `KzenLauncherMain.kt` (line ~99) must also be updated. Note: the launcher and project distribution zips (`kzen-launcher-<v>.zip`, `kzen-project-<v>.zip`) are NOT produced by any Gradle task — they're hand-zipped from the `<sibling>-jvm/build/libs/` outputs (rename the fat jar to `main.jar`, bundle with `dependencies/`).
 
-## Working with this repo from Claude
+## Working with this repo from AI agents
 
 - Editing source: navigate into the relevant sibling directory (`cd ../kzen-auto` etc.) — the files under `kzen/` itself are only Gradle glue and `.gitignore`d build artifacts.
 - The `build/` directory at this root only contains aggregated reports; nothing is compiled here directly.
