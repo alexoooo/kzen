@@ -118,3 +118,11 @@ When cutting a release, bump all five `build.gradle.kts` `version =` lines toget
 - The `build/` directory at this root only contains aggregated reports; nothing is compiled here directly.
 - Don't run `./gradlew build` casually — the composite drags every sibling through compile + test + KMP JS bundling, which is a multi-minute operation. Prefer `./gradlew :<included-build>:<task>` when the task lives on the included build's *root* project, or `cd ../<sibling> && ./gradlew <task>` when it lives on a *subproject* (the more common case — e.g. `publishToMavenLocal`, `:kzen-launcher-jvm:jar`).
 - Logs from running launcher/project processes land under each sibling's `logs/` directory, not under `kzen/`.
+
+### Audit directory convention
+
+The `audit/` directory holds long-form analysis reports (e.g. build-warning classifications). Layout rules:
+
+- **One markdown file per audit**, named `yyyy-mm-dd_warnings_<model>-<effort>.md` (or analogous `<topic>` slug for non-warning audits). The date is the *capture* date, not the cleanup/edit date. The model+effort token uses dotted versioning and an `x`-prefixed effort tier — e.g. `4.7-xhigh` for Opus 4.7 at xhigh reasoning. Do NOT guess the slug from training-time defaults; if uncertain, ask once.
+- **Reusable scripts live in `audit/script/`**, not at the audit root. They resolve I/O paths via `Split-Path -Parent $PSScriptRoot` so outputs always land in `audit/` regardless of script depth.
+- **Intermediate data is transient.** Scripts capture into `audit/raw/` and parse into `audit/parsed.tsv`; both MUST be deleted as the last step of finalizing an audit. Only the MD persists. Rerun the scripts to regenerate.
