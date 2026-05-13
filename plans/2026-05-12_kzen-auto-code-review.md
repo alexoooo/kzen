@@ -28,7 +28,7 @@ the list, in priority order.
 | Tier | Done | Outstanding |
 |---|---|---|
 | A (critical) | A1, A2, A3 (commit `d6c54139`, pre-audit) — A4, A5, A6 (execution session) | — |
-| B (major) | B1, B2, B3 | B4, B5, B6, B7, B8 |
+| B (major) | B1, B2, B3, B4 | B5, B6, B7, B8 |
 | C (nits) | — | C1–C15 |
 | R (refactor) | R2 effectively done (commit `d6c54139` introduced single-threaded daemon executor + controller close()) | R1, R3, R4, R5, R6, R7, R8 |
 
@@ -221,6 +221,24 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### B4. Debounce timers not cancelled on component unmount
 
+- **Status:** ✅ done in this execution session. Cross-checked all 8
+  React components in `kzen-auto-js` that hold a `submitDebounce` field; none
+  of them released their pending timer in `componentWillUnmount`. Plan-flagged
+  trio (Formula, InputSelectedGroup, InputBrowserFilter) confirmed missing;
+  5 additional sites surfaced and fixed under the same pattern:
+  AttributePathValueEditor, AttributePathValueEditorOld, TextAttributeEditor,
+  MultiTextAttributeEditor, TargetSpecEditor. The two with existing
+  `componentWillUnmount` (AttributePathValueEditor, TargetSpecEditor) had a
+  flush appended; the other 6 got a new
+  `override fun componentWillUnmount() { submitDebounce.flush() }`.
+  Correction note: the first pass used `submitDebounce.cancel()`, which
+  *discards* the user's pending edit. User pointed this out — the debounce
+  buffers a server-bound modification, so the correct policy is
+  `.flush()` (synchronously invokes the pending lambda, which itself
+  launches the submit coroutine; the coroutine completes independently of
+  the unmount). Non-component `*Debounce` holders (`ClientLogicGlobal`,
+  `ReportStore`) are services / long-lived stores, not React components —
+  they manage their own lifecycle and were not touched.
 - **Where:** Confirmed in
   `kzen-auto-js/.../client/objects/document/report/formula/FormulaItemController.kt:58`
   (declares `submitDebounce`; no `componentWillUnmount`). Agent flagged
