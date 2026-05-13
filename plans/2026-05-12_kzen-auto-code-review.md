@@ -28,8 +28,8 @@ the list, in priority order.
 | Tier | Done | Outstanding |
 |---|---|---|
 | A (critical) | A1, A2, A3 (commit `d6c54139`, pre-audit) — A4, A5, A6 (execution session) | — |
-| B (major) | B1, B2, B3, B4, B5 | B6, B7, B8 |
-| C (nits) | — | C1–C15 |
+| B (major) | B1, B2, B3, B4, B5, B6, B7, B8 | — |
+| C (nits) | C1, C2, C3, C5, C6, C8, C9, C10, C11, C12 | C13–C15 (C4, C7 deferred — need deeper investigation/redesign) |
 | R (refactor) | R2 effectively done (commit `d6c54139` introduced single-threaded daemon executor + controller close()) | R1, R3, R4, R5, R6, R7, R8 |
 
 Note: the audit was fact-checked against a snapshot that pre-dated `d6c54139`,
@@ -283,6 +283,15 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### B6. Logic command path swallows exceptions
 
+- **Status:** ✅ done in this execution session. Removed the catch-all in
+  `RestHandler.applyCommand` (was lines 754–759); `graphStore.apply(command)`
+  exceptions now propagate out of the `runBlocking` and out of the handler.
+  No Ktor `StatusPages` is installed, so Ktor's default 500 response is
+  returned with the exception logged — replacing the previous 200 + stale
+  digest. The JS side already throws `HttpStatusException(500)` on non-2xx
+  via `ajaxUtil.kt`, so the failure propagates into the promise chain
+  rather than being silently absorbed. Typed-envelope refinement remains
+  R4 territory; B6 just stops the swallow.
 - **Where:** `RestHandler.applyCommand` — agent flagged ~lines 757–759.
   Cross-check against the current `RestHandler.kt` before editing; the
   shape to look for: a catch-all `catch (e: Exception) { e.printStackTrace();
@@ -295,6 +304,23 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### B7. `Thread.currentThread().interrupt()` of unclear intent
 
+- **Status:** ✅ done in this execution session. Removed the
+  `Thread.currentThread().interrupt()` line from
+  `ActiveHandle.terminate()`. Investigation confirmed the line was added
+  2020-11-09 in commit `eeeb4dbd` ("filter output preview progress") with
+  no rationale and never revisited. `terminate()` is invoked by
+  `ManagedTask` implementations calling `complete()` / `completeWithPartialResult()`
+  on the `TaskHandle`; the current thread at that point is the task
+  worker, which has just finished its useful work — setting its interrupt
+  flag is at best dead, at worst leaks the flag back to a thread pool
+  worker for the next unrelated task. `completeLatch.countDown()` is the
+  actual completion signal; the canceller waiting on `awaitTerminal()`
+  runs on a different thread and is released by the latch, never by the
+  interrupt (so the C15 silent-catch in `awaitTerminal()` is unrelated to
+  this site). Note: the `ManagedTask` paradigm has no in-tree
+  implementations yet (`task.start(...)` would CCE today), so this code
+  is currently unreachable in production; B7 is preventive — the bug
+  would surface the moment the first `ManagedTask` ships.
 - **Where:** `kzen-auto-jvm/.../server/service/exec/ModelTaskRepository.kt`
   (agent cited line 337 — verify against current file).
 - **What:** `terminate()` calls `completeLatch.countDown()` then
@@ -310,6 +336,18 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### B8. `mutableSetOf<Observer>()` in `VisualDataflowRepository` is not safe under coroutine cancellation
 
+- **Status:** ✅ done in this execution session. Switched `observers` from
+  `mutableSetOf<Observer>()` to `PersistentSet<Observer>` (kzen-lib's
+  commonMain-native copy-on-write set). `observe`/`unobserve` reassign the
+  `var` instead of mutating in place; the `for (observer in observers)`
+  loops in `publishModel` / `publishBeforeExecution` capture the
+  immutable reference and so can no longer CME mid-suspension.
+  Plan-cited `CopyOnWriteArraySet` was rejected — it's JVM-only and would
+  have required an `expect`/`actual` declaration; `PersistentSet` lives
+  in `commonMain` already and matches the `var models: PersistentMap`
+  pattern already used in this same file (one line above). Verified by
+  compiling both `:kzen-auto-common:compileKotlinJvm` and
+  `:compileKotlinJs`.
 - **Where:** `kzen-auto-common/.../paradigm/dataflow/service/visual/VisualDataflowRepository.kt:30`
 - **What:** Observers are added/removed from a `mutableSetOf<Observer>()`
   in `observe`/`unobserve` (both suspend). The `for (observer in observers)`
@@ -329,18 +367,18 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 | # | Where | What |
 |---|---|---|
-| C1 | `KzenAutoMain.kt:429–456` | Entire `routeScript` function (50 lines) commented out — dead since the call site at line 112 is also commented out. Delete. |
-| C2 | `kzen-auto-common/.../api/CommonRestApi.kt:28` | `commandAttributeClear` commented out with no `@Deprecated` tombstone. Either restore with `@Deprecated` or audit references and remove. |
-| C3 | `VisualDataflowRepository.kt:134–138` | Dead branch — `if (event.documentPath == documentPath)` is always true because the function returned at line 113 if they didn't match. Collapse. |
-| C4 | `VisualDataflowRepository.kt:225–246` | `execute()` accepts `waitBeforeRunningMillis` / `waitAfterRunningMillis` — test concerns leaking into production API. Move delays to a test wrapper. |
-| C5 | `VisualVertexTransition.kt` | Field named `iteration`, serialized under key `epochKey` (lines ~23 vs ~13). Rename one for consistency — the mismatch is a footgun if anyone hand-edits the JSON. |
-| C6 | `HeaderListing.kt:117–129` | `data class` with custom `equals` / `hashCode` keyed off a lazily-cached digest. Safe today (`values` is `val`, digest is deterministic), but the combination is surprising. Add a one-line comment, or drop the `data class` qualifier. |
-| C7 | `kzen-auto-js/.../objects/document/graph/edit/*Old.kt` (5 files) | Agent found 5 `*Old.kt` siblings still referenced from `GraphController.kt:18`. Verify dead-vs-active and either delete or document why both live in tree. |
-| C8 | `kzen-auto-js/.../objects/document/common/edit/TextAttributeEditor.kt:7–15` and `MultiTextAttributeEditor.kt:7–15` | Five duplicate `import tech.kzen.auto.client.wrap.setState` lines each — leftover of the 2026.5.3 migration mass-add. Dedup. |
-| C9 | `ClientStateGlobal.kt:59–77, 82–104, 117–135` | Three large commented-out blocks. Either restore with a tracking TODO or delete and rely on git history. |
-| C10 | `kzen-auto-js/.../client/util/ajaxUtil.kt:107` | `// console.log("^^^ httpGet - xhr.response", xhr.response)` left in. Strip. |
-| C11 | `kzen-auto-plugin/.../model/DataInputEvent.kt:6–9` and `ModelOutputEvent.kt:6–18` | SPI abstract classes expose `var` fields publicly. Encapsulating with controlled setters is a breaking change but worth scheduling — these are the contract surface downstream plugins see. |
-| C12 | `kzen-auto-plugin/.../helper/ListPipelineOutput.kt:12–13` | Mutable buffer + `nextIndex` without documented thread-safety. SPI helpers should be explicitly annotated `@ThreadSafe` / `@NotThreadSafe`. |
+| C1 | ✅ done | `KzenAutoMain.kt`: deleted the commented-out `routeScript` function (was lines 433–460) and its commented-out call site (was line 112). Verified the referenced `RestHandler.action*` methods are also commented out — restoring would have required restoring those first. |
+| C2 | ✅ done | `CommonRestApi.kt`: deleted the commented-out `commandAttributeClear` line. Audited kzen-auto, kzen-lib, kzen-project, kzen-launcher, kzen-shell, kzen-sample-plugin — zero references. The underlying `ClearAttributeCommand` in kzen-lib is also commented out, so restoring with `@Deprecated` would tombstone a constant with no callers and no working endpoint. |
+| C3 | ✅ done | `VisualDataflowRepository.kt`: collapsed the `DeletedDocumentEvent` arm from an `if/else` to a single `currentModels.remove(documentPath)` expression. The early return at line 115 (`if (documentPath != event.documentPath) return currentModels`) made the `if` condition tautological and the `else` branch unreachable. |
+| C4 | ⏸ deferred | `VisualDataflowRepository.kt:230–231`: `waitBeforeRunningMillis` / `waitAfterRunningMillis` are interactive-UI pacing knobs (let humans watch dataflow execution step-by-step), not test scaffolding as originally classified. Threading them through the production `execute()` signature is still awkward but the fix is a redesign of how the UI requests paced execution — likely a per-call options object or a separate `executePaced` entry point — not a mechanical "move to test wrapper". Skip for now. |
+| C5 | ✅ done | `VisualVertexTransition.kt`: renamed wire key `epochKey = "epoch"` → `iterationKey = "iteration"` (and the two call sites in `toCollection`/`fromCollection`) so the JSON key matches the Kotlin field. Wire-format change, but server and client share commonMain so they update in lock-step; no persisted documents involved. `VisualVertexModel.kt`'s own `epochKey = "epoch"` was left alone — there the field is genuinely `epoch` and the key matches. |
+| C6 | ✅ done | `HeaderListing.kt`: dropped `data class` → `class` and added an explicit `toString()` (`"HeaderListing(values=$values)"`) to replace the lost auto-generated one. Confirmed via grep that nothing in kzen-auto called `.copy(values=…)` or used component destructuring, so the data-class removal is safe. Now the custom `equals`/`hashCode` reads as intentional instead of an override of a structural promise. |
+| C7 | ⏸ deferred | `kzen-auto-js/.../objects/document/graph/edit/*Old.kt` (5 files): the audit caught 5 `*Old.kt` siblings still referenced from `GraphController.kt:18`. Needs a deeper investigation — verifying which version is actually live in each call site, what the migration intent was (are the `*Old` files transitional scaffolding for an in-flight refactor, or genuinely orphaned?), and whether deletion vs. promotion-of-the-non-old version is the right move. Skipping for now. |
+| C8 | ✅ already resolved | `TextAttributeEditor.kt` and `MultiTextAttributeEditor.kt` no longer have any direct `setState` import — they use the wildcard `import tech.kzen.auto.client.wrap.*` at line 13. Cross-checked: a `grep -c` across all `.kt` files in `kzen-auto-js` found zero files with more than one `import tech.kzen.auto.client.wrap.setState` line, so no duplicates remain anywhere in the codebase. Audit was either inaccurate at capture time or cleanup happened in a subsequent commit. |
+| C9 | ✅ done | `ClientStateGlobal.kt`: deleted three commented-out blocks plus one bonus single-line dead comment in `publishIfReady`. All blocks referenced symbols that don't exist on this class anymore (`imperativeModel`, `runningHosts`, `setState` — not a React component, `ScriptDocument`, `ClientContext.executionRepository`, `ImperativeModel`, `ObjectLocation`) — abandoned code from a prior architecture, not transitional scaffolding for an in-flight refactor. Git blame preserves history. JS compile clean. |
+| C10 | ✅ done | `ajaxUtil.kt`: stripped two identical `// console.log("^^^ httpGet - xhr.response", xhr.response)` lines — one in `httpGet` (line 23) and one in `httpDelete` (line 110, the line the audit cited). Both were leftover `^^^`-marker debug logs. JS compile clean. Pre-existing diagnostics in this file (duplicated code fragments across the HTTP helpers, `suspendCoroutine` cancellation warnings, unused `httpDelete`) are out of scope — separate cleanup. |
+| C11 | ✅ done (audit misread) | `DataInputEvent.kt` and `ModelOutputEvent.kt`: the `var` fields are LMAX Disruptor ring-slot event-class fields — producer mutates in place via `PipelineOutput.next()`/`commit()`, consumer reads, zero-copy is the whole point. The mutation surface is also published SPI: `kzen-sample-plugin/WcpPassthrough.java` writes `nextEvent.endOfData` directly from Java. Audit's "encapsulate" framing was a misread; cleanest fix is to surface the Disruptor contract in class-level KDoc on each so the next reader doesn't make the same mistake. Done — KDoc explains the producer pattern, commit/release boundary, single-producer/single-consumer guarantee, and points at `DataFrameFeeder` as the canonical producer example. |
+| C12 | ✅ done | `ListPipelineOutput` is in the published plugin SPI but had no threading-contract doc. Verified in-tree usage is provably single-threaded per instance: only `ReportInputChain` instantiates it (lines 53/56, never escapes the chain), and the four call-paths into `ReportInputChain` (`readAll`, `ReportHeaderReader.extract`, `IndexedCsvTable.handleChannelProcessorInputChain`, `FlatDataHeaderDefinition.openInputChain`) each scope the chain to a single thread's stack. The one thread-crossing case (`TableReportOutput.previewFromOtherThread`) serializes preview reads onto the Disruptor pipeline thread via a `CompletableFuture` hand-off — the requesting Ktor thread never touches the `ListPipelineOutput`. Out-of-tree plugins could still misuse it (multi-producer Disruptor, producer+flusher thread split). Fix: class-level KDoc declaring "not thread-safe; single-threaded drain-after-fill" and pointing at `DisruptorPipelineOutput` as the multi-threaded alternative. Bare FQN strings (not `[link]`) — `kzen-auto-plugin` doesn't depend on `kzen-auto-jvm`. Done. |
 | C13 | `PluginCoordinate.kt` (plugin SPI) vs `CommonPluginCoordinate.kt` (common) | Two near-identical coordinate classes with no conversion utilities. Consolidate or document the split. |
 | C14 | `kzen-auto-common/.../paradigm/dataflow/util/DataflowUtils.kt:42–235` | 195-line `next()` mixing graph traversal and dataflow state-transition logic, plus 6 commented debug lines. Extract layer-classification into a testable pure function. Maintainability time-bomb. |
 | C15 | `ModelTaskRepository.kt` (~line 350) | `awaitTerminal()` catches `InterruptedException` and silently discards. Either re-interrupt at the end of `catch` so callers see the signal, or document the swallow. |
