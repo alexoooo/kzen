@@ -133,11 +133,21 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### A6. `BadRequest` responses without a body
 
-- **Status:** 🟡 partially done in this execution session. The two 400-status
-  routes now use `call.respondText("Unable to start logic run", status =
-  HttpStatusCode.BadRequest)`. The `taskQuery`/`taskCancel` 204-on-failure
-  semantics flagged in the second bullet are NOT addressed and remain
-  outstanding — a 204 on a failed cancel still reads as success.
+- **Status:** ✅ done in this execution session.
+  - First pass (prior session): the two 400-status logic routes now use
+    `call.respondText("Unable to start logic run", status =
+    HttpStatusCode.BadRequest)`.
+  - Second pass (this session): `taskQuery` and `taskCancel` now return
+    `HttpStatusCode.NotFound` with a `"Task not found"` body when the task
+    isn't found (was 204 NoContent, which read as success). Client side:
+    added `HttpStatusException(status: Int)` in `ajaxUtil.kt` (replacing the
+    untyped `RuntimeException("HTTP error: $status")` at all 5 throw sites),
+    and `getOrPutJsonOrNull` in `ClientRestApi.kt` now catches
+    `HttpStatusException` where `status == 404` and returns null —
+    preserving the existing "null = no such task" contract for the two
+    callers (`taskQuery`, `taskCancel`).
+  - Note on `xhr.status`: kotlin-wrappers types it as `Short`, so the
+    construction sites use `xhr.status.toInt()`.
 - **Where:** `KzenAutoMain.kt:126–128` (`logicStartAndRun`) and `:135–137`
   (`logicStartAndStep`).
 - **What:** When `logicStart(...)` returns null the handler calls
