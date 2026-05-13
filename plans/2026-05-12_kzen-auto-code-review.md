@@ -28,7 +28,7 @@ the list, in priority order.
 | Tier | Done | Outstanding |
 |---|---|---|
 | A (critical) | A1, A2, A3 (commit `d6c54139`, pre-audit) — A4, A5, A6 (execution session) | — |
-| B (major) | B1, B2, B3, B4 | B5, B6, B7, B8 |
+| B (major) | B1, B2, B3, B4, B5 | B6, B7, B8 |
 | C (nits) | — | C1–C15 |
 | R (refactor) | R2 effectively done (commit `d6c54139` introduced single-threaded daemon executor + controller close()) | R1, R3, R4, R5, R6, R7, R8 |
 
@@ -266,6 +266,11 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### B5. Observer-callback errors swallowed via `printStackTrace`
 
+- **Status:** ✅ done. Kept the `printStackTrace()` (still useful for the
+  console + sourcemap), and added a crude `window.alert(...)` after it so
+  the error is no longer silent. Deliberately did NOT build a centralized
+  error sink / banner — per-user direction this is a stopgap until R3/R4
+  arrive. Site: `ClientStateGlobal.kt:191` (observer-dispatch loop).
 - **Where:** `kzen-auto-js/.../client/service/global/ClientStateGlobal.kt`
   (agent cited ~lines 190–198 — observer-dispatch loop).
 - **What:** Per-observer try/catch wraps each `observer.onClientState(...)`
