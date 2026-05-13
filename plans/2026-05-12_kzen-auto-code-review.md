@@ -28,7 +28,7 @@ the list, in priority order.
 | Tier | Done | Outstanding |
 |---|---|---|
 | A (critical) | A1, A2, A3 (commit `d6c54139`, pre-audit) — A4, A5, A6 (execution session) | — |
-| B (major) | B1 | B2, B3, B4, B5, B6, B7, B8 |
+| B (major) | B1, B2, B3 | B4, B5, B6, B7, B8 |
 | C (nits) | — | C1–C15 |
 | R (refactor) | R2 effectively done (commit `d6c54139` introduced single-threaded daemon executor + controller close()) | R1, R3, R4, R5, R6, R7, R8 |
 
@@ -176,6 +176,16 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### B2. `LogicTraceStore.history` and `objectLocationHistory` grow unbounded
 
+- **Status:** ✅ done in this execution session. Added
+  `LogicTraceStore.evict(logicRunId)` that removes all `history` entries whose
+  key has the matching `LogicRunId` (sub-executions each get a separate
+  `LogicRunExecutionId`, so eviction must match on `logicRunId` not the
+  composite id) and all `objectLocationHistory` entries whose value's runId
+  matches. Wired from `ServerLogicController.clearState()` — so any logic-run
+  terminal path (success, failure, cancel-while-paused, cancel-after-step)
+  evicts the trace buffers. Trade-off: post-termination
+  `mostRecent(location)` + `lookup(id, query)` now returns no data, which the
+  audit accepted as the cost of fixing the leak; bigger picture in R5.
 - **Where:** `kzen-auto-jvm/.../server/objects/logic/LogicTraceStore.kt:43–44`
 - **What:** Process-singleton `ConcurrentHashMap`s. `getOrCreateBuffer`
   (line 76) inserts on every Logic run; nothing removes. Buffers themselves
@@ -190,6 +200,12 @@ so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
 
 ### B3. `async()` utility unsafely `!!`-asserts `exceptionOrNull()`
 
+- **Status:** ✅ done in this execution session. Replaced
+  `reject(result.exceptionOrNull()!!)` with
+  `reject(result.exceptionOrNull() ?: RuntimeException("Unknown failure"))`.
+  Left the author's `// TODO: what does this really do?` and the helper itself
+  alone — the "consider replacing with `MainScope().promise { ... }`"
+  suggestion is a larger change out of B3's scope.
 - **Where:** `kzen-auto-js/.../client/util/ajaxUtil.kt:130`
 - **What:**
   ```kotlin
