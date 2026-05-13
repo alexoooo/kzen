@@ -23,10 +23,26 @@ the list, in priority order.
 
 ---
 
+## Status
+
+| Tier | Done | Outstanding |
+|---|---|---|
+| A (critical) | A1, A2, A3 (commit `d6c54139`, pre-audit) — A4, A5, A6 (execution session) | — |
+| B (major) | B1 | B2, B3, B4, B5, B6, B7, B8 |
+| C (nits) | — | C1–C15 |
+| R (refactor) | R2 effectively done (commit `d6c54139` introduced single-threaded daemon executor + controller close()) | R1, R3, R4, R5, R6, R7, R8 |
+
+Note: the audit was fact-checked against a snapshot that pre-dated `d6c54139`,
+so A1/A2/A3 read as outstanding in the body below — see per-item status notes.
+
+---
+
 ## A. Critical (correctness — fix before next release)
 
 ### A1. `ServerLogicController.step()` lacks `@Synchronized`
 
+- **Status:** ✅ done in commit `d6c54139` (pre-audit). `step()` is now
+  `@Synchronized` at line 337.
 - **Where:** `kzen-auto-jvm/.../server/service/v1/impl/ServerLogicController.kt:325`
 - **What:** Every other state-mutating override (`status`, `start`, `request`,
   `cancel`, `pause`, `continueOrStart`, even `clearState`) has `@Synchronized`.
@@ -43,6 +59,9 @@ the list, in priority order.
 
 ### A2. Off-thread mutations of `LogicState` race with the synchronized methods
 
+- **Status:** ✅ done in commit `d6c54139` (pre-audit). Post-execution
+  mutations in both `continueOrStart` and `step` are now wrapped in
+  `synchronized(this@ServerLogicController) { ... }` (lines 320, 378).
 - **Where:** `ServerLogicController.kt:310,317,365` (writes from the spawned
   `Thread { ... }.start()` block).
 - **What:** `continueOrStart` and `step` start a thread that writes
@@ -62,6 +81,10 @@ the list, in priority order.
 
 ### A3. Bare `Thread { ... }.start()` for Logic execution
 
+- **Status:** ✅ done in commit `d6c54139` (pre-audit). Replaced with a
+  single-threaded named daemon `ExecutorService` (line 67), owned by the
+  controller and shut down via `close()` (line 421), which is invoked from
+  `KzenAutoContext.close()`. This is also the R2 refactor.
 - **Where:** `ServerLogicController.kt:299–319` (continueOrStart) and
   `:354–371` (step).
 - **What:** Each Logic run spawns a non-daemon `Thread` with no executor, no
@@ -78,6 +101,7 @@ the list, in priority order.
 
 ### A4. `System.gc()` after every Logic clear
 
+- **Status:** ✅ done in this execution session. Line removed; comment removed.
 - **Where:** `ServerLogicController.kt:401` in `clearState()`.
 - **What:** Explicit `System.gc()` with comment "hit to GCs to give memory
   back to the OS" (`hit` likely meant `hint`). Triggers a full GC on every
@@ -92,6 +116,10 @@ the list, in priority order.
 
 ### A5. `TODO("Multipart not implemented (yet)")` crashes a write path
 
+- **Status:** ✅ done in this execution session. Multipart path now returns
+  `HttpStatusCode.UnsupportedMediaType` with a descriptive message; the
+  `@Suppress("KotlinConstantConditions")` workaround was removed along with
+  the `var` declarations it was hiding.
 - **Where:** `kzen-auto-jvm/.../server/KzenAutoMain.kt:401` in
   `routeDetached`'s PUT handler.
 - **What:** Server throws `NotImplementedError` when a client sends a
@@ -105,6 +133,11 @@ the list, in priority order.
 
 ### A6. `BadRequest` responses without a body
 
+- **Status:** 🟡 partially done in this execution session. The two 400-status
+  routes now use `call.respondText("Unable to start logic run", status =
+  HttpStatusCode.BadRequest)`. The `taskQuery`/`taskCancel` 204-on-failure
+  semantics flagged in the second bullet are NOT addressed and remain
+  outstanding — a 204 on a failed cancel still reads as success.
 - **Where:** `KzenAutoMain.kt:126–128` (`logicStartAndRun`) and `:135–137`
   (`logicStartAndStep`).
 - **What:** When `logicStart(...)` returns null the handler calls
@@ -124,6 +157,10 @@ the list, in priority order.
 
 ### B1. `PluginReportDefinitionRepository.classLoaderHandle()` skips synchronization
 
+- **Status:** ✅ done in this execution session. `@Synchronized` added at line 162.
+  Audited the other `refreshCacheIfRequired()` callers — `contains`, `metadata`,
+  `listMetadata`, `define` were already synchronized; all five public methods
+  now consistently hold the monitor.
 - **Where:** `kzen-auto-jvm/.../server/objects/plugin/PluginReportDefinitionRepository.kt:162`
 - **What:** Public method `classLoaderHandle(...)` is **not** `@Synchronized`
   but calls `refreshCacheIfRequired()` (line 166), which mutates
@@ -283,6 +320,7 @@ urgent; each unlocks compounding wins.
 
 ### R2. Replace bare `Thread {}` in `ServerLogicController` with a managed executor
 
+- **Status:** ✅ done in commit `d6c54139` (pre-audit). See A1/A2/A3 status.
 - **Smell:** A1/A2/A3 together — spawned threads with no lifecycle, races
   against the synchronized state, no shutdown hook.
 - **Refactor:** A single-threaded named daemon `ExecutorService` owned by
