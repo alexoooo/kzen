@@ -22,18 +22,18 @@ This unlocks: defining ad-hoc helper objects, prototyping new SPI implementation
 |---|---|
 | Name | **`CustomDocument`** |
 | Save model | **Explicit Save button** (Ctrl+S as alt) — no autosave, parse-time errors live in the editor until the user fixes them |
-| Schema policy | `main: { is: CustomDocument }` is **mandatory and validated server-side**; the rest of the document is unconstrained at the *notation* layer (errors surface at the definition layer for now) |
+| Schema policy | **No archetype-locking anywhere — power tool, trust the user.** The notation layer is unconstrained; errors surface at the definition layer on next reload. The server endpoint just parses and dispatches; the JS controller shows the full document and lets the user edit any of it, including `main`. |
 | Editor library | **Plain `<textarea>` for v1.** Syntax highlighting is a follow-up. Keeps the bundle change at zero and the migration story clean. |
-| What the editor shows | **Non-`main` objects only.** `main` is implicit and prepended by the server on save. This way the user can never accidentally break the archetype marker. |
+| What the editor shows | **Full document, including `main`.** No strip/reassemble. The user can change `main.is`, break the archetype marker, or delete `main` entirely — they own the consequences. |
 
 ## High-level approach
 
 1. Declare `CustomDocument` as a new archetype in `common-document.yaml`. Add a minimal `CustomDocument` Kotlin class in `kzen-auto-jvm`.
 2. Add a new bulk-edit notation command, `SetDocumentObjectsCommand`, in `kzen-lib` — it replaces a document's full `DocumentObjectNotation` atomically. This is the only way the raw editor can publish its edits without issuing dozens of per-attribute commands.
-3. Add a REST endpoint in `kzen-auto-jvm` that takes raw YAML for the non-`main` portion, prepends the synthetic `main` object, parses+validates, then dispatches `SetDocumentObjectsCommand`.
+3. Add a REST endpoint in `kzen-auto-jvm` that takes the full document YAML, parses it via `YamlNotationParser.parseDocumentObjects`, and dispatches `SetDocumentObjectsCommand`. No archetype or schema validation in the handler — it's a generic "set document objects" RPC.
 4. Add the corresponding `RestClient` method on the JS side.
 5. Build a minimal `YamlEditor` Kotlin/JS component (textarea + line gutter + error display) under `objects/document/common/edit/`.
-6. Build `CustomDocumentController` (the JS `DocumentController`) that loads the current document, hides `main`, deparses the rest with `YamlNotationParser.unparseDocument`, hosts the editor, and wires Save.
+6. Build `CustomDocumentController` (the JS `DocumentController`) that loads the current document, deparses it with `YamlNotationParser.unparseDocument`, hosts the editor showing the full document YAML (including `main`), and wires Save.
 7. Register the controller via `auto-js/document/custom-js.yaml` and regenerate `KzenAutoJsModule.kt`.
 8. Polish, tests, and AGENTS.md update.
 
@@ -108,9 +108,15 @@ The work is sequenced so every step is independently buildable and testable.
 
 ---
 
-### Step 3 — REST endpoint for raw-YAML save
+### Step 3 — REST endpoint for raw-YAML save — **DONE**
 
 **Goal:** A new POST endpoint that takes raw YAML for the non-`main` portion of a CustomDocument, prepends the synthetic `main` block, parses+validates, and dispatches `SetDocumentObjectsCommand`. Testable via curl/HTTP.
+
+**Edits made:**
+- `kzen-auto-common/.../api/CommonRestApi.kt` (note: lives in kzen-auto-common, not kzen-lib as the plan draft said) — added `commandDocumentSetObjects = "/command/document/set-objects"` and `paramRawObjectsYaml = "raw-objects-yaml"`.
+- `kzen-auto-jvm/.../server/api/RestHandler.kt` — new `setDocumentObjects(parameters): String`. Reads `paramDocumentPath` and parses `paramRawObjectsYaml` via `yamlNotationParser.parseDocumentObjects`, then dispatches `SetDocumentObjectsCommand` through `applyCommand` (digest response, same as all other handlers). **No archetype check, no `main` check — generic "set document objects" RPC.** Parser errors bubble up as `IllegalArgumentException` → 400 via the route's try/catch.
+- `kzen-auto-jvm/.../server/KzenAutoMain.kt` — `put(CommonRestApi.commandDocumentSetObjects)` route in `routeNotationCommands`, wraps the call in try/catch IllegalArgumentException → 400 with the message (parser errors, missing main, wrong archetype, missing params all bubble through `IllegalArgumentException`).
+- Verified `:kzen-auto-jvm:compileKotlin` green and `:kzen-auto-common:compileKotlinJs` green.
 
 **Edits:**
 - `kzen-lib/kzen-lib-common/src/commonMain/kotlin/tech/kzen/lib/common/api/CommonRestApi.kt` — add path constant `applySetDocumentObjects = "apply-set-document-objects"` and a `paramRawObjectsYaml` parameter key. Place near similar `apply-*` constants for consistency.
@@ -163,18 +169,16 @@ The work is sequenced so every step is independently buildable and testable.
 
 **Edits:**
 - `kzen-auto/kzen-auto-js/src/jsMain/kotlin/tech/kzen/auto/client/objects/document/custom/CustomDocumentController.kt` — new file. Copy the shape of `PluginController.kt` (`Wrapper` class with `@Reflect`, `archetypeLocation/header/body`, `RPureComponent`, `ClientStateGlobal.Observer`). State holds: `clientState`, `editorValue: String`, `savedValue: String`, `lastError: String?`, `saving: Boolean`. Logic:
-  - On `onClientState`: if the active document is a CustomDocument and `editorValue == savedValue` (no pending edits), regenerate `savedValue` from the new notation (deparse current `DocumentObjectNotation`, strip the leading `main:` block by finding the next top-level object key) and set `editorValue = savedValue`. If there are pending edits, only update `savedValue` — do NOT touch `editorValue`.
+  - On `onClientState`: if the active document is a CustomDocument and `editorValue == savedValue` (no pending edits), regenerate `savedValue` from the new notation by deparsing the *full* `DocumentObjectNotation` (no stripping — main stays visible) and set `editorValue = savedValue`. If there are pending edits, only update `savedValue` — do NOT touch `editorValue`.
   - Render: header with a Save button (disabled when `editorValue == savedValue` or `saving == true`), an "unsaved changes" indicator when they differ, and the `YamlEditor` in the body with `error = lastError`.
   - Save flow: `setState { saving = true }` → `ClientContext.restClient.setDocumentObjects(documentPath, editorValue)` → on success, the LocalGraphStore observer chain will flow the new state in via `onClientState`; on failure, `setState { saving = false; lastError = message }`.
-- `kzen-auto/kzen-auto-js/src/jsMain/kotlin/tech/kzen/auto/client/objects/document/custom/CustomConventions.kt` — small helper with `fun isCustomDocument(notation: DocumentNotation): Boolean` (check `main`'s `is:` == `CustomDocument`).
+- `kzen-auto/kzen-auto-js/src/jsMain/kotlin/tech/kzen/auto/client/objects/document/custom/CustomConventions.kt` — small helper with `fun isCustomDocument(notation: DocumentNotation): Boolean` (check `main`'s `is:` == `CustomDocument`). Used only for the controller's "should I activate?" check, NOT enforced on save.
 
 **Verify:**
 - Manual end-to-end in the dev loop: create a CustomDocument, type some object definitions, Save, reload the page, confirm content persists.
 - Save with broken YAML — confirm the error appears and the editor is not reset.
 
-**Risk:** The "strip the leading `main:` block" step is fiddly because the YAML deparser's output format isn't perfectly predictable across versions. Two safer alternatives:
-  - **(a) Don't strip** — show `main:` in the textarea, accept that users see it. Server still validates it on save. Simplest, ship-able.
-  - **(b) Deparse only the non-`main` `DocumentObjectNotation`** — construct a `DocumentObjectNotation` containing only the non-`main` objects (using `ObjectPathMap.notations` minus `mainObjectPath`) and pass *that* to `unparseDocument`. Clean and robust. **Recommended.**
+**Risk:** None of the previously-drafted "strip the leading `main:` block" complexity — option (c) trust-the-user means the editor shows the full doc and the controller passes it through verbatim.
 
 ---
 
@@ -233,7 +237,7 @@ End-to-end test scenarios to walk through manually after Step 7:
    Save. Reload the page. Confirm content is still there.
 3. **Parse error**: type intentionally broken YAML (`foo: [unclosed`). Save. Confirm a red error block appears and the editor still holds the bad text.
 4. **Other doc types unaffected**: open a `Report` doc, confirm it renders normally; open `Plugin`, same.
-5. **Server enforces `main`**: with a debugger or curl, send a save body that explicitly redefines `main:` to `is: Report`. Confirm the server rejects it.
+5. **No archetype enforcement (power-tool semantics)**: with curl, send a save body that changes `main.is` to `Report` or omits `main` entirely. Server accepts; on next reload the document either changes type or surfaces a definition-layer error. This is intentional — the user owns the consequences.
 6. **Two clients**: open the same CustomDocument in two browser tabs. Save in tab A. Confirm tab B's editor updates to the new content (assuming no unsaved edits in tab B).
 7. **No regression in kzen-project**: `cd ../kzen-project && ./gradlew build` passes.
 
