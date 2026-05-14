@@ -79,9 +79,17 @@ The work is sequenced so every step is independently buildable and testable.
 
 ---
 
-### Step 2 — `SetDocumentObjectsCommand` in kzen-lib
+### Step 2 — `SetDocumentObjectsCommand` in kzen-lib — **DONE**
 
 **Goal:** A new structural command that replaces a document's entire `DocumentObjectNotation` atomically, with a matching event. Unit-tested.
+
+**Edits made:**
+- `kzen-lib-common/src/commonMain/kotlin/tech/kzen/lib/common/model/structure/notation/cqrs/NotationCommand.kt` — added `data class SetDocumentObjectsCommand(val documentPath, val documentObjectNotation): StructuralNotationCommand()`.
+- `.../cqrs/NotationEvent.kt` — added `data class SetDocumentObjectsEvent(documentPath, documentObjectNotation): SingularNotationEvent()` (note: the existing event hierarchy uses `SingularNotationEvent`/`CompoundNotationEvent`, not a `StructuralNotationEvent` — the plan's draft name was off).
+- `.../structure/notation/DocumentNotation.kt` — added `withObjects(objects)` helper (copy, preserves `resources`).
+- `.../service/notation/NotationReducer.kt` — new `setDocumentObjects` private fn + `when`-arm in `applyStructural`.
+- `kzen-lib-common/src/commonTest/kotlin/tech/kzen/lib/common/notation/SetDocumentObjectsTest.kt` — replace happy path, `main: { is: CustomDocument }` round-trip, `resources` preservation for directory documents, rejection of unknown document path.
+- Verified `:kzen-lib-common:jvmTest` (new + existing) green, `:compileKotlinJs` green, `publishToMavenLocal` succeeded for all three subprojects, downstream `:kzen-auto-jvm:compileKotlin` green against the new snapshot.
 
 **Edits (all in `../kzen-lib`):**
 - `kzen-lib-common/src/commonMain/kotlin/tech/kzen/lib/common/model/structure/notation/cqrs/NotationCommand.kt` — add `data class SetDocumentObjectsCommand(val documentPath: DocumentPath, val objects: DocumentObjectNotation): StructuralNotationCommand()`.
