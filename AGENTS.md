@@ -16,9 +16,9 @@ This is a **Gradle composite-build umbrella** that has no source of its own. `se
 
 Cloning just `kzen` is not enough — every sibling listed above must exist at `../<name>` for Gradle to resolve the build. The point of the composite is to let changes in `kzen-lib` flow into `kzen-auto`/`kzen-project`/`kzen-launcher`/`kzen-shell` without going through Maven Local.
 
-## Related documents
+## Coding standards
 
-- [Coding guide](docs/CLEAN_CODE.md): @docs/CLEAN_CODE.md 
+Before finalizing any code change, review it against @docs/CODING_STANDARDS.md.
 
 ## Build & run
 
