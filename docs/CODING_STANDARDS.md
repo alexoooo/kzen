@@ -107,7 +107,39 @@ Either rename the unit to the feature it actually serves, or move the branch out
 
 When fixing one instance, re-read the whole function — overloads cluster, and missing the sibling instance is the common failure mode.
 
-**Why:** Mixing concerns creates surprise — a caller sends one payload and a different payload reaches the domain layer, so tracing behaviour becomes "read every layer to see what got injected where" instead of "read one function".
+**Same shape — generic predicate with a feature-specific clause stitched in.**
+Adding "one more `||` clause" to a generic predicate is the same anti-pattern with friendlier-looking syntax.
+
+Don't:
+```kotlin
+// AutoConventions.kt — generic, document-type-agnostic
+fun isManaged(attributeName: AttributeName): Boolean {
+    return attributeName == iconAttributeName ||
+        attributeName == titleAttributeName ||
+        attributeName == ScriptConventions.summaryAttributeName   // ← script-specific in auto-level code
+}
+```
+
+Do — compose at the layer that owns the concept:
+```kotlin
+// AutoConventions.kt — stays generic
+fun isManaged(attributeName: AttributeName): Boolean {
+    return attributeName == iconAttributeName ||
+        attributeName == titleAttributeName
+}
+
+// ScriptConventions.kt — script layer wraps the generic with its own additions
+fun isManaged(attributeName: AttributeName): Boolean {
+    return AutoConventions.isManaged(attributeName) ||
+        attributeName == summaryAttributeName
+}
+```
+
+Script-side callers call `ScriptConventions.isManaged(...)`; non-script callers keep calling `AutoConventions.isManaged(...)`. The knowledge *`summary` is managed by scripts* lives next to the definition of `summary`, not at the layer above.
+
+**Extra red flag — upward import.** If the generic side has to `import` the feature side to evaluate its own clause, the dependency direction is also inverted. Composition the other way (feature wraps generic) avoids the cycle and keeps the generic side reusable from any feature.
+
+**Why:** Mixing concerns creates surprise — a caller sends one payload and a different payload reaches the domain layer, so tracing behaviour becomes "read every layer to see what got injected where" instead of "read one function". The predicate variant adds a second hazard: an upward import locks the generic layer to a specific feature, so the generic stops being reusable.
 
 
 ## CC-06 — Files in a package
