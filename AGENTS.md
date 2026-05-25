@@ -7,7 +7,7 @@ This file provides guidance to AI agents (Claude Code, Codex, Cursor, etc.) when
 This is a **Gradle composite-build umbrella** that has no source of its own. `settings.gradle.kts` pulls in seven sibling directories under `..` via `includeBuild` — five with Kotlin source, plus two artifact-only includes:
 
 - `../kzen-lib` — context-management core (Kotlin Multiplatform: common/jvm/js) → [docs](../kzen-lib/AGENTS.md), [architecture concept map](../kzen-lib/docs/architecture.md)
-- `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module) → [docs](../kzen-auto/AGENTS.md), [architecture](../kzen-auto/docs/architecture.md)
+- `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module, blackbox e2e self-test subproject) → [docs](../kzen-auto/AGENTS.md), [architecture](../kzen-auto/docs/architecture.md)
 - `../kzen-project` — office automation project (KMP) → [docs](../kzen-project/AGENTS.md)
 - `../kzen-launcher` — UI for selecting / launching a project (KMP) → [docs](../kzen-launcher/AGENTS.md)
 - `../kzen-shell` — JVM-only desktop shell that boots the launcher and reverse-proxies child processes → [docs](../kzen-shell/AGENTS.md)
@@ -60,7 +60,7 @@ java -jar ../kzen-shell/build/libs/kzen-shell-0.29.1-SNAPSHOT.jar
 
 Each sibling has its own AGENTS.md (and README); the recurring pattern for `kzen-auto`, `kzen-project`, `kzen-launcher` is two terminals — one for live JVM reload, one for live JS reload:
 
-- **kzen-auto** — `tech.kzen.auto.server.dev.BackendDevelopment` (IDE) + `./gradlew -t :kzen-auto-jvm:classes`; `tech.kzen.auto.server.dev.FrontendDevelopment` (IDE) + `./gradlew -t :kzen-auto-js:build -x test -PjsWatch`
+- **kzen-auto** — `tech.kzen.auto.server.dev.BackendDevelopment` (IDE) + `./gradlew -t :kzen-auto-jvm:classes`; `tech.kzen.auto.server.dev.FrontendDevelopment` (IDE) + `./gradlew -t :kzen-auto-js:build -x test -PjsWatch`. The end-to-end self-test suite lives in the `kzen-auto-test` subproject — run as `cd ../kzen-auto && ./gradlew :kzen-auto-test:selfTest` (opt-in; NOT pulled in by `build`). See [`../kzen-auto/kzen-auto-test/AGENTS.md`](../kzen-auto/kzen-auto-test/AGENTS.md).
 - **kzen-launcher** — `tech.kzen.launcher.server.dev.FrontendDevelopment` (IDE) + `./gradlew -t :kzen-launcher-js:build -x test -PjsWatch`
 - **kzen-project** — `tech.kzen.project.server.KzenProjectMain` (IDE, `--server.port=8081`) + `./gradlew -t :kzen-project-js:run` (proxy on 8080 with webpack-served JS, everything else from 8081). The README says `KzenProjectApp` — that class doesn't exist; use `KzenProjectMain`.
 
