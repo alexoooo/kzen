@@ -176,6 +176,8 @@ Surface it as a discussion item or add it to the active plan instead.
 
 **Why:** Adjacent cleanup expands the diff's scope, hides the actual fix from the reviewer, and makes the change harder to revert if the primary fix turns out to be wrong.
 
+**Exception:** When a temporary comment or bad code (to be refactored) was added by an AI agent, it can be freely deleted as part of the scope of work. The "drive-by" nature implies that the refactoring/cleanup is not directly related to the current change set. 
+
 
 ## CC-08 — Fail-fast on unexpected code paths
 
