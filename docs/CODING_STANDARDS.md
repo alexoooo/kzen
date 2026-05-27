@@ -176,7 +176,9 @@ Surface it as a discussion item or add it to the active plan instead.
 
 **Why:** Adjacent cleanup expands the diff's scope, hides the actual fix from the reviewer, and makes the change harder to revert if the primary fix turns out to be wrong.
 
-**Exception:** When a temporary comment or bad code (to be refactored) was added by an AI agent, it can be freely deleted as part of the scope of work. The "drive-by" nature implies that the refactoring/cleanup is not directly related to the current change set. 
+**Exception:** When a temporary comment or bad code (to be refactored) was added by an AI agent, it can be freely deleted as part of the scope of work. The "drive-by" nature implies that the refactoring/cleanup is not directly related to the current change set.
+
+**Also note:** consolidating sibling helpers *you just wrote in this changeset* is not drive-by — see CC-12. Drive-by means cleaning up code that *predates* the current change.
 
 
 ## CC-08 — Fail-fast on unexpected code paths
@@ -237,3 +239,90 @@ Divergence from a peer pattern is a forcing function: if one handler in a block 
 **Negation operator has no space.** Write `!foo`, `!isEditorModified()`, `!modified`. Never `! foo`, `! isEditorModified()`, `! modified`.
 
 This is the official Kotlin code style. Treat `!\s+` before any identifier in Kotlin as a hard error during self-review of a Kotlin diff — equivalent to a typo, not a stylistic choice.
+
+
+## CC-12 — Same-changeset sibling duplicates
+
+**Two functions written in the same changeset whose bodies are mostly identical, differing only in 1-3 parameterizable values, should be consolidated into one.**
+
+"No premature abstraction" defends against speculative future generalization. Two siblings written together are not speculative — both callers exist, both shapes are known, and the cost of the second body is a copy-paste maintenance burden from the moment it's committed.
+
+The honest test: if I changed a shared CSS rule (e.g. `width = stepDependencyLaneWidth`) in one helper, would I have to change it in the other to keep them consistent? If yes, they aren't two helpers — they're one helper with two call shapes.
+
+Don't:
+```kotlin
+private fun ChildrenBuilder.sourceMarker() {
+    div {
+        css {
+            position = Position.absolute
+            bottom = 0.px
+            left = 50.pct
+            marginLeft = stepDependencyMarkerHalfMarginNeg
+            width = stepDependencyMarkerSize
+            height = stepDependencyMarkerSize
+            borderRadius = 50.pct
+            borderStyle = LineStyle.solid
+            borderWidth = stepDependencyMarkerBorderWidth
+            borderColor = stepDependencyTrunkColor
+            backgroundColor = NamedColor.white
+            boxSizing = BoxSizing.borderBox
+        }
+    }
+}
+
+private fun ChildrenBuilder.targetMarker() {
+    div {
+        css {
+            position = Position.absolute
+            top = 0.px
+            left = 50.pct
+            marginLeft = stepDependencyMarkerHalfMarginNeg
+            width = stepDependencyMarkerSize
+            height = stepDependencyMarkerSize
+            borderRadius = 50.pct
+            backgroundColor = stepDependencyTrunkColor
+            boxSizing = BoxSizing.borderBox
+        }
+    }
+}
+```
+
+Do:
+```kotlin
+private enum class MarkerKind { Source, Target }
+
+private fun ChildrenBuilder.dependencyMarker(kind: MarkerKind) {
+    div {
+        css {
+            position = Position.absolute
+            when (kind) {
+                MarkerKind.Source -> bottom = 0.px
+                MarkerKind.Target -> top = 0.px
+            }
+            left = 50.pct
+            marginLeft = stepDependencyMarkerHalfMarginNeg
+            width = stepDependencyMarkerSize
+            height = stepDependencyMarkerSize
+            borderRadius = 50.pct
+            boxSizing = BoxSizing.borderBox
+            when (kind) {
+                MarkerKind.Source -> {
+                    borderStyle = LineStyle.solid
+                    borderWidth = stepDependencyMarkerBorderWidth
+                    borderColor = stepDependencyTrunkColor
+                    backgroundColor = NamedColor.white
+                }
+                MarkerKind.Target -> {
+                    backgroundColor = stepDependencyTrunkColor
+                }
+            }
+        }
+    }
+}
+```
+
+**Threshold.** If the bodies are ≥70% the same and the differences fit in 1-3 parameters, consolidate. Below that, keep them separate — the shared scaffold isn't load-bearing enough to factor out.
+
+**Same-changeset means same-changeset.** This rule does NOT override CC-07 for *pre-existing* near-duplicates discovered in adjacent code. If you find a duplicate that predates your work, surface it as a follow-up — don't fold it into the current diff. The exception is precisely: code you yourself just wrote.
+
+**Why:** "Premature" describes time, not similarity — and two siblings shipped together are not premature. The guidance "three similar lines is better than a premature abstraction" is about *line-level* repetition inside a single function (`a += 1; b += 1; c += 1`), not about whole sibling functions with the same scaffold. Function-level duplication committed in the same change forces every future edit to walk both copies, and silently rewards drift.
