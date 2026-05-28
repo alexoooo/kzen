@@ -326,3 +326,18 @@ private fun ChildrenBuilder.dependencyMarker(kind: MarkerKind) {
 **Same-changeset means same-changeset.** This rule does NOT override CC-07 for *pre-existing* near-duplicates discovered in adjacent code. If you find a duplicate that predates your work, surface it as a follow-up — don't fold it into the current diff. The exception is precisely: code you yourself just wrote.
 
 **Why:** "Premature" describes time, not similarity — and two siblings shipped together are not premature. The guidance "three similar lines is better than a premature abstraction" is about *line-level* repetition inside a single function (`a += 1; b += 1; c += 1`), not about whole sibling functions with the same scaffold. Function-level duplication committed in the same change forces every future edit to walk both copies, and silently rewards drift.
+
+
+## CC-13 — Test colocation
+
+**Tests live in the same Gradle project and the same package as the code they cover.** A unit `Foo` in `:some-module` under package `tech.kzen.x.y` is tested by `FooTest` in `:some-module`'s test source set, under the same package `tech.kzen.x.y`.
+
+For Kotlin Multiplatform modules, prefer `commonTest` when the test only needs commonMain APIs. Drop to `jvmTest` only when the test legitimately requires JVM-only facilities (file I/O, JDK reflection, JVM-specific libraries).
+
+When the code under test exposes only a `suspend` entry point that the test doesn't actually need to suspend on, factor out a synchronous helper and have the suspend entry point delegate to it — so the test can live in commonTest without pulling in coroutine test infrastructure. This is a productive refactor, not a workaround.
+
+Don't:
+- Park tests in a sibling JVM module just because that module already has a test scaffold (e.g. test utilities, real file fixtures). Move or duplicate the minimum scaffold needed instead.
+- Put tests under a generic `notation/` or `util/` package when the production code they cover lives elsewhere. The package mismatch makes it hard to find the test from the code (and vice versa) and hides duplicate coverage.
+
+**Why:** One-to-one colocation makes the test discoverable from the production file (and vice versa), keeps test refactors moving in lockstep with code refactors, and prevents tests from drifting into the "lives near a test utility" pattern that ages badly. When `FooTest.kt` is the sibling of `Foo.kt` in the same package, the inverse search ("what tests cover Foo?") is one keystroke.
