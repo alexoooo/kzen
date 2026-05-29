@@ -2,6 +2,8 @@
 
 > Third slice of the multi-step refactor described in [`2026-05-28_logic-task-trace-relocation.md`](2026-05-28_logic-task-trace-relocation.md). Moves A and B have landed. This slice relocates the `Task` abstraction (one-shot async execution) from `kzen-auto-common` to `kzen-lib-common`, and folds in the Move B out-of-scope follow-up that drops the now-redundant `objectStableMapper: ObjectStableMapper` parameter from `Logic.execute(...)`, `LogicHandle.start(...)`, `LogicHandleFacade`, and `LogicExecutionFacadeImpl`.
 
+> **Status: landed 2026-05-28.**
+
 ## Context
 
 User direction (from the investigation doc):

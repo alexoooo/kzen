@@ -2,6 +2,8 @@
 
 > First slice of the multi-step refactor described in [`2026-05-28_logic-task-trace-relocation.md`](2026-05-28_logic-task-trace-relocation.md). Closes the "trace dies on rename after run ends" gap. No kzen-lib changes.
 
+> **Status: landed 2026-05-28.**
+
 ## Context
 
 After landing the recent rename-survival fix, the per-run `ObjectStableMapper` is unobserved from `graphStore` when the run ends (`ServerLogicController.clearState()`). The `LogicTraceStore` retains the trace buffer past run-end, but any rename that happens *after* `clearState()` is no longer seen by the (now-detached) mapper, so `LogicTraceStore.lookup(...)` translates `$stable`-prefix paths against a stale id → location map and the trace disappears from the UI.

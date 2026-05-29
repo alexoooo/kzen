@@ -6,7 +6,7 @@ This file provides guidance to AI agents (Claude Code, Codex, Cursor, etc.) when
 
 This is a **Gradle composite-build umbrella** that has no source of its own. `settings.gradle.kts` pulls in seven sibling directories under `..` via `includeBuild` — five with Kotlin source, plus two artifact-only includes:
 
-- `../kzen-lib` — context-management core (Kotlin Multiplatform: common/jvm/js) → [docs](../kzen-lib/AGENTS.md), [architecture concept map](../kzen-lib/docs/architecture.md)
+- `../kzen-lib` — context-management core + execution abstractions (Logic/Task/Trace + `ObjectStableMapper`, relocated here 2026-05-28) (Kotlin Multiplatform: common/jvm/js) → [docs](../kzen-lib/AGENTS.md), [architecture concept map](../kzen-lib/docs/architecture.md)
 - `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module, blackbox e2e self-test subproject) → [docs](../kzen-auto/AGENTS.md), [architecture](../kzen-auto/docs/architecture.md)
 - `../kzen-project` — office automation project (KMP) → [docs](../kzen-project/AGENTS.md)
 - `../kzen-launcher` — UI for selecting / launching a project (KMP) → [docs](../kzen-launcher/AGENTS.md)

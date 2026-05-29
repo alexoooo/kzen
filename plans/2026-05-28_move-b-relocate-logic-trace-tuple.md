@@ -2,6 +2,8 @@
 
 > Second slice of the multi-step refactor described in [`2026-05-28_logic-task-trace-relocation.md`](2026-05-28_logic-task-trace-relocation.md). Move A landed; per-server-lifetime `ObjectStableMapper` is now wired into `KzenAutoContext`. This slice relocates the Logic abstraction, Trace abstraction, and Tuple data model from `kzen-auto` to `kzen-lib`, drops the `service.v1.*` placeholder packages, and converts `LogicTraceStore` from a global `object` singleton to a constructor-injected `class`.
 
+> **Status: landed 2026-05-28.**
+
 ## Context
 
 User direction:

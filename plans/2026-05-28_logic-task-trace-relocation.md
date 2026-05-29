@@ -2,6 +2,8 @@
 
 > Strategic research document, not an action plan. The proposals here will be the basis for one or more follow-up implementation plans (Move A is plan `2026-05-28_move-a-global-object-stable-mapper.md`).
 
+> **Status: landed 2026-05-28.** Moves A–D all shipped (commit `2c478bc`, "logic refactor to kzen-lib done"). Kept as the design record; for the resulting architecture see [`../../kzen-lib/docs/architecture.md`](../../kzen-lib/docs/architecture.md) (Execution model + Stable identity).
+
 ## Context
 
 We recently landed a rename-survival fix for Script execution: ActiveScriptModel keys per-step state by `ObjectStableId`, `LogicTraceStore` stores traces under `$stable`-prefixed paths, and a per-run `ObjectStableMapper` translates back to current `ObjectLocation` at lookup. It works *while a run is active*.

@@ -2,6 +2,8 @@
 
 > Fourth slice of the multi-step refactor in [`2026-05-28_logic-task-trace-relocation.md`](2026-05-28_logic-task-trace-relocation.md). Moves A+B+C have landed. This slice adds a process-global `ObjectStableMapper` on the client, seeded from the server via a connect-time snapshot. From that point both sides observe the same `LocalGraphStore` event stream, so the mappings stay in lock-step. Symmetrises the identity vocabulary across the wire and closes the last item the user originally flagged ("optionally per client") in the investigation doc.
 
+> **Status: landed 2026-05-28.**
+
 ## Context
 
 User direction (investigation doc, restated):
