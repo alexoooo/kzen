@@ -341,3 +341,18 @@ Don't:
 - Put tests under a generic `notation/` or `util/` package when the production code they cover lives elsewhere. The package mismatch makes it hard to find the test from the code (and vice versa) and hides duplicate coverage.
 
 **Why:** One-to-one colocation makes the test discoverable from the production file (and vice versa), keeps test refactors moving in lockstep with code refactors, and prevents tests from drifting into the "lives near a test utility" pattern that ages badly. When `FooTest.kt` is the sibling of `Foo.kt` in the same package, the inverse search ("what tests cover Foo?") is one keystroke.
+
+
+## CC-14 — Don't bump release-train versions without an explicit ask
+
+**The kzen siblings (`kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher`, `kzen-shell`) are coordinated as a single release train. Never change a `version =` line in a `build.gradle.kts` or a `kzenLibVersion` / `kzenAutoVersion` const in a sibling's `buildSrc/.../Dependencies.kt` as part of any other task.** The release lead bumps them all together, deliberately, when the train is ready.
+
+This applies even when a change has user-facing surface that *would justify* a minor bump in isolation — package relocations, removed public APIs, new HTTP endpoints. Those land at the current SNAPSHOT version. The bump is its own step, on its own change, when the user asks.
+
+**How to apply:**
+- A refactor that moves symbols from kzen-auto to kzen-lib stays at the current SNAPSHOT for all siblings. Publish kzen-lib with the new contents at the same version; don't bump.
+- A breaking signature change to a public type stays at the current SNAPSHOT. Don't bump even though semver would argue for it.
+- If a refactor genuinely *can't* land without a bump (e.g. you need to publish two artifacts side by side at different versions for some staged migration), surface that as a question to the user before doing it.
+- When in doubt, leave the version untouched.
+
+**Why:** Versions encode promises to downstream consumers, not just to the build. Bumping in the middle of an unrelated task fragments the release-train cadence the user maintains across the umbrella, and the bump silently propagates into every sibling's `Dependencies.kt` and into mavenLocal — undoing it is a multi-sibling cleanup, not a single revert. The user has explicitly called this out: versions change only when they ask.
