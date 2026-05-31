@@ -1,135 +1,123 @@
-# Kotlin/JS build speedup — investigation & measurements
+# Kotlin/JS build speedup — webpack → esbuild
 
-**Date:** 2026-05-31 · **Status:** Phase 0 + low-risk Phase 1 applied & measured; bundler/dev-loop decision pending.
+**Date:** 2026-05-31 · **Status:** Implemented & verified across kzen-launcher, kzen-auto, kzen-project.
 
 ## Problem & constraints
 
-The four JS-bearing siblings (`kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher`) bundle Kotlin/JS
-with the Kotlin Gradle Plugin's built-in **webpack 5** integration. Both the `-PjsWatch` dev inner loop
-and clean/production builds feel slow. Goal: make **both** faster, stay **OS-agnostic** (Windows + Linux),
-no version bumps of Kotlin / kotlin-wrappers / MUI.
+The JS-bearing siblings (`kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher`) bundled their
+Kotlin/JS output with the Kotlin Gradle Plugin's built-in **webpack 5** integration. Both the dev inner
+loop and clean/production builds were slow. Goal: make **both** faster, stay **OS-agnostic**
+(Windows + Linux), no version bumps of Kotlin / kotlin-wrappers / MUI.
 
-## Architecture facts that constrain the options
+## Phase 0 — measurements (the empirical core)
 
-- **Dist contract:** each `<sibling>-jvm` `ProcessResources` copies the JS subproject's
-  `jsBrowserDistribution` / `jsBrowserProductionWebpack` output into `resources/static/`; the dev entry
-  points (`tech.kzen.<sibling>.server.dev.FrontendDevelopment`) serve
-  `build/dist/js/productionExecutable/<module>.js`. Any bundler change must keep that output contract.
-- **kzen-auto webpack lock-in:** `kzen-auto-js/.../wrap/material/materialIcons.kt` resolves arbitrary MUI
-  icon names at runtime via `js("require.context('@mui/icons-material', ...)")` — a **webpack-only** API
-  (no esbuild/Vite/Rollup equivalent). Only 9 dynamic `iconByName(...)` call sites exist, fed by notation
-  YAML `icon:` fields → the dynamic name set is build-time enumerable.
-- **kzen-launcher is clean** (`@file:JsModule` static icon import — bundler-agnostic); **kzen-project**
-  re-bundles `kzen-auto-js` so it inherits the lock-in; **kzen-lib** has no bundle.
-- `useCommonJs()` is load-bearing (MUI icons break under ESM resolution).
+From-scratch production build, per-task (Kotlin build report, `--rerun-tasks --no-build-cache`):
 
-## Phase 0 measurements (the empirical core)
-
-Method: `kotlin.build.report.output=file` + Gradle `--profile`; from-scratch numbers via
-`--rerun-tasks --no-build-cache`. Machine: Windows 11, Gradle 9.5.0, daemon JVM 21, compile toolchain JVM 25.
-
-### From-scratch production build — per-task (Kotlin build report)
-
-**kzen-launcher** (total Kotlin-task time 55.2s; bundle 7.0 MB):
-
-| Task | Time | % |
+| Task | kzen-launcher | kzen-auto |
 |---|---|---|
-| `jsBrowserProductionWebpack` | **28.48 s** | **51.6%** |
-| `compileTestDevelopmentExecutableKotlinJs` (excludable) | 10.48 s | 19.0% |
-| `compileProductionExecutableKotlinJs` | 8.58 s | 15.6% |
-| `compileKotlinJs` (common klib) | 3.68 s | 6.7% |
-| `compileKotlinJs` (js klib) | 3.59 s | 6.5% |
+| **`jsBrowserProductionWebpack`** | **28.5 s (52%)** | **31.8 s (36%)** |
+| `compileProductionExecutableKotlinJs` | 8.6 s | 20.2 s |
+| `compileKotlinJs` klibs (common + js) | 7.3 s | 21.6 s |
+| `compileTestDevelopmentExecutableKotlinJs` (excludable) | 10.5 s | 13.5 s |
 
-**kzen-auto** (total Kotlin-task time 87.6s; bundle 7.6 MB):
+Findings that drove the design:
+1. **Webpack bundling is the single largest task** (28–32 s) — not the ~15% generic Kotlin/JS guidance
+   predicts. So replacing the bundler is worthwhile.
+2. **The "clean build" pain is `kotlinNpmInstall`** (≈28 s yarn reinstall after `clean`), a clean-only
+   cost — node_modules persists across normal builds, so not worth optimizing.
+3. **The dev loop builds the *production* executable** (full DCE, ~18–20 s, non-incremental) on every
+   save. The **development** executable (no DCE) recompiles in ~2 s. → the dev bottleneck is the wrong
+   executable, not the bundler.
+4. `kotlin.incremental.js.ir` makes the per-module klib compile incremental, but the whole-program
+   executable IR link is inherently non-incremental — avoided by using the dev executable, not a flag.
 
-| Task | Time | % |
+## Solution (implemented)
+
+**A. `kotlin.incremental.js.ir=true`** — added to all four siblings' `gradle.properties`. Makes the klib
+compile incremental (a 1-line change recompiles only the changed file).
+
+**B. webpack → esbuild bundler.** esbuild bundles the Kotlin/JS per-module CommonJS output directly, in
+~1 s vs webpack's ~28–32 s. esbuild ships per-platform native binaries via npm (the `@esbuild/<os>-<arch>`
+optional dependency), so it stays Windows/Linux/macOS agnostic. A `jsEsbuildBundle` Gradle `Exec` task
+(in each `<sibling>-js/build.gradle.kts`) resolves the OS-correct esbuild binary, bundles the entry
+(`build/js/packages/<root>-<module>/kotlin/<root>-<module>.js`) to
+`build/dist/js/productionExecutable/<module>.js`, minified in production and unminified for the dev
+executable. The `<sibling>-jvm` `ProcessResources` was repointed from the webpack task to this output.
+The production webpack tasks are disabled.
+
+The task **`dependsOn` `kotlinNpmInstall`** (alongside the compileSync). esbuild resolves the bare
+imports in the Kotlin/JS output (`react`, `react-dom/client`, `lodash`, `@mui/*`, …) from
+`build/js/node_modules`, but the Kotlin→JS compile only *emits* `require()` calls — it doesn't need the
+modules present, so the compileSync tasks don't depend on `kotlinNpmInstall`. Without this explicit edge,
+a clean build can run esbuild against an empty `node_modules` and fail with `Could not resolve "react"`
+(and one per remaining bare import). webpack's bundle task carried this dependency implicitly; the swap
+had to re-add it.
+
+**C. kzen-auto `require.context` → static icon registry.** `materialIcons.kt` resolved arbitrary MUI icon
+names at runtime via `js("require.context('@mui/icons-material', ...)")` — a webpack-only API that bundled
+the *entire* icon set (thousands of modules, the bulk of the bundle), and which esbuild cannot express. It
+now **deep-imports only the referenced icons** (`@JsModule("@mui/icons-material/<Name>")`) into a static
+`iconRegistry` map; unknown names fall back to `Texture` (the pre-require.context behaviour). The ~67
+referenced names were scanned from notation YAML `icon:` fields + literal `iconByName/iconType` calls and
+verified to exist in the package (a non-existent deep import fails the build). kzen-project and
+kzen-auto-common ship no notation icons of their own, so there is no cross-module regression; only external
+plugins introducing custom icon names would get Texture.
+
+**Dev loop (the development-executable switch).** The dev loop now bundles the **development** executable
+(no DCE) via esbuild. New command (launcher & auto):
+```
+./gradlew -t :kzen-launcher-js:jsEsbuildBundle -PjsWatch     # was: -t :kzen-launcher-js:build ... -PjsWatch
+./gradlew -t :kzen-auto-js:jsEsbuildBundle -PjsWatch
+```
+`assemble` is deliberately NOT wired to `jsEsbuildBundle` (it builds both executables, whose compileSync
+tasks share an output dir → ambiguous esbuild input). kzen-project's dev loop is unchanged — it still uses
+webpack-dev-server (`:kzen-project-js:run`), which works because require.context is gone; only its
+production bundle moved to esbuild.
+
+## Results
+
+| | before (webpack) | after (esbuild) |
 |---|---|---|
-| `jsBrowserProductionWebpack` | **31.79 s** | **36.3%** |
-| `compileProductionExecutableKotlinJs` | 20.23 s | 23.1% |
-| `compileTestDevelopmentExecutableKotlinJs` (excludable) | 13.53 s | 15.4% |
-| `compileKotlinJs` (common klib) | 10.89 s | 12.4% |
-| `compileKotlinJs` (js klib) | 10.75 s | 12.3% |
+| Production bundling, launcher | 28.5 s | **~1 s** |
+| Production bundling, auto | 31.8 s | **~1–2 s** |
+| Dev inner-loop rebuild (launcher, 1-line change) | ~18–28 s | **2.95 s** |
+| Bundle size, **auto** | 7.9 MB | **2.37 MB (−70%)** |
+| Bundle size, project | ~all-icons | 2.37 MB |
+| Bundle size, launcher | 7.0 MB | 7.42 MB (+6%) |
 
-**Conclusion #1 — webpack is a top-tier cost (not ~15% as generic Kotlin/JS reports claim).** It is the
-single largest task on both (52% / 36%; 28–32s of pure bundling). So the bundler IS worth attacking — the
-opposite of the going-in assumption.
+(Launcher's size is unchanged in character — it never used require.context, so its size is MUI material +
+React, not icons; esbuild minifies marginally less aggressively than Terser. kzen-auto's −70% is the
+require.context icon set no longer being bundled.)
 
-### Clean build (warm Gradle cache)
+Verified: all three production bundles are valid JS (`node --check`); the launcher and kzen-auto servers
+boot and serve the esbuild bundle over HTTP (`FrontendDevelopment`, 200 on page + bundle); MUI deep-import
+`.default` resolves to real components.
 
-kzen-launcher clean `build` = 35s, of which **`kotlinNpmInstall` = 27.9s** (yarn reinstall after `clean`
-wiped `build/js/node_modules`). Compile + webpack were served from the Gradle build cache (~0.1s each).
+## Files changed
 
-**Conclusion #2 — the "clean build" pain is yarn reinstall, a clean-only cost.** node_modules persists
-across normal builds, so this is not a per-build concern; don't optimize it.
+- `*/gradle.properties` (×4) — `kotlin.incremental.js.ir=true`.
+- `*/buildSrc/.../Dependencies.kt` — `esbuildVersion = "0.25.12"` (npm `esbuild`).
+- `<sibling>-js/build.gradle.kts` (launcher, auto, project) — `npm("esbuild")` dep, `jsEsbuildBundle`
+  task, disable webpack tasks.
+- `<sibling>-jvm/build.gradle.kts` (launcher, auto, project) — repoint `ProcessResources` to esbuild.
+- `kzen-auto-js/.../wrap/material/materialIcons.kt` — require.context → static deep-import registry.
+- `kzen-auto-js/webpack.config.d/webpack-config.js` — dropped the require.context `@mui` alias.
+- `kzen-auto/docs/js-architecture.md` §5 — updated the (already-stale) icon-resolution gotcha.
+- `kotlin-js-store/yarn.lock` (×3) — regenerated for the esbuild dep.
 
-### Dev inner-loop recompile (1-line source change), kzen-launcher
+## Follow-ups / notes
 
-| Path | Compile time |
-|---|---|
-| **Production** executable (what the dev loop builds today) | **~18.7 s** — whole-program IR link + DCE, **non-incremental every save** |
-| **Development** executable + `kotlin.incremental.js.ir` | **~2.4 s** — klib 0.73s (incremental) + dev-exec link 0.93s |
-
-**Conclusion #3 — the dev loop's bottleneck is the wrong executable.** The current dev loop
-(`jsBrowserProductionWebpack` in dev *mode*) compiles the **production** executable, paying full DCE
-(~18–20s) on every keystroke-save. The **development** executable skips DCE and (with incremental klibs)
-recompiles in ~2.4s — an ~8× dev-loop win. The project uses production-webpack-in-dev-mode per the
-AGENTS TODO "remove once browserDevelopmentWebpack works in continuous mode", so the dev bundler path is
-the thing that needs fixing — which is exactly where a fast esbuild dev-bundle helps.
-
-**Conclusion #4 — `kotlin.incremental.js.ir` works for klibs but not the executable link.** The
-whole-program executable IR link is inherently non-incremental in Kotlin/JS; incremental only helps the
-per-module klib compiles. The executable cost is avoided by using the development executable (no DCE), not
-by an incremental flag.
-
-## Applied changes (low-risk, reversible) + results
-
-### 1a — esbuild as webpack's minimizer (replaces Terser in production)
-
-`webpack.config.d/webpack-config.js` adds, for production mode only, an `EsbuildPlugin` minimizer; the
-`esbuild-loader` npm dep is pinned in each `buildSrc/.../Dependencies.kt` (`esbuildLoaderVersion = "4.3.0"`).
-esbuild ships per-platform binaries via npm → stays Windows/Linux agnostic.
-
-| Sibling | webpack (Terser) | webpack (esbuild) | Δ | bundle size |
-|---|---|---|---|---|
-| kzen-launcher | 28.48 s | **14.86 s** | **−48%** | 7.0 → 7.3 MB (+4%) |
-| kzen-auto | 31.79 s | **22.13 s** | **−30%** | 7.6 → 7.9 MB (+4%) |
-
-Applied to: **launcher ✓, auto ✓** (auto's build succeeded — confirms esbuild minify is compatible with
-the `require.context` MUI bundle). **kzen-project: pending** (deferred to avoid yarn.lock churn before the
-bundler decision). Trade-off: esbuild minifies slightly less aggressively than Terser (+4% bundle size) —
-acceptable for halving/thirding the bundle time. Fully reversible (delete the fragment block + dep).
-
-### 1b — `kotlin.incremental.js.ir=true`
-
-Added to all four siblings' `gradle.properties`. Makes the per-module klib compile incremental (verified:
-a 1-line change recompiles only the changed file, klib 3.4s → 0.7s). No effect on the executable link.
-
-## Decision pending (the remaining, larger work)
-
-The data reshapes the cost/benefit vs the original plan. Two non-overlapping levers remain:
-
-- **Dev loop:** switch the dev loop to the **development executable** (Conclusion #3) — ~8× win, but the
-  dev bundler path (`browserDevelopmentWebpack` continuous mode) needs fixing/replacing. Medium effort,
-  touches the daily workflow.
-- **Production bundling:** a full **esbuild-as-bundler** swap could shave the remaining ~15–22s webpack
-  bundling, but requires the **kzen-auto `require.context` → static icon registry rewrite** (esbuild has no
-  `require.context`). High effort/risk; kzen-project unblocks for free afterwards.
-
-The esbuild minifier (1a) already captures a large share of the production win at near-zero risk, so the
-full bundler swap is now optional rather than necessary. See the conversation for the go/no-go decision.
+- **Definitive icon-render check:** run the e2e harness `cd ../kzen-auto && ./gradlew :kzen-auto-test:selfTest`
+  (drives a real browser) to confirm dynamic notation icons render under the esbuild bundle.
+- **Update dev-loop docs:** the umbrella + per-sibling AGENTS.md/README list `-t :<module>:build -PjsWatch`
+  for launcher/auto — change to `-t :<module>:jsEsbuildBundle -PjsWatch`.
+- **Adding a kzen-auto icon** now requires a `materialIcons.kt` registry entry (build fails on a
+  non-existent icon; a missing-but-valid name renders as Texture). A Gradle codegen task could auto-scan
+  notation YAML to prevent drift — deferred (the set is small/stable and codegen can't capture plugin icons).
+- **kzen-project dev loop** remains on webpack-dev-server; could be migrated to an esbuild watch later.
 
 ## Reversibility
 
-| Change | Revert |
-|---|---|
-| esbuild minifier | delete the `if (productionMode)` block in each `webpack.config.d/webpack-config.js` + the `esbuild-loader` dep + `esbuildLoaderVersion`; re-run `kotlinUpgradeYarnLock` |
-| `kotlin.incremental.js.ir` | remove the line from each `gradle.properties` |
-| temporary profiling keys | remove the `# --- TEMPORARY profiling ---` block from each `gradle.properties` (do before committing) |
-
-## TODO before committing
-
-- Remove the temporary `kotlin.build.report.*` profiling block from all four `gradle.properties`.
-- Functional smoke: run `FrontendDevelopment` for launcher + auto; confirm UI renders and (auto) dynamic
-  MUI icons still resolve under the esbuild-minified bundle.
-- Apply 1a to kzen-project (with `kotlinUpgradeYarnLock`) if keeping the minifier approach.
-- Commit the regenerated `kotlin-js-store/yarn.lock` files alongside the dep change.
+Per change: remove `kotlin.incremental.js.ir`; re-enable the webpack tasks (delete the `configureEach { enabled = false }`
+blocks) and repoint `ProcessResources` back to `jsBrowserProductionWebpack`; revert `materialIcons.kt` and
+restore the `@mui` alias. The esbuild dep and `jsEsbuildBundle` task can stay dormant if webpack is restored.
