@@ -74,6 +74,23 @@ tasks share an output dir → ambiguous esbuild input). kzen-project's dev loop 
 webpack-dev-server (`:kzen-project-js:run`), which works because require.context is gone; only its
 production bundle moved to esbuild.
 
+Two correctness requirements the `jsEsbuildBundle` task has to satisfy for the watch loop to actually
+reflect edits — both were missing in the first cut and silently produced a stale screen:
+
+1. **`devMode` must be read via `providers.gradleProperty("jsWatch").isPresent`, not
+   `properties.containsKey("jsWatch")`.** The legacy `project.properties` map is *not* a tracked
+   configuration-cache input, so once any non-watch run (e.g. the JVM jar build) stored a cache entry
+   with `devMode=false`, every later `-PjsWatch` run reused it — bundling the minified *production*
+   executable. The provider API is tracked, so toggling `-PjsWatch` now correctly invalidates the entry
+   (`configuration cache cannot be reused because Gradle property 'jsWatch' has changed`).
+2. **The task input must be `inputs.dir(<compileSync kotlin dir>)`, not `inputs.file(<entry>)`.** The
+   compileSync output is one `.js` per Gradle module (`kotlin-kotlin-stdlib.js`,
+   `<root>-<sibling>-common.js`, `kzen-lib-kzen-lib.js`, …); the entry only `require()`s them. With only
+   the entry declared, a change in a *dependency* module (e.g. `kzen-auto-common`, `kzen-lib`) lands in a
+   sibling file, the entry stays byte-identical, and the task wrongly reports UP-TO-DATE. Declaring the
+   whole dir makes any Kotlin change re-bundle. Verified end-to-end under `-t … -PjsWatch`: a same-module
+   edit *and* a cross-module `kzen-auto-common` edit both reach the served bundle.
+
 ## Results
 
 | | before (webpack) | after (esbuild) |
