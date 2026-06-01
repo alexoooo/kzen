@@ -121,6 +121,14 @@ When cutting a release, bump all five `build.gradle.kts` `version =` lines toget
 
 ## Working with this repo from AI agents
 
+### File safety — never delete files outside your work stream
+
+Treat the working tree as the user's. **Never delete, move, or overwrite a file that isn't an explicit part of the task you were asked to do — even if it is uncommitted, untracked, or `.gitignore`d.** "Not in a commit" does NOT mean "disposable": the user keeps real working documents and run artifacts in the tree before committing (e.g. user-authored Scripts/Reports and screenshots under a sibling's `notation/main/`, often `git add`ed but not yet committed). Removing them destroys their work.
+
+- Scope every deletion to paths *you* created this session, or to known build-output dirs (`build/`, JS klib/incremental caches); verify the exact resolved path before any `Remove-Item -Recurse` / `rm -rf`.
+- A `clean` targets the narrowest build subdir — never a `src/`, `resources/`, or any other working tree.
+- If a stray or in-the-way file seems to block the task, surface it and ask — do not clear it unilaterally.
+
 - Editing source: navigate into the relevant sibling directory (`cd ../kzen-auto` etc.) — the files under `kzen/` itself are only Gradle glue and `.gitignore`d build artifacts.
 - The `build/` directory at this root only contains aggregated reports; nothing is compiled here directly.
 - Don't run `./gradlew build` casually — the composite drags every sibling through compile + test + KMP JS bundling, which is a multi-minute operation. Prefer `./gradlew :<included-build>:<task>` when the task lives on the included build's *root* project, or `cd ../<sibling> && ./gradlew <task>` when it lives on a *subproject* (the more common case — e.g. `publishToMavenLocal`, `:kzen-launcher-jvm:jar`).
