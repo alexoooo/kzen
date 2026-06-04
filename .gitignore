@@ -6,5 +6,6 @@ build/
 !.github/copilot-instructions.md
 .claude/settings.local.json
 .claude/.credentials.json
+.claude/*.lock
 .claude/cache/
 .claude/logs/
