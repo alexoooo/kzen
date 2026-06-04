@@ -356,3 +356,33 @@ This applies even when a change has user-facing surface that *would justify* a m
 - When in doubt, leave the version untouched.
 
 **Why:** Versions encode promises to downstream consumers, not just to the build. Bumping in the middle of an unrelated task fragments the release-train cadence the user maintains across the umbrella, and the bump silently propagates into every sibling's `Dependencies.kt` and into mavenLocal — undoing it is a multi-sibling cleanup, not a single revert. The user has explicitly called this out: versions change only when they ask.
+
+
+## CC-15 — One file per class; class clusters get their own package
+
+**Each top-level class lives in its own file, named after the class — unless there's a specific reason to group them. When several classes form a unit, that unit gets its own package; don't leave the cluster sitting loose among unrelated siblings.**
+
+Acceptable reasons to co-locate top-level classes in one file: a sealed hierarchy whose small variants are only meaningful through the parent, or a private type that is an implementation detail of the file's public class. "They're related" is not enough — related classes are exactly what a package expresses.
+
+The package rule cuts both ways: a unit of related classes should be neither fused into one file nor scattered through a package that also holds other concerns. If the cluster has sibling classes outside the unit, the unit becomes a subpackage.
+
+Don't:
+```
+service/context/
+  GraphCreator.kt
+  GraphDefiner.kt
+  GraphEnvironment.kt    ← interface + MapGraphEnvironment + GraphEnvironmentBuilder in one file
+```
+
+Do:
+```
+service/context/
+  GraphCreator.kt
+  GraphDefiner.kt
+  environment/
+    GraphEnvironment.kt
+    GraphEnvironmentBuilder.kt
+    MapGraphEnvironment.kt
+```
+
+**Why:** File names are the first index a reader uses — a class hiding in a sibling's file is invisible to file-based navigation and search. A package boundary makes the unit's membership explicit (the unit is removable/relocatable as one subtree, per CC-04) and keeps each package focused (CC-06): one-file-per-class without the package boundary would just dilute the parent package instead.
