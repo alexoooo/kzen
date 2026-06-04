@@ -386,3 +386,12 @@ service/context/
 ```
 
 **Why:** File names are the first index a reader uses — a class hiding in a sibling's file is invisible to file-based navigation and search. A package boundary makes the unit's membership explicit (the unit is removable/relocatable as one subtree, per CC-04) and keeps each package focused (CC-06): one-file-per-class without the package boundary would just dilute the parent package instead.
+
+
+## CC-16 — Never write IDE configuration files
+
+**Never create or modify IDE-private configuration (`.idea/**`, `*.iml`, `workspace.xml`, run-configuration XML) — neither as a fix nor as a suggestion.** These files are machine-local, gitignored, and freely regenerated or discarded by the IDE; anything placed there does not survive git and silently evaporates.
+
+The canonical home for launch/run setup is the build itself — a Gradle task (e.g. `:kzen-auto-test:runTester` with `workingDir`, `args`, system properties) — plus a documented command in the relevant AGENTS.md/README. If an IDE run configuration is convenient, the *user* creates it in the IDE; tooling and agents must not write the XML.
+
+**Why:** IDE state files are not source. A "fix" written into `.idea/` is invisible to version control, unreviewable, lost on re-import/cache-invalidation, and absent on every other machine — it papers over a gap that should be closed in the build or the docs instead.
