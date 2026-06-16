@@ -53,7 +53,13 @@ dir(s) like `main` are. This also fixes the latent empty-project case (an empty 
 
 ---
 
-## Phase 1 — core unification (achieves the goal)
+## Phase 1 — core unification (achieves the goal) — ✅ IMPLEMENTED 2026-06-16
+
+> Done & verified: kzen-lib `build` green (all targets + tests), published to mavenLocal, kzen-auto JVM+JS
+> compile green. A throwaway lifecycle + scan-semantics test (real `FileNotationMedia` over a temp dir) passed
+> and was deleted: confirmed per-directory folder entries, non-empty folders now emitted, `main/` excluded,
+> empty-folder persistence on doc delete, and cascade delete of a non-empty folder via the generic deepest-first
+> loop (no orphan dir, no `DeleteFolderCommand` special-casing). Remaining: user dev-loop smoke test (step 5).
 
 | File | Change |
 |------|--------|
@@ -73,7 +79,12 @@ What stays:
 - `SidebarModel` inference — left as-is in Phase 1. It's now redundant for non-empty folders but harmless: explicit
   entries and inferred names dedup in the same `linkedSetOf`.
 
-## Phase 2 — optional client simplification (defer; not required for correctness)
+## Phase 2 — client simplification — ✅ IMPLEMENTED 2026-06-16
+
+> Done: kzen-auto JS compiles green. `SidebarModel.buildLevel` now derives child folders only from explicit
+> folder entries at the level (drops the deeper-path inference); doc/interface comments updated to the unified
+> model. `SidebarFolder.onRemoveFolder` count filters `!path.folder` (documents only) and the dialog reads
+> "N document(s)". Remaining: user dev-loop frontend reload + smoke test.
 
 | File | Change |
 |------|--------|
