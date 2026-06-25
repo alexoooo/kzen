@@ -76,7 +76,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | Phase 0 | operator base (`WorkerBase` + Source/Transform/Sink + `Emitter`) | ✅ done 2026-06-24 | `JobExecutionTest`, no edits |
 | **P1** | **typed channels** (`elementType` + `ChannelTypeDefiner`) | ✅ done 2026-06-24 | `JobChannelTypingTest` (3) |
 | **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24 | `JobNestedLogicTest` (3) |
-| **P3** | **state migration** (pause → edit config → continue) | ✅ done 2026-06-25 | `JobStateMigrationTest` (1) |
+| **P3** | **state migration** (pause → edit config → continue); lossless channel carryover | ✅ done 2026-06-25 | `JobStateMigrationTest` (2), `JobMigrationCarryoverTest`, `JobChannelTest` |
 | P4 | Report parity (pivot/sort/summary operators) | ⬜ todo | — |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
 | P6 | interactivity hardening (idle-server vs deadlock) | ⬜ todo | — |
@@ -284,17 +284,14 @@ would drop the rows written before the cut (the writer needs its own append/seek
 
 ### P3 follow-up — close the at-the-cut gaps (deferred from P3)
 
-P3 (done, see Completed) ships the rebuild + capture/load mechanism AND reader resume-from-position. Two gaps
-remain for EXACT (not best-effort) mid-stream migration:
-- **Channel-buffered batches lost at the cut.** The reader carries only its own in-flight `pendingBatch`, not
-  the channel contents, so a buffered channel drops up to ~buffer batches when the old graph is torn down. The
-  fix is consumer-side: move the `TransformWorker`/`SinkWorker` `checkpoint` to BEFORE `receive` so a parked
-  consumer holds no received-but-unprocessed item, and snapshot the channel buffer into the consumer's captured
-  state (a cross-Worker cut). Exact today only on a rendezvous (buffer-0) channel.
-- **Sink carry-forward.** A source resuming is only coherent with a downstream that accumulates/appends;
-  `CsvWriterWorker` re-truncates on rebuild, so a reader→writer edit-resume drops rows written before the cut.
-  Give the writer its own append/seek capture (opt-in, like the reader) so the output continues rather than
-  restarts.
+P3 (done, see Completed) ships the rebuild + capture/load mechanism, reader resume-from-position, AND
+(2026-06-25) **lossless channel carryover** — buffered + parked-mid-send batches are now snapshotted before
+teardown and re-seeded into the rebuilt channel (`JobChannel.drainBuffered`/`preload`, consumer `checkpoint`
+moved before receive), so a mid-stream migration is exact, not best-effort. Remaining gaps:
+- **Truncating-sink carry-forward.** A source resuming is only coherent with a downstream that accumulates/
+  appends; `CsvWriterWorker` re-truncates on rebuild, so a reader→writer edit-resume drops rows written before
+  the cut. Give the writer its own append/seek capture (opt-in, like the reader) so the output continues rather
+  than restarts.
 - **UI resumption status** (the TODO in `CsvReaderWorker.loadMigrationState`): surface resumed-from-row-N vs.
   restarted on the worker's progress trace so the user sees whether an edit preserved progress.
 - Composes with the P2 follow-up (a cached paused child) once that lands. Likely sequenced with P5.
@@ -342,12 +339,24 @@ server" signal, restoring deadlock detection even with external channels open.
   `loadMigrationState()`; `JobExecution` captures all Workers before tearing down, then the rebuilt Workers
   adopt by stable id, with an `AutoCloseable` orphan sweep for handles whose Worker was removed by the edit.
 - **[DECIDED 2026-06-25] `CsvReaderWorker` resumes from its open reader** (gated on path/delimiter/header). Loop
-  `checkpoint` moved to the batch top so a parked reader holds no built-but-unsent batch; reader + position +
-  in-flight `pendingBatch` + EOF `finished` are fields carried by capture/load. Best-effort: channel-buffered
-  batches at the cut are still lost (exact only on a rendezvous channel).
-- **[OPEN] Exact mid-stream cut (P3 follow-up).** Remaining loss is channel-buffered batches + truncating sinks;
-  an exact cut needs consumer-side coordination (checkpoint-before-receive + snapshot the channel buffer) and
-  sink append/seek carry. Deferred (~P5).
+  `checkpoint` is at the batch top so a parked reader holds no built-but-unsent batch; reader + position +
+  `pendingFirstRecord` + EOF `finished` are fields carried by capture/load. A batch the reader is parked mid-send
+  on rides the OUTPUT channel's in-flight capture (below), not the reader — the bespoke `pendingBatch` was removed.
+- **[FIXED 2026-06-25] Exact mid-stream cut — channel carryover.** A migration tears the graph down, so a fast
+  reader's batches sitting in a channel buffer (or parked in a `send`) were dropped — and since the reader
+  resumes from its position rather than re-reading, permanently lost (the reported "total ≠ 1 billion"). NB a
+  plain pause/resume is non-destructive (pause only arms a release signal); the loss is exclusively the migrate
+  teardown. Fix: `JobChannel.drainBuffered()` snapshots a channel's buffered + parked-mid-send payloads
+  (producer-tracked `inFlight`, dedup'd by identity) while Workers are parked and BEFORE teardown;
+  `JobChannel.preload()` seeds the rebuilt channel, delivered (carryover) ahead of the live stream; `JobExecution`
+  captures every one-way channel by stable id and restores after rebuild. The framework consumer loops
+  (`TransformWorker`/`SinkWorker`) now `checkpoint` BEFORE receive so a parked consumer strands no
+  received-but-unforwarded item. Also: a pre-armed pause/step now launches Workers parked at their first
+  checkpoint (no nondeterministic free-run window at start). Tests: `JobChannelTest` (mechanism),
+  `JobMigrationCarryoverTest` (free-run mid-stream pause + edit, exact count). Still open: truncating-sink carry.
+- **[OPEN] Truncating-sink carry-forward (P3 follow-up).** A source resuming is only coherent with a downstream
+  that accumulates/appends; `CsvWriterWorker` re-truncates on rebuild, so a reader→writer edit-resume drops rows
+  written before the cut. Give the writer its own append/seek capture (opt-in, like the reader). Deferred (~P5).
 - **[FIXED 2026-06-25] Step ran to completion instead of advancing one wavefront.** `JobExecution`'s step
   branch did `jobControl.resume(); awaitQuiescent(); pause()` — but a full `resume()` makes `checkpoint()`
   return forever, so a steady pipeline only reaches `inFlight == 0` at completion: one "step" ran the whole
