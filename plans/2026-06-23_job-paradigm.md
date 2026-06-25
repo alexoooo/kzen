@@ -8,7 +8,7 @@
 
 All paths are relative to `C:\Users\ostro\IdeaProjects\kzen-auto` unless noted. Verify from that directory:
 ```
-./gradlew :kzen-auto-jvm:test --tests "*JobExecutionTest" --tests "*JobChannelTypingTest" --tests "*JobNestedLogicTest"
+./gradlew :kzen-auto-jvm:test --tests "*JobExecutionTest" --tests "*JobChannelTypingTest" --tests "*JobNestedLogicTest" --tests "*JobStateMigrationTest"
 ```
 (The JVM test build rebuilds the production JS bundle as a dependency, so a green run also compiles the JS side.)
 
@@ -76,7 +76,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | Phase 0 | operator base (`WorkerBase` + Source/Transform/Sink + `Emitter`) | ✅ done 2026-06-24 | `JobExecutionTest`, no edits |
 | **P1** | **typed channels** (`elementType` + `ChannelTypeDefiner`) | ✅ done 2026-06-24 | `JobChannelTypingTest` (3) |
 | **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24 | `JobNestedLogicTest` (3) |
-| P3 | state migration (pause → edit → continue) | ⬜ todo | — |
+| **P3** | **state migration** (pause → edit config → continue) | ✅ done 2026-06-25 | `JobStateMigrationTest` (1) |
 | P4 | Report parity (pivot/sort/summary operators) | ⬜ todo | — |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
 | P6 | interactivity hardening (idle-server vs deadlock) | ⬜ todo | — |
@@ -195,6 +195,68 @@ Files:
   concurrency test WARMS the cache (one sequential run) before the burst, so it exercises the host's
   confinement, not the orthogonal compiler cold-start.
 
+### P3 — state migration (pause → edit config → continue) (2026-06-25)
+
+Editing a Job's config while paused now takes effect on resume. The driver (`ServerLogicController`) already
+re-reads the live (possibly edited) notation each tick and passes it as the run's `graphDefinition` — Script
+relies on the same — so `JobExecution` only had to act on a change. It now compares the incoming filtered
+definition's `objectDefinitions` against the one the live Workers were built from; on a change it **rebuilds**.
+
+THE CONSTRAINT that shaped the design: a Job's Workers are LIVE parked coroutines (not re-instantiated per tick
+like a Script step), so they can't be re-pointed at new config in place. Migration is therefore all-or-nothing —
+`migrate()` snapshots each Worker's state WHILE IT IS STILL PARKED (so a live handle can be detached before it's
+closed), tears the old graph down (cancel + join → channels closed), then `buildAndLaunch`es from the edit with
+the snapshots in hand. Identity-continuity mirrors `ScriptExecution`: each rebuilt Worker is keyed by
+`ObjectStableId` (survives renames) and adopts the snapshot the previous instance captured. A Worker that
+doesn't opt in restarts from scratch with the new config (the safe default — coherent for a sink that
+re-truncates).
+
+The capture-before-teardown seam (NOT a post-join `loadState`) is what lets `CsvReaderWorker` carry its **open
+file reader** across the edit and continue from its position — a post-join read would see a reader the teardown
+had already closed.
+
+Files:
+- **`WorkerBase`** gained the opt-in seam `captureMigrationState(): Any?` (default null) / `loadMigrationState`
+  (default no-op), `internal` (the framework, not subclasses, calls them). `captureMigrationState` runs on the
+  OUTGOING instance while parked & before teardown, so it can DETACH a live resource (so `onClose` skips it). If
+  the captured state is `AutoCloseable`, `JobExecution` closes it when its Worker was REMOVED by the edit (orphan
+  sweep) so a detached handle can't leak.
+- **`PreviewWorker`** opts in (the user-nominated accumulator testbed): capture = an immutable `Snapshot`
+  (header + window copy + count); load restores it, so the live view keeps its sample across an edit.
+- **`CsvReaderWorker`** opts in to **resume from its file position**, gated on `path`/`delimiter`/`header`: the
+  loop's `checkpoint` moved to the TOP of the batch (a parked reader holds no built-but-unsent batch); the open
+  reader + position + a `pendingBatch` (the one batch handed to a parked `send`) + an EOF `finished` marker are
+  hoisted to fields; `captureMigrationState` detaches the reader, `loadMigrationState` re-adopts it iff config
+  matches (else closes it and re-opens fresh). Reading continues from where it left off instead of reopening +
+  re-reading the whole file. (Plus a **TODO** to surface resumption status — resumed-from-row-N vs. restarted —
+  on the worker's progress trace for the UI.)
+- **`JobExecution`**: `launchWorkers` → `buildAndLaunch(full, filtered, capturedStates, initiallyPaused)`; added
+  `migrate()` (capture → teardown → rebuild), the change-detection branch in `continueOrStart`, the orphan
+  sweep, and the `launchDefinition` / `workersByStableId` fields. `initiallyPaused` parks freshly-rebuilt
+  Workers at their first checkpoint on a step/pause tick so a step-after-edit stays bounded (a full resume lets
+  them run).
+- Notation: `test/job-migration-preview-test.yaml` (reader `batch: 2` → Preview over a non-external duplex
+  serve channel — small batch so a couple of step wavefronts leave the Preview partially filled yet far from
+  done).
+- Tests (`JobStateMigrationTest`, 2): (a) `editingConfigWhilePausedRebuildsAndMigratesWorkerState` — pause, step
+  until the Preview's count first turns > 0 (first progress publish is unthrottled, so the trace count is exact
+  then), resume against a definition whose reader path is edited to an empty file → the run completes with the
+  CARRIED count + header (0 / empty without migration); also asserts two independent builds of the same notation
+  are `objectDefinitions`-equal (no spurious rebuild on a no-edit resume). (b)
+  `editingNonReaderConfigResumesReaderFromItsPosition` — edit the Preview's `sample` (reader config UNCHANGED) →
+  the reader resumes, so the Preview counts each row at most once and the final total is `<= file rows`; a
+  restart would re-read the file on top of the carried count and exceed it. `JobExecutionTest` (incl. the
+  reader's restructured loop) / `JobChannelTypingTest` / `JobNestedLogicTest` green, no edits.
+
+**Known limitation (documented in `CsvReaderWorker`):** reader → preview is now exact (reader resumes from
+position, preview accumulates), but a batch already BUFFERED in the channel at the cut is still lost on teardown
+— the reader carries only its own in-flight `pendingBatch`, not channel contents. So it's best-effort, exact
+only for a rendezvous (buffer-0) channel; a buffered channel drops up to ~buffer batches at the cut. Closing
+that gap needs consumer-side coordination (a checkpoint before `receive`, so a consumer holds no received-but-
+unprocessed item) — a cross-Worker snapshot, deferred. Also: carrying a source forward is only COHERENT with a
+downstream that accumulates/appends; a `CsvWriterWorker` re-truncates on rebuild, so a reader→writer edit-resume
+would drop the rows written before the cut (the writer needs its own append/seek carry — future work).
+
 ---
 
 ## Remaining — next steps
@@ -220,20 +282,22 @@ Files:
   bad for hot loops. Cache the child graph/execution per `(worker, child)` with per-child-control reuse, or
   pool. Belongs with P5.
 
-### P3 — state migration (pause → edit config → continue)
+### P3 follow-up — close the at-the-cut gaps (deferred from P3)
 
-Adopt Script's identity-continuity pattern in `JobExecution`. Today `JobExecution` builds ONE graph at launch
-and reuses it across pause/resume (no rebuild), so editing config mid-pause has no effect.
-- On resume-after-edit, rebuild the graph instance from the (possibly edited) `graphDefinition`.
-- Key active worker state by `ObjectStableId` (survives renames); for each new instance that
-  `is StatefulLogicElement` with a matching class, call `loadState(previous)` — mirrors
-  `ScriptExecution.continueOrStart`.
-- Re-wire channels to the rebuilt instances. Self-managed workers map cleanly: close old → construct new (new
-  config) → `loadState(old)` → start.
-- Add `captureState`/`loadState` to `WorkerBase` (run-scoped state already lives in instance fields).
-- Composes with the P2 follow-up (a cached paused child) once that lands.
-- **Risk:** open files / on-disk stores migrate as logical position + reopen, NOT as live handles → make it
-  opt-in per worker.
+P3 (done, see Completed) ships the rebuild + capture/load mechanism AND reader resume-from-position. Two gaps
+remain for EXACT (not best-effort) mid-stream migration:
+- **Channel-buffered batches lost at the cut.** The reader carries only its own in-flight `pendingBatch`, not
+  the channel contents, so a buffered channel drops up to ~buffer batches when the old graph is torn down. The
+  fix is consumer-side: move the `TransformWorker`/`SinkWorker` `checkpoint` to BEFORE `receive` so a parked
+  consumer holds no received-but-unprocessed item, and snapshot the channel buffer into the consumer's captured
+  state (a cross-Worker cut). Exact today only on a rendezvous (buffer-0) channel.
+- **Sink carry-forward.** A source resuming is only coherent with a downstream that accumulates/appends;
+  `CsvWriterWorker` re-truncates on rebuild, so a reader→writer edit-resume drops rows written before the cut.
+  Give the writer its own append/seek capture (opt-in, like the reader) so the output continues rather than
+  restarts.
+- **UI resumption status** (the TODO in `CsvReaderWorker.loadMigrationState`): surface resumed-from-row-N vs.
+  restarted on the worker's progress trace so the user sees whether an edit preserved progress.
+- Composes with the P2 follow-up (a cached paused child) once that lands. Likely sequenced with P5.
 
 ### P4 — Report parity (the point of the paradigm)
 
@@ -265,6 +329,25 @@ server" signal, restoring deadlock detection even with external channels open.
 
 ## Key risks / decisions log
 
+- **[DECIDED 2026-06-25] P3 migration is rebuild-the-whole-graph, not in-place re-config.** A Job's Workers are
+  live parked coroutines, so there is no in-place "swap one Worker's config"; `migrate()` cancel+joins the old
+  graph and `buildAndLaunch`es from the edit. Change is detected by comparing the incoming filtered
+  `GraphDefinition.objectDefinitions` (value-equal data classes — cheap, stable) against the launched one; a
+  no-edit resume is value-equal so it does NOT rebuild (guarded by a test asserting two independent builds of
+  the same notation are `objectDefinitions`-equal).
+- **[DECIDED 2026-06-25] Capture-BEFORE-teardown, not post-join `loadState`.** First cut used
+  `StatefulLogicElement.loadState` reading the joined previous instance; reversed the SAME DAY when the reader's
+  open file handle had to survive — teardown's `onClose` closes it before any post-join read. So `WorkerBase`
+  exposes `captureMigrationState()` (called while the Worker is still parked, detaches live handles) +
+  `loadMigrationState()`; `JobExecution` captures all Workers before tearing down, then the rebuilt Workers
+  adopt by stable id, with an `AutoCloseable` orphan sweep for handles whose Worker was removed by the edit.
+- **[DECIDED 2026-06-25] `CsvReaderWorker` resumes from its open reader** (gated on path/delimiter/header). Loop
+  `checkpoint` moved to the batch top so a parked reader holds no built-but-unsent batch; reader + position +
+  in-flight `pendingBatch` + EOF `finished` are fields carried by capture/load. Best-effort: channel-buffered
+  batches at the cut are still lost (exact only on a rendezvous channel).
+- **[OPEN] Exact mid-stream cut (P3 follow-up).** Remaining loss is channel-buffered batches + truncating sinks;
+  an exact cut needs consumer-side coordination (checkpoint-before-receive + snapshot the channel buffer) and
+  sink append/seek carry. Deferred (~P5).
 - **[FIXED 2026-06-25] Step ran to completion instead of advancing one wavefront.** `JobExecution`'s step
   branch did `jobControl.resume(); awaitQuiescent(); pause()` — but a full `resume()` makes `checkpoint()`
   return forever, so a steady pipeline only reaches `inFlight == 0` at completion: one "step" ran the whole
