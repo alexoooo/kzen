@@ -134,6 +134,13 @@ Treat the working tree as the user's. **Never delete, move, or overwrite a file 
 - Don't run `./gradlew build` casually — the composite drags every sibling through compile + test + KMP JS bundling, which is a multi-minute operation. Prefer `./gradlew :<included-build>:<task>` when the task lives on the included build's *root* project, or `cd ../<sibling> && ./gradlew <task>` when it lives on a *subproject* (the more common case — e.g. `publishToMavenLocal`, `:kzen-launcher-jvm:jar`).
 - Logs from running launcher/project processes land under each sibling's `logs/` directory, not under `kzen/`.
 
+### Stage new files you create
+
+When a task has you create a **new** file (source, test, notation, doc), `git add` it as soon as it's written — **stage only, never commit** unless the user explicitly asks. This keeps new files tracked and visible in the changeset rather than lingering as untracked `??` entries that are easy to overlook (existing tracked files you merely edit already show in the diff, so they need no action).
+
+- Stage by **explicit path**, never `git add -A` / `git add .` / `git add <dir>` — a blanket add sweeps up the user's unrelated untracked and WIP files (the tree routinely holds staged-then-deleted `AD` entries and untracked working documents — see *File safety* above). Run `git status --short` first and add only the paths *you* created this session.
+- The file belongs to the **sibling repo it lives in**, not the umbrella — target that repo: `git -C ../kzen-auto add -- <path>`.
+
 ### Audit directory convention
 
 The `audit/` directory holds long-form analysis reports (e.g. build-warning classifications). Layout rules:

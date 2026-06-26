@@ -75,7 +75,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | Foundation | core engine + 5 real workers + duplex/external bridge + minimal+authoring UI | ✅ done | `JobExecutionTest` (14) |
 | Phase 0 | operator base (`WorkerBase` + Source/Transform/Sink + `Emitter`) | ✅ done 2026-06-24 | `JobExecutionTest`, no edits |
 | **P1** | **typed channels** (`elementType` + `ChannelTypeDefiner`) | ✅ done 2026-06-24 | `JobChannelTypingTest` (3) |
-| **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24 | `JobNestedLogicTest` (3) |
+| **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24; step-control unified per-spine 2026-06-25 | `JobNestedLogicTest` (6), `StepNavigationTest` |
 | **P3** | **state migration** (pause → edit config → continue); lossless channel carryover | ✅ done 2026-06-25 | `JobStateMigrationTest` (2), `JobMigrationCarryoverTest`, `JobChannelTest` |
 | P4 | Report parity (pivot/sort/summary operators) | ⬜ todo | — |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
@@ -384,10 +384,23 @@ server" signal, restoring deadlock detection even with external channels open.
 - **[DECIDED] Confinement for nested-Logic concurrency (P2).** Per-child private control/scope, not shared-state
   locking — preserves parallelism, isolates state, sidesteps the pause-semantics mismatch. Resolved the
   highest-uncertainty item.
-- **[DECIDED] A Job's per-event child is not steppable** — runs to completion as a function call, consistent
-  with the Job's coarse whole-tick step model.
+- **[REVISED 2026-06-25] Step-control model unified to per-spine `(budget, depthLimit)`; a Job's per-event
+  child IS now steppable.** The earlier "child not steppable, runs as a function call" decision was forced by
+  `LogicControl` keeping ALL step state on ONE control shared across the frame tree (incompatible with
+  concurrent Workers), which had grown a dual-mode (private full-speed vs shared steppable control) +
+  `hasStepBudget()` peek + `JobChildExecution.step()` increment loop. Root-cause fix: `LogicControl`'s four
+  stepping mechanisms (`stepBudget`, `suppressPause` push/pop + `stepOverActive`, `frameDepth` enter/exit +
+  `stepOutTarget`/`inStepOutRegion`) collapse to TWO primitives — a `budget` (0/1) consumed by the first fresh
+  boundary (`consumeStepBudget`) and a `depthLimit` beyond which a boundary runs free (`runningFreeByDepth`,
+  = `frameDepth > depthLimit`). Step Into = `arm(1, MAX)`, Step Over = `arm(1, steppedDepth)`, Step Out =
+  `arm(0, steppedDepth - 1)`. Step state is now PER-SPINE, so a Job confines each child to its OWN control
+  (delegating only the run command to the shared control via `commandSource`) and a Step descends into a child
+  via that child's own budget — the dual-mode / peek / `JobChildExecution` all deleted; `RunWorker` is now the
+  RunStep-style `logicHandleFacade().start → beforeStart → continueOrStart* (checkpoint on Paused) → close`
+  loop. Regression-pinned by `StepNavigationTest` (controller Step Over / Step Out, added first).
 - **[DECIDED] `logicHost()` on `JobControl`** returning a dedicated `JobLogicHost` (the plan's "JobControl
-  extension"); keeps hosting logic single-purpose in its own type.
+  extension"); keeps hosting logic single-purpose in its own type — now exposing `logicHandleFacade()` /
+  `graphDefinition()` / `argumentTuple()` rather than `open()`.
 - **[DECIDED] Typing target = coarse whole-type channels** (`elementType: TypeMetadata`); structural per-field
   `FieldFormatListSpec` deferred. P1 assignability is exact-match + `Any` wildcard (commonMain `TypeMetadata`
   carries no class hierarchy).
