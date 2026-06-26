@@ -80,7 +80,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | P4 | Report parity (pivot/sort/summary operators) | ⬜ todo | — |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
 | P6 | interactivity hardening (idle-server vs deadlock) | ⬜ todo | — |
-| — | P2 follow-ups (frame-tree/trace, grandchildren, scalar source/sink, JS editor) | ⬜ backlog | — |
+| — | P2 follow-ups (scalar source/sink, JS editor; frame-tree/trace ✅ 2026-06-26) | ⬜ backlog | — |
 
 Each phase is independently shippable and keeps the prior tests green.
 
@@ -266,10 +266,11 @@ would drop the rows written before the cut (the writer needs its own append/seek
 
 ### P2 follow-ups (deferred, opt-in by value)
 
-- **Frame-tree + step integration / child trace visibility.** Today a child is invisible in the run sidebar and
-  its internal trace is dropped (`NoOpLogicTraceHandle`). To surface a `RunWorker`'s child in the UI, register a
-  representative frame (per-worker, NOT per-event — per-event would be thousands) and route a child trace handle
-  to the store. Decide the model first (one frame per RunWorker showing current/last child?).
+- ~~**Frame-tree + step integration / child trace visibility.**~~ ✅ done (frame mirroring + real trace handle
+  landed with the 2026-06-25 step-control unification; the trace LIFECYCLE was fixed 2026-06-26 — see the
+  frame-owned trace decision-log entry). A child is now first-class in the sidebar frame tree (per-invocation
+  frame via `NestedFrameRegistry`), its steps are recorded under the Job run, re-entry shows a cleared trace,
+  and parallel callers no longer interleave.
 - **Grandchild nesting.** A child Logic that itself starts a further nested Logic currently throws
   (`NestedLogicUnsupported`). Lift by threading a confining `LogicHandle` into the child that recurses through
   the same per-child-control creation (so grandchildren stay confined too).
@@ -326,6 +327,57 @@ server" signal, restoring deadlock detection even with external channels open.
 
 ## Key risks / decisions log
 
+- **[DECIDED 2026-06-26] Frame-owned trace lifecycle — a trace buffer's life = its frame's life.** A
+  `RunWorker` invokes the same child once per element; re-entering it showed the prior invocation's finished
+  steps ("already executed"). Root cause: `JobLogicHostImpl` cached ONE `LogicRunExecutionId` per child
+  *document* for the whole run, so re-entry reused the id and bypassed `LogicTraceStore`'s same-run-new-id clear,
+  and two parallel callers of one child shared a buffer (interleave). Fix: each child INVOCATION gets its own
+  execution id (minted per `LogicHandle.start`, the cache removed), and its buffer is reclaimed on frame close
+  via a new `LogicTraceStore.evict(LogicRunExecutionId)` called from the facade-close listener. So a re-entry is
+  a brand-new empty buffer, a streaming Job is bounded to its LIVE frames (the leak the cache guarded against,
+  solved at the right seam — close, not id-reuse), and parallel callers get distinct buffers. Script/Flow are
+  unaffected: their children aren't evicted on close, so the retained-across-iterations film-strip survives.
+  Client (Part B): a child-document view is now **frame-keyed** — `ScriptProgressStore`/`FlowProgressStore` fetch
+  the trace of the active frame for that document (single-execution `actionLookup` via the new
+  `LogicRunFrames.frameForDocument`, run id + `frame.executionId`), falling back to most-recent + merged
+  `lookupRun` when the document isn't live (post-run inspection). This makes two parallel/sequential invocations
+  of the same document each show their OWN trace deterministically, instead of the lossy run-merge.
+  Regression-pinned by `JobNestedLogicTest.reEnteringAChildStartsFromAClearedTrace`; `recursivelyNestedChildRunsAndIsTraced`
+  reworked to assert recording while frames are LIVE (a completed Job-hosted child is no longer retained — the
+  documented trade-off). The Job's own worker-progress trace (top-level run id) is untouched.
+- **[DECIDED 2026-06-26] Step Over / Step Out cross the Job boundary by mirroring the controller's step plan
+  onto each confined child.** A Job's children run on their OWN `MutableLogicControl` (confinement), so the
+  depth limit that the single-control Script/Flow step navigation uses (`arm(budget, depthLimit)` +
+  `runningFreeByDepth`) never reached them: `JobExecution` only branched on `consumeStepBudget()` (budget≥1 =
+  step, else park) and `grantStepToChildren()` blindly armed every child `arm(1)`. So Step Over (budget 1,
+  finite limit) collapsed to Step Into and Step Out (budget 0, finite limit) collapsed to a no-op pause — the
+  reported "auto-step-over and step-out don't work" once stepping itself became usable. Fix: `LogicControl`
+  exposes the armed plan (`armedStepBudget()` / `armedDepthLimit()`, defaults 0 / `MAX`, overridden by
+  `MutableLogicControl`); `JobExecution`'s Pause branch treats `budget>0 || limit≠MAX` as a step tick (so Step
+  Out's 0 budget no longer falls through to a plain pause) and passes the plan to
+  `grantStepToChildren(budget, depthLimit)`, which translates the global limit into each child's OWN frame
+  coordinates (children attach one level below the Job, so `D → D-childAttachDepth`, `childAttachDepth = 1`)
+  and arms them. Below the limit the child runs free, at it it pauses — the same depth contract Script/Flow
+  already honour. Scoped to a TOP-LEVEL Job (children at depth 1); a Job nested inside another Logic degrades
+  to Step-Into descent (deferred, never worse than before). Regression-pinned by
+  `JobNestedLogicTest.stepOverRunsNestedChildToCompletionWithoutDescending` /
+  `stepOutOfNestedChildRunsItToCompletionAndReturns` (one grant reaches the wrapper's Success, vs Step Into's
+  two-grant descend-then-pause). Slow-motion "auto-step-over" is just the client re-issuing Step Over, so it is
+  fixed transitively.
+  - **Follow-up (same day): a child BORN mid-wavefront must inherit the plan, and Step Out AT the root runs to
+    completion.** The first cut armed only children live at grant time, but stepping over at the Job level (no
+    child yet) creates a FRESH child via the `RunWorker` *after* the grant — and it got the constructor default
+    `(0, MAX)`, pausing at its entry → the run still descended into the wrapper. Fix: `grantStepToChildren`
+    records the in-flight `childStepDepthLimit`, and `TopLevelHandle.start` arms each new control `(0,
+    translate(childStepDepthLimit))` — so under Step Over / Step Out a fresh child's entry boundary is below the
+    limit and it runs free (the child completes and detaches within the wavefront, so autoFollow never descends);
+    under Step Into it pauses at entry (descend) as before. Separately, the Job runs as the run ROOT frame
+    (depth 0), so a Step Out whose limit drops below it (`runningFreeByDepth`) is Step Out AT the root — no
+    caller to return to — and `JobExecution` now runs it to completion like a full resume (granting the children
+    the run-free plan first), instead of a single wavefront, matching a Script's Step Out at its root.
+    Regression-pinned by `JobNestedLogicTest.stepOverAtJobLevelRunsFreshChildWithoutDescending` /
+    `stepIntoAtJobLevelPausesFreshChildAtEntry` (grant-before-create order) and
+    `JobExecutionTest.stepOutAtRootRunsWholeJobToCompletion`.
 - **[DECIDED 2026-06-25] P3 migration is rebuild-the-whole-graph, not in-place re-config.** A Job's Workers are
   live parked coroutines, so there is no in-place "swap one Worker's config"; `migrate()` cancel+joins the old
   graph and `buildAndLaunch`es from the edit. Change is detected by comparing the incoming filtered
