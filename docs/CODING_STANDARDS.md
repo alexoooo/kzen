@@ -395,3 +395,35 @@ service/context/
 The canonical home for launch/run setup is the build itself — a Gradle task (e.g. `:kzen-auto-test:runTester` with `workingDir`, `args`, system properties) — plus a documented command in the relevant AGENTS.md/README. If an IDE run configuration is convenient, the *user* creates it in the IDE; tooling and agents must not write the XML.
 
 **Why:** IDE state files are not source. A "fix" written into `.idea/` is invisible to version control, unreviewable, lost on re-import/cache-invalidation, and absent on every other machine — it papers over a gap that should be closed in the build or the docs instead.
+
+
+## CC-17 — Generic code dispatches by capability, never by concrete type name
+
+**Framework, controller, engine, and other generic code must never gate behaviour by comparing an object's declared type — the notation `is` attribute, a class name, an archetype leaf name — against a hard-coded concrete-type string. Dispatch on a declared capability, port type, inheritance-chain membership, or a polymorphic archetype instead, so a 3rd party adds a type without editing the generic code.**
+
+Don't — a generic controller enumerating concrete sub-component names:
+```kotlin
+// JobController — the generic editor for ANY Job
+private fun isPreviewWorker(documentNotation: DocumentNotation, workerPath: ObjectPath): Boolean {
+    val workerIs = documentNotation.objects.notations[workerPath]
+        ?.get(NotationConventions.isAttributeName)?.asString()
+    return workerIs == "PreviewWorker"     // a 3rd-party preview worker can never match
+}
+```
+
+Do — the type opts into a capability in notation; the generic side classifies by inheritance chain, so any subtype / 3rd-party type is recognized:
+```kotlin
+JobServeCapability.of(graphStructure, workerLocation) == Capability.Preview
+```
+
+The idiomatic seams already in the codebase — imitate these, never add a name check:
+- **Polymorphic archetype dispatch** — the archetype implements an interface the framework calls (`LogicDocument.toLogic`), so "there is no flavour `when`."
+- **Inheritance-chain membership** — `JobConventions.isChannelArchetype` walks `graphNotation.inheritanceChain(...).any { ... }`, so subtypes match.
+- **Type-metadata resolution** — `JobChannelPorts.kindOf(attributeMetadata.type)` classifies a port by its declared type, never by its owner's name.
+- **Declared component markers** — `editor:` / `summary:` / `creator:` name a component a registry resolves; a 3rd party names its own.
+
+A concrete-type reference is legitimate only as **self-reference**: a `*Conventions` object naming *its own* archetype inside the module that defines it (`JobConventions.isJob` → `ObjectName("Job")`).
+
+This extends CC-05 (generic name + feature-specific literal = overload) and CC-04 (a feature is removable in one delete). CC-05 bans the mechanical shape; CC-17 states why it is fatal here: the hard-coded branch set is **closed**, so it can never see a type contributed at runtime, silently excluding every plugin extension.
+
+**Why:** kzen's whole value is that behaviour is contributed as notation, not code. A hard-coded type-name switch quietly caps the system at the types the author knew about — the exact opposite of the promise — and the omission is invisible (no error, the new type just gets nothing), as the `PivotWorker` preview gap that this rule's introduction uncovered shows.
