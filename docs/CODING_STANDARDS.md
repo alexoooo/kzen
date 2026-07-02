@@ -411,18 +411,23 @@ private fun isPreviewWorker(documentNotation: DocumentNotation, workerPath: Obje
 }
 ```
 
-Do — the type opts into a capability in notation; the generic side classifies by inheritance chain, so any subtype / 3rd-party type is recognized:
+Do — the type contributes its own component in notation, and the generic side resolves it by a declared marker through an autowired registry, so any subtype / 3rd-party type is picked up with no edit:
 ```kotlin
-JobServeCapability.of(graphStructure, workerLocation) == Capability.Preview
+// A Worker names its card in notation (`display: PreviewWorkerDisplay`, default WorkerDisplayDefault on
+// the base Worker); WorkerDisplayManager reads the marker and mounts it. JobObjectSlot / JobController
+// never mention a Worker type — the whole card (preview table, download, summary poll) is the Worker's own.
+props.workerDisplayManager.child(this) { common = commonForProps() }
 ```
 
 The idiomatic seams already in the codebase — imitate these, never add a name check:
 - **Polymorphic archetype dispatch** — the archetype implements an interface the framework calls (`LogicDocument.toLogic`), so "there is no flavour `when`."
 - **Inheritance-chain membership** — `JobConventions.isChannelArchetype` walks `graphNotation.inheritanceChain(...).any { ... }`, so subtypes match.
 - **Type-metadata resolution** — `JobChannelPorts.kindOf(attributeMetadata.type)` classifies a port by its declared type, never by its owner's name.
-- **Declared component markers** — `editor:` / `summary:` / `creator:` name a component a registry resolves; a 3rd party names its own.
+- **Declared component markers** — `display:` / `editor:` / `summary:` / `creator:` name a component an autowired registry resolves (`StepDisplayManager`, `WorkerDisplayManager`, `AttributeEditorManager`, `AttributeViewManager`); a 3rd party names its own, so its whole card / editor / view is contributed with no edit to the generic host.
 
 A concrete-type reference is legitimate only as **self-reference**: a `*Conventions` object naming *its own* archetype inside the module that defines it (`JobConventions.isJob` → `ObjectName("Job")`).
+
+**A capability enum is only a partial fix — and a trap when its cases live in the shared component.** Replacing `is == "PreviewWorker"` with `JobServeCapability.of(...) == Capability.Preview` still enumerates a **closed** set of behaviours (`Preview` / `Summary` / `Table`) inside the generic editor, so a 3rd party with a new card kind still cannot extend it — the same defect one level up. Classify by capability ONLY for a cross-cutting **dataflow** decision a type genuinely cannot own — e.g. "which upstream Worker is my distinct-value source" (`JobServeCapability` → `Summary`, resolved by inheritance chain) — never to choose behaviour or UI the type should contribute itself via a `display:` / `editor:` / `summary:` marker.
 
 This extends CC-05 (generic name + feature-specific literal = overload) and CC-04 (a feature is removable in one delete). CC-05 bans the mechanical shape; CC-17 states why it is fatal here: the hard-coded branch set is **closed**, so it can never see a type contributed at runtime, silently excluding every plugin extension.
 
