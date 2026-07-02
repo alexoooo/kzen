@@ -77,7 +77,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | **P1** | **typed channels** (`elementType` + `ChannelTypeDefiner`) | ✅ done 2026-06-24 | `JobChannelTypingTest` (3) |
 | **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24; step-control unified per-spine 2026-06-25 | `JobNestedLogicTest` (6), `StepNavigationTest` |
 | **P3** | **state migration** (pause → edit config → continue); lossless channel carryover | ✅ done 2026-06-25 | `JobStateMigrationTest` (2), `JobMigrationCarryoverTest`, `JobChannelTest` |
-| P4 | Report parity (pivot/sort/summary operators) | ⬜ todo | — |
+| P4 | Report parity as composable Workers (pivot/summary/sort/value-set-filter/export/explore/multi-input) — see P4 sub-plan below | 🔄 in progress | P4-0 batching ✅ (`JobBatchingTest`), P4a scratch dir ✅ (`JobScratchDirTest`), P4b summary ✅ (`SummaryWorkerTest`), P4c value-set filter ✅ (`ValueSetFilterWorkerTest`), P4d pivot ✅ (`PivotWorkerTest`) |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
 | P6 | interactivity hardening (idle-server vs deadlock) | ⬜ todo | — |
 | — | P2 follow-ups (scalar source/sink, JS editor; frame-tree/trace ✅ 2026-06-26) | ⬜ backlog | — |
@@ -299,12 +299,54 @@ moved before receive), so a mid-stream migration is exact, not best-effort. Rema
 
 ### P4 — Report parity (the point of the paradigm)
 
-Pivot / Sort / Summary as stateful operators reusing Report's substrate-neutral leaf engines (these are infra,
-not Report "stages", and survive Report removal):
-- `onBatch` accumulate → `onComplete` emit, over `PivotBuilder` / `ReportSummary` / the indexed table.
-- Live-queryable via `snapshot` / `onQuery`; `onClose` releases on-disk stores.
-- Then build the remaining Report stages as workers and prove A/B parity against Report on a real dataset.
-- Endgame: remove Report (the original M5) once parity holds.
+Replicate Report's ENTIRE capability set inside Job as **dynamically user-composable Workers** (an arbitrary
+graph, not Report's fixed `input→formula→filter→analysis→output` pipeline), reusing Report's substrate-neutral
+leaf engines (`PivotBuilder` / `ValueSummaryBuilder` / `IndexedCsvTable` / the export writer / the filter
+predicate — infra, not Report "stages", and survive Report removal). Full build order + design in the P4 sub-plan
+`C:\Users\ostro\.claude\plans\i-want-to-replicate-bright-sedgewick.md` (`P4-0 → P4a … → P4j`).
+
+Progress:
+- **P4-0 — framework batching (foundational) ✅ 2026-07-01.** Batching is now a general, domain-agnostic
+  Channel-framework capability (generic over element `T`): Workers `send`/`receive` single ELEMENTS, the
+  framework groups them into physical chunks of the channel's configurable `chunk` size. Replaces the
+  `RecordBatch` hack (deleted) with a self-describing `DataRecord(header, record)`; scalar/Run lanes now batch
+  too. Element-wise Source/Transform/Sink hooks; flush-before-checkpoint keeps migration carryover lossless.
+  `JobBatchingTest`; whole Job + `kzen-auto-jvm` suite green.
+- **P4a — scratch dir + `JobWorkPool` ✅ 2026-07-01.** `JobControl.scratchDir()` (platform-neutral `String`);
+  new `JobWorkPool` `@Service` owning `<work>/job/<run-digest>/<worker-digest>` dirs (keyed on migrate-stable
+  run id + Worker stable id; boot-time stale sweep). Threaded via `LogicCompilerServices` → `EngineJobControl`
+  (lazy create-on-first-call); `JobRun` registers a run-root `ClosePolicy.Auto` sweep. Unblocks the file-backed
+  Pivot / Explore operators. `JobScratchDirTest` (two Workers get isolated dirs, swept when the run settles).
+- **P4b — `SummaryWorker` (+ optional `serve` on `TransformWorker`) ✅ 2026-07-01.** A passthrough
+  `TransformWorker<DataRecord, DataRecord>` that computes a live per-column `TableSummary` (reusing Report's
+  `ValueSummaryBuilder` + `RecordHeaderIndex`, bounded memory / no scratch dir) while forwarding each record
+  unchanged, so it composes into any pipeline. Serves the `TableSummary` over a duplex `serve` port + pushes a
+  row count; carries its builders across a live edit (like `PreviewWorker`). Framework change: `TransformWorker`
+  gained an optional `serve` port (behaviour-preserving — `Filter`/`Formula`/`Run` pass none). `SummaryWorkerTest`.
+- **P4c — `ValueSetFilterWorker` ✅ 2026-07-01.** A `TransformWorker<DataRecord, DataRecord>` that drops records
+  failing a distinct-value WHITELIST (Report's value-set filter, not the Kotlin-expression predicate `FilterWorker`
+  runs). Reuses `ReportFilterStage`'s exact `test` — `RecordHeaderIndex` column mapping, standalone
+  `FlatFileRecordField` value sets, `ColumnFilterType` RequireAny/ExcludeAll — over `FilterSpec`/`ColumnFilterSpec`
+  (commonMain); no serve, no scratch dir. Only adaptation: the schema is discovered in-band from each record's
+  header (active columns rebuilt on header change, like `FilterWorker` recompiles), and a filter on a column absent
+  from the header is ignored (as Report drops filter columns not in its static schema). `filter` attr wired via the
+  existing `FilterSpec.Definer`; `editor: ValueSetFilterEditor` named for P4i (not yet registered — degrades to a
+  placeholder). `ValueSetFilterWorkerTest` pins the predicate parity (whitelist/blacklist/AND/absent-column/empty/
+  header-change); full Report-vs-Job byte parity is the P4j gate.
+- **P4d — `PivotWorker` ✅ 2026-07-01.** A `TransformWorker<DataRecord, DataRecord>` (serve + scratch dir) that
+  accumulates every record into Report's reused `PivotBuilder` (H2-backed, over a per-Worker `JobControl.scratchDir`)
+  and, at end-of-stream, emits the built pivot table downstream row-by-row under a stable output header (row-key
+  columns + one column per value/type), so it composes into any pipeline. Serves live `offset`/`limit` preview
+  slices against the disk-backed builder — race-free because a Worker is single-threaded on its own node coroutine
+  (the serve loop only runs while the work coroutine is parked). `onClose` does close-then-delete (H2 holds a
+  Windows file lock); the `JobRun` run-root sweep is the backstop. Live-edit = RESTART (WorkerBase default;
+  coherent since the scratch path is deterministic per migrate-stable `(runId, stableId)`). New commonMain seam:
+  `PivotSpec.Definer` + `PivotSpec`/`PivotSpecDefiner` archetypes, so the worker carries a raw `pivot: PivotSpec`
+  attribute (not the Report document's `analysis.pivot` nesting); `editor: PivotSpecEditor` named for P4i.
+  `PivotWorkerTest` A/B-checks the emitted pivot against a direct `PivotBuilder` and asserts the scratch dir is
+  swept after the run.
+- **P4e–P4j — todo.** SortWorker → ExportWriterWorker → ExploreWorker → MultiFileReaderWorker → JS editors +
+  palette → A/B parity + Report removal (the original M5, once parity holds).
 
 ### P5 — performance
 
