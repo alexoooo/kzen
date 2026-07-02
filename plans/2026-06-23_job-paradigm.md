@@ -77,7 +77,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | **P1** | **typed channels** (`elementType` + `ChannelTypeDefiner`) | ✅ done 2026-06-24 | `JobChannelTypingTest` (3) |
 | **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24; step-control unified per-spine 2026-06-25 | `JobNestedLogicTest` (6), `StepNavigationTest` |
 | **P3** | **state migration** (pause → edit config → continue); lossless channel carryover | ✅ done 2026-06-25 | `JobStateMigrationTest` (2), `JobMigrationCarryoverTest`, `JobChannelTest` |
-| P4 | Report parity as composable Workers (pivot/summary/sort/value-set-filter/export/explore/multi-input) — see P4 sub-plan below | 🔄 in progress | P4-0 batching ✅ (`JobBatchingTest`), P4a scratch dir ✅ (`JobScratchDirTest`), P4b summary ✅ (`SummaryWorkerTest`), P4c value-set filter ✅ (`ValueSetFilterWorkerTest`), P4d pivot ✅ (`PivotWorkerTest`) |
+| P4 | Report parity as composable Workers (pivot/summary/sort/value-set-filter/export/explore/multi-input) — see P4 sub-plan below | 🔄 in progress | P4-0 batching ✅ (`JobBatchingTest`), P4a scratch dir ✅ (`JobScratchDirTest`), P4b summary ✅ (`SummaryWorkerTest`), P4c value-set filter ✅ (`ValueSetFilterWorkerTest`), P4d pivot ✅ (`PivotWorkerTest`), P4e sort ✅ (`SortWorkerTest`), P4f export ✅ (`ExportWriterWorkerTest`), P4g explore ✅ (`ExploreWorkerTest`), P4h multi-file ✅ (`MultiFileReaderWorkerTest`), P4i editors 🔄 (SortSpecEditor ✅, ExportSpecEditor ✅) |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
 | P6 | interactivity hardening (idle-server vs deadlock) | ⬜ todo | — |
 | — | P2 follow-ups (scalar source/sink, JS editor; frame-tree/trace ✅ 2026-06-26) | ⬜ backlog | — |
@@ -345,8 +345,121 @@ Progress:
   attribute (not the Report document's `analysis.pivot` nesting); `editor: PivotSpecEditor` named for P4i.
   `PivotWorkerTest` A/B-checks the emitted pivot against a direct `PivotBuilder` and asserts the scratch dir is
   swept after the run.
-- **P4e–P4j — todo.** SortWorker → ExportWriterWorker → ExploreWorker → MultiFileReaderWorker → JS editors +
-  palette → A/B parity + Report removal (the original M5, once parity holds).
+- **P4e — `SortWorker` ✅ 2026-07-02.** A `TransformWorker<DataRecord, DataRecord>` (no serve, no scratch dir)
+  that buffers every record and, at end-of-stream, emits them re-ordered by a new commonMain `SortSpec` — an
+  ORDERED map `column -> ascending` (map order = sort priority, first key primary). Comparison is a provable TOTAL
+  order (so the stable sort never trips a comparator-contract violation on adversarial data): per key, both-numeric
+  → numeric (via the same `FlatFileRecordField.toDoubleOrNan` the pivot/summary use, so `"1"`==`"1.0"`), numeric
+  sorts BEFORE non-numeric text, both-text → lexical; ties keep arrival order (`sortedWith` is stable). In-memory
+  v1 — buffers the whole stream, emits it as one flushed chunk (no mid-`onComplete` checkpoint, so the drain is
+  atomic w.r.t. a cooperative pause → no double-emit); disk-spill external merge + streamed back-pressured drain is
+  the documented follow-up. Live-edit CARRYOVER is UNCONDITIONAL and REQUIRED (not the WorkerBase restart default):
+  an unchanged upstream `CsvReaderWorker` RESUMES from its file position, so a SortWorker that restarted empty would
+  silently drop pre-pause rows — `captureMigrationState`/`loadMigrationState` carry the accumulated buffer (pure
+  data, no handle, like `SummaryWorker`'s builders) and the buffer is cleared after emit so a post-completion
+  rebuild re-emits nothing. New commonMain seam: `SortSpec` + `SortColumnSpec` + `SortSpec.Definer` (uses
+  `firstAttribute`, not `mergeAttribute`, to preserve authored key order) + `SortSpec`/`SortSpecDefiner` archetypes;
+  `editor: SortSpecEditor` named for P4i. `SortWorkerTest` covers single/multi-key asc/desc, numeric-before-text +
+  stability, empty-spec passthrough, and the carryover (mid-stream interrupt → capture → rebuilt instance re-sorts
+  the FULL stream).
+- **P4f — `ExportWriterWorker` ✅ 2026-07-02.** A `SinkWorker<DataRecord>` (no serve, no scratch dir) that writes
+  the stream to a delimited file with Report's EXACT export encoding, so a Job export is byte-identical to
+  Report's (the P4j A/B gate reduces to path/plumbing). Reuses Report's leaf engines — the `RecordFormat`
+  (`CsvExportFormatter` / `TsvExportFormatter`), an in-place UTF-8 encode mirroring `CharsetExportEncoder`, and
+  the compression writer — but NOT the disruptor. **Refactor first (as the plan directs):** extracted
+  `CompressedExportWriter.openGroup`'s none/zip/gz selection into a shared `ExportCompression.wrap(rawOut, spec,
+  innerName): WrappedExportOutput` (out + finalizing closer); `CompressedExportWriter` now calls it (behaviour-
+  preserving — full suite green) and the worker calls the same seam, so both compress identically. Header written
+  once from the first record via `render` (matching `ExportFormatter`). Config `export: OutputExportSpec` via a
+  new standalone `OutputExportSpec.Definer` (mirrors `PivotSpec.Definer`; `mergeAttribute` so an instance
+  overriding one key inherits archetype defaults) + `OutputExportSpec`/`OutputExportSpecDefiner` archetypes; path
+  resolved by Report's own `resolvePath(docName, group=empty, now)` (`${report}` = the worker's own document
+  name, `${group}` empty for the single stream). File opened in `onStart`, container finalized in `onClose`,
+  writes through `runBlockingIo`. Live edit RESTARTS / re-truncates (the WorkerBase sink default, like
+  `CsvWriterWorker` — a compressed stream can't be appended mid-file; a resumable export is a follow-up).
+  `editor: ExportSpecEditor` named for P4i. `ExportWriterWorkerTest` round-trips csv-none / csv-zip / csv-gz
+  (comma + embedded-quote fields, decompressed and re-parsed with `CsvRecordReader`) + a tsv case.
+- **P4g — `ExploreWorker` ✅ 2026-07-02.** A `SinkWorker<DataRecord>` + `serve` + scratch dir — the disk-backed,
+  random-access browse over the whole result stream (the Job analogue of Report's Explore output, the heavy-duty
+  counterpart to `PreviewWorker`'s bounded in-memory live tail). Reuses Report's `IndexedCsvTable` leaf engine (a
+  CSV file + row-offset index; NOT the disruptor): every record is appended in `onElement`, and the browser reads
+  ANY window via on-demand `offset`/`limit` slice queries answered from the LIVE table in `onQuery`. Input is
+  typed `DataRecord` (the table indexes by header + fields; a schemaless scalar lane has no columns to browse).
+  **No config spec** — the plan's worker table lists none and the P4i editor list omits an explore editor; the
+  slice is entirely query-driven (default limit 1000), so the worker carries just `input` + `serve` +
+  `selfLocation`. The header is only known at the first record, so the table is created lazily on the first
+  `onElement` (its ctor writes the header row) — an empty stream leaves no table and serves an empty preview.
+  Scratch dir like `PivotWorker`: opened under `JobControl.scratchDir()`, `onClose` does CLOSE-THEN-DELETE
+  (`close(error = true)` skips the flush-before-delete — the run-scoped scratch is never read after settle);
+  `JobRun`'s run-root sweep backstops a hard kill. Reading the disk-backed table from the serve coroutine is
+  race-free by the single-threaded-Worker guarantee (`onQuery` runs only while the work coroutine is parked), and
+  `IndexedCsvTable` interleaves append + random-access read on one handle by design (`preview` flushes pending,
+  then seeks). Live edit RESTARTS (the WorkerBase default — re-indexes from a resuming upstream reader into a
+  fresh table at the deterministic `(runId, stableId)` path). Because a sink emits nothing, `ExploreWorkerTest`
+  can't A/B on output like `PivotWorkerTest` — it drives the REAL `WorkerBase` serve loop: one `offset`/`limit`
+  request is fed through, coordinated by two `CompletableDeferred`s (single-threaded `runBlocking` event loop) so
+  it lands after every record is indexed and before the run settles, and asserts the served `ExecutionResult`
+  equals a direct `IndexedCsvTable.preview` over the same slice (+ row-count on the trace, + scratch swept).
+  **Deferred:** the detached DOWNLOAD endpoint (streaming `IndexedCsvTable.downloadCsvOffline` / the Job analogue
+  of Report's `DetachedDownloadAction`) is REST/controller/client work — folded into P4i with the serve plumbing,
+  matching how P4b–P4f deferred all client wiring. No `editor:` (no config to edit).
+- **P4h — `MultiFileReaderWorker` ✅ 2026-07-02.** A `SourceWorker<DataRecord>` — the multi-file generalization of
+  `CsvReaderWorker` (same `CsvRecordReader`, same RFC-4180 parsing), the Job analogue of Report's multi-location
+  input. Reads several files as ONE stream, records concatenated in `paths` order. Schema taken from the FIRST
+  file: with `header=true` each subsequent file's header row is skipped and its data emitted under the shared
+  `HeaderListing`; with `header=false` the schema is synthesized positionally (`c0, c1, …` from the first file's
+  first record) and every row is data. **Config is flat** (matching `CsvReaderWorker`): `paths: {is: List, of:
+  String}` (bound directly to a `List<String>` ctor param by the default `StructuralAttributeDefiner` — no custom
+  definer; `defineList` handles the `String` generic) + `delimiter` + `header`. Directory browse / glob discovery
+  is the EDITOR's job (P4i `MultiFileInputEditor`, reusing `FileListingAction`) — the worker consumes the
+  resolved, ordered concrete-path list, keeping the resume cursor deterministic (the file set is fixed config,
+  not re-globbed mid-run). `editor: MultiFileInputEditor` named for P4i. **Migration cursor = `(fileIndex,
+  open-reader-position)`:** only one reader is open at a time; `captureMigrationState` detaches it + carries
+  `fileIndex`, `loadMigrationState` re-adopts both iff `paths`/`delimiter`/`header` unchanged (else closes the
+  carried reader and restarts) — so a pause/edit/continue resumes from the exact spot in the current file and
+  reads the remaining files, like `CsvReaderWorker`'s single-reader carryover extended across the file list.
+  `MultiFileReaderWorkerTest` covers header=true concatenation (subsequent headers skipped), header=false
+  synthesized schema, and the cursor: a first instance parks mid-`fileA` (checkpoint-park via a `CompletableDeferred`
+  on a single-threaded `runBlocking` loop, faithfully replicating `JobExecution`'s capture-while-parked → detach →
+  teardown → load protocol), hands its cursor to a second instance that finishes `fileA`, crosses into `fileB`
+  (re-skipping its header), and reconstructs the uninterrupted output exactly (no loss / duplication).
+- **P4i — JS editors + palette 🔄 (in progress, one editor at a time).** Picks up the deferred client wiring
+  accumulated across P4b–P4h: the five config editors (`PivotSpecEditor` / `ValueSetFilterEditor` /
+  `SortSpecEditor` / `ExportSpecEditor` / `MultiFileInputEditor`), ribbon palette tools for every new worker,
+  `JobController` `summaryDetail`/schema threading, and the Explore **detached download** endpoint (streaming
+  `IndexedCsvTable.downloadCsvOffline`, the Job analogue of Report's `DetachedDownloadAction`).
+    - **`SortSpecEditor` ✅ 2026-07-02.** Edits a `SortWorker`'s `sort` (a `SortSpec` — an ordered `column ->
+      ascending` map, insertion order = multi-key priority) as add / remove / direction-toggle rows, following the
+      `FormulaMapEditor` observe-`MirroredGraphStore` → read-notation → apply-canonical-command shape. Added the
+      canonical command builders to `SortSpec`'s companion (`addCommand` / `removeCommand` /
+      `updateAscendingCommand`, mirroring `FilterSpec` / `FormulaSpec` — map key = `HeaderLabel.asString()`,
+      value = `"true"`/`"false"`) so the editor hand-rolls no notation commands; reads back via `SortSpec.ofNotation`.
+      Rows are **stateless** (a direction toggle commits immediately — no debounced text like `FormulaMapRow`), so
+      rows + the add-form are inlined in one self-contained file (no pointless sub-components). Columns are added
+      by **free-text name** (new key = ascending, appended at lowest priority) — the documented fallback until
+      upstream-schema threading lands, matching the value-set filter's degrade. Registered as a `Wrapper is:
+      AttributeEditor` in `job-js.yaml` (the `editor: SortSpecEditor` binding on the archetype already existed) +
+      a `SortTool` ribbon tool under `JobGroup_Transforms`. Re-prioritizing an existing key
+      (`ShiftInAttributeCommand` move) is a documented follow-up; for now priority is add-order. Verified:
+      `:kzen-auto-js:compileKotlinJs` green + `:kzen-auto-jvm:test --tests "*Job*Test"` green (rebuilds the
+      production JS bundle, so the editor compile is gated). **No unit test** — pure JS UI, covered transitively.
+    - **`ExportSpecEditor` ✅ 2026-07-02.** Edits an `ExportWriterWorker`'s `export` (an `OutputExportSpec` —
+      format / compression / path-pattern, carried as a top-level map, not Report's nested `output.export`) as a
+      **thin composition of the SAME reusable field editors** Report's `OutputExportController` uses — two
+      `SelectAttributeEditor` dropdowns (format csv/tsv, compression none/zip/gz) + a debounced
+      `TextAttributeEditor` (path) — pointed at Job-relative `export.*` paths (new `standalone*AttributePath`
+      constants on `OutputExportSpec`). No new command builders: each sub-editor applies its own
+      `CommonEditUtils.editCommand`. **Key correctness finding:** that's an `UpdateInAttributeCommand` on a nested
+      key, and `NotationReducer.updateInAttribute` first *coalesces the merged (archetype-default) `export` map
+      into the instance notation* (`mergeAttribute` → `upsertAttribute`) before the nested write — so editing one
+      field works even on a freshly palette-inserted worker whose body is only `is: ExportWriterWorker`
+      (AddObjectCommand.ofParent — `export` inherited-only). The editor observes `MirroredGraphStore` and feeds the
+      resolved spec (read via `mergeAttribute` + `OutputExportSpec.ofNotation`) down as values. Registered as a
+      `Wrapper is: AttributeEditor` in `job-js.yaml` (the `editor: ExportSpecEditor` binding already existed) + an
+      `ExportTool` ribbon tool under `JobGroup_Sinks`. Verified: `:kzen-auto-js:compileKotlinJs` +
+      `:kzen-auto-jvm:test --tests "*Job*Test"` green. **No unit test** — pure JS UI, covered transitively.
+    - `PivotSpecEditor` / `ValueSetFilterEditor` / `MultiFileInputEditor` — todo.
+- **P4j — todo.** A/B parity + Report removal (the original M5, once parity holds).
 
 ### P5 — performance
 
