@@ -77,7 +77,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | **P1** | **typed channels** (`elementType` + `ChannelTypeDefiner`) | ✅ done 2026-06-24 | `JobChannelTypingTest` (3) |
 | **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24; step-control unified per-spine 2026-06-25 | `JobNestedLogicTest` (6), `StepNavigationTest` |
 | **P3** | **state migration** (pause → edit config → continue); lossless channel carryover | ✅ done 2026-06-25 | `JobStateMigrationTest` (2), `JobMigrationCarryoverTest`, `JobChannelTest` |
-| P4 | Report parity as composable Workers (pivot/summary/sort/value-set-filter/export/explore/multi-input) — see P4 sub-plan below | 🔄 in progress | P4-0 batching ✅ (`JobBatchingTest`), P4a scratch dir ✅ (`JobScratchDirTest`), P4b summary ✅ (`SummaryWorkerTest`), P4c value-set filter ✅ (`ValueSetFilterWorkerTest`), P4d pivot ✅ (`PivotWorkerTest`), P4e sort ✅ (`SortWorkerTest`), P4f export ✅ (`ExportWriterWorkerTest`), P4g explore ✅ (`ExploreWorkerTest`), P4h multi-file ✅ (`MultiFileReaderWorkerTest`), P4i editors 🔄 (SortSpecEditor ✅, ExportSpecEditor ✅, MultiFileInputEditor ✅ + `/file-listing` REST route) |
+| P4 | Report parity as composable Workers (pivot/summary/sort/value-set-filter/export/explore/multi-input) — see P4 sub-plan below | 🔄 in progress | P4-0 batching ✅ (`JobBatchingTest`), P4a scratch dir ✅ (`JobScratchDirTest`), P4b summary ✅ (`SummaryWorkerTest`), P4c value-set filter ✅ (`ValueSetFilterWorkerTest`), P4d pivot ✅ (`PivotWorkerTest`), P4e sort ✅ (`SortWorkerTest`), P4f export ✅ (`ExportWriterWorkerTest`), P4g explore ✅ (`ExploreWorkerTest`), P4h multi-file ✅ (`MultiFileReaderWorkerTest`), P4i editors + palette + Explore download ✅ (all 5 editors: Sort, Export, MultiFileInput + `/file-listing` route, summary/schema threading via `JobSummaryStore` + `JobUpstreamSchema`, ValueSetFilter, Pivot; `ExploreTool` palette + Explore PERSISTED-result download via notation-keyed `/job/download`, last-run-wins `outputDir`); **P4j A/B parity + Report removal next** |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
 | P6 | interactivity hardening (idle-server vs deadlock) | ⬜ todo | — |
 | — | P2 follow-ups (scalar source/sink, JS editor; frame-tree/trace ✅ 2026-06-26) | ⬜ backlog | — |
@@ -391,7 +391,9 @@ Progress:
   `onElement` (its ctor writes the header row) — an empty stream leaves no table and serves an empty preview.
   Scratch dir like `PivotWorker`: opened under `JobControl.scratchDir()`, `onClose` does CLOSE-THEN-DELETE
   (`close(error = true)` skips the flush-before-delete — the run-scoped scratch is never read after settle);
-  `JobRun`'s run-root sweep backstops a hard kill. Reading the disk-backed table from the serve coroutine is
+  `JobRun`'s run-root sweep backstops a hard kill. **[Superseded by P4i:** the table moved to a PERSISTENT,
+  notation-keyed `JobControl.outputDir()` and `onClose` now flushes-and-KEEPS it, so the result survives the run
+  for post-settle download — see the P4i "Explore PERSISTED result" bullet.**]** Reading the disk-backed table from the serve coroutine is
   race-free by the single-threaded-Worker guarantee (`onQuery` runs only while the work coroutine is parked), and
   `IndexedCsvTable` interleaves append + random-access read on one handle by design (`preview` flushes pending,
   then seeks). Live edit RESTARTS (the WorkerBase default — re-indexes from a resuming upstream reader into a
@@ -399,7 +401,8 @@ Progress:
   can't A/B on output like `PivotWorkerTest` — it drives the REAL `WorkerBase` serve loop: one `offset`/`limit`
   request is fed through, coordinated by two `CompletableDeferred`s (single-threaded `runBlocking` event loop) so
   it lands after every record is indexed and before the run settles, and asserts the served `ExecutionResult`
-  equals a direct `IndexedCsvTable.preview` over the same slice (+ row-count on the trace, + scratch swept).
+  equals a direct `IndexedCsvTable.preview` over the same slice (+ row-count on the trace, + output PERSISTED
+  after settle — was scratch-swept before the P4i rework).
   **Deferred:** the detached DOWNLOAD endpoint (streaming `IndexedCsvTable.downloadCsvOffline` / the Job analogue
   of Report's `DetachedDownloadAction`) is REST/controller/client work — folded into P4i with the serve plumbing,
   matching how P4b–P4f deferred all client wiring. No `editor:` (no config to edit).
@@ -477,9 +480,80 @@ Progress:
       tool under `JobGroup_Sources`. Verified: `:kzen-auto-js:compileKotlinJs` + `:kzen-auto-jvm:test --tests
       "*Job*Test"` green (server REST changes compile, JS bundle rebuilt). **No unit test** — the `fileListing`
       handler is thin param-mapping over the already-covered `scanInfo`; editor is pure JS UI.
-    - `PivotSpecEditor` / `ValueSetFilterEditor` — todo (both lean on upstream schema / distinct-values, so they
-      want the `JobController` `summaryDetail`/schema threading first).
-- **P4j — todo.** A/B parity + Report removal (the original M5, once parity holds).
+    - **Summary/schema threading ✅ 2026-07-02.** `JobController` now also pulls each SummaryWorker's live
+      `TableSummary` over its duplex serve channel each poll while the run is active (refactored the serve-channel
+      -name resolution out of `queryPreviewSlice` into a shared `serveChannelName`, added `querySummary` +
+      `refreshSummaries`) and pushes the per-Worker map into a new **`JobSummaryStore`** — a value-gated broadcast
+      *provided into the per-document `DocumentBridge`* (owner-constructed, document-scoped — NOT a process-global)
+      the way `ScriptController` provides `ScriptStore`. The editors (nested under the generic
+      `AttributeEditorManager`, out of props reach) `lookup` + observe it, so they stay free of a `restClient` and
+      the run-scoped serve query keeps a single owner. Summaries are KEPT (not cleared) once the run ends — no
+      persisted teaser fallback — so a filter can be configured against the last run's values. `TableSummary`
+      round-trips losslessly (its `Long` counts serialize as `longType`, so `TableSummary.fromCollection`'s casts
+      hold). No new server code — reuses the existing external-bridge serve path.
+    - **`ValueSetFilterEditor` ✅ 2026-07-02.** Edits a `ValueSetFilterWorker`'s `filter` (a `FilterSpec` — a
+      `column -> {type, values}` distinct-value whitelist) as add/remove-column rows, each a per-column
+      `ValueSetFilterColumn` child (own expand state) with a RequireAny / ExcludeAll toggle and a value set edited
+      both as **histogram checkboxes** (from the threaded upstream Summary's `NominalValueSummary`) and free text
+      (`MultiTextAttributeEditor` over the same `values` list) — a trimmed Job analogue of Report's
+      `FilterItemController` + `FilterAddController`. A column's candidate distinct values come from the **nearest
+      upstream SummaryWorker** (walked via `JobChannelDerivation`), read from the `JobSummaryStore` it observes;
+      column-add is a summary-driven dropdown when columns are available, else free-text (SortSpecEditor's
+      fallback). Reuses the canonical `FilterSpec` command builders (add/remove column, add/remove value, update
+      type) — no bespoke command code; added `FilterSpec.ofNotation` (commonMain, factored out of `Definer`) for
+      the editor to read the committed spec, mirroring `SortSpec.ofNotation`. Registered as a `Wrapper is:
+      AttributeEditor` in `job-js.yaml` (the `editor: ValueSetFilterEditor` binding already existed) + a
+      `ValueSetFilterTool` **and** `SummaryTool` ribbon under `JobGroup_Transforms` (Summary needed to build the
+      recommended `reader → Summary → ValueSetFilter` topology that feeds the distinct values). Verified:
+      `:kzen-auto-js:compileKotlinJs` + `:kzen-auto-jvm:test --tests "*Job*Test"` green (JS bundle rebuilt, no Job
+      regression). **No unit test** — pure JS UI over already-covered command builders + the covered serve path.
+    - **`PivotSpecEditor` ✅ 2026-07-02.** Edits a `PivotWorker`'s `pivot` (a `PivotSpec` — `rows` group-by columns
+      + `values`, a column -> set of aggregate types Count/Sum/Average/Min/Max) as two sections: a removable
+      **rows** list and a **values** list where each column carries a non-exclusive `PivotValueType` toggle group.
+      A trimmed Job analogue of Report's `AnalysisPivotRowList / ValueList / ValueType / ValueAdd` controllers.
+      Both column pickers draw candidates from the nearest upstream SummaryWorker's `TableSummary` (via the same
+      `JobSummaryStore`), degrading to free-text column entry with no Summary upstream. Reuses the canonical
+      `PivotSpec` command builders (add/remove row, add/remove value column, add/remove value type) — no bespoke
+      command code; `PivotSpec.ofNotation` already existed (read via `mergeAttribute`, the deep-merge the Definer
+      uses, so the archetype `rows: [] / values: {}` defaults are always present). Registered as a `Wrapper is:
+      AttributeEditor` in `job-js.yaml` (the `editor: PivotSpecEditor` binding already existed) + a `PivotTool`
+      ribbon under `JobGroup_Transforms`. Verified: `:kzen-auto-js:compileKotlinJs` + `:kzen-auto-jvm:test --tests
+      "*Job*Test"` green. **No unit test** — pure JS UI over already-covered command builders + the covered serve
+      path.
+    - **Shared `JobUpstreamSchema` helper.** The summary-aware editors' upstream walk (find the nearest upstream
+      SummaryWorker via `JobChannelDerivation`) is factored into `edit/JobUpstreamSchema.nearestUpstreamSummaryWorker`
+      — one pure home used by both `ValueSetFilterEditor` and `PivotSpecEditor` (the former refactored to it), so
+      the two can't drift and there's one place to teach about other schema-bearing upstreams later.
+    - **Explore PERSISTED result + download + `ExploreTool` ✅ 2026-07-02 (closes P4i).** *A first pass shipped a
+      live-only serve-path download; it was reworked the same day after the requirement clarified — the result
+      data MUST survive the run settling, else "the reporting is completely useless."* The Job analogue of
+      Report's `DetachedDownloadAction`, now genuinely following Report's decoupling: the ExploreWorker's
+      `IndexedCsvTable` moved off the transient run-keyed `scratchDir` onto a **PERSISTENT, notation-keyed output
+      dir** (new `JobControl.outputDir()`, default-throw; `EngineJobControl`/`WorkerLogic`/`JobRun` thread it in;
+      `JobWorkPool.workerOutputDir(location)` = `<work>/job-output/<digest(location)>`, a SEPARATE base the
+      transient boot / run-settle sweeps never touch). Semantics are **last-run-wins per worker**: `onStart`
+      clears the dir, `onClose` now `close(error = false)` FLUSHES-and-keeps (no delete). Because the path is a
+      pure function of the worker's `ObjectLocation`, download resolves it straight from notation with NO live run
+      — `GET /job/download` (`CommonRestApi.jobDownload`, `path` + `object`) → `RestHandler.jobDownload` streams
+      `table.csv` (`IndexedCsvTable.downloadCsvOffline`), same ContentDisposition/`respondOutputStream` plumbing as
+      `actionDetachedDownload`, sitting in `routeDetached`. So the report downloads AFTER the run ends (post-settle
+      the file is complete; during a live run it streams the rows flushed so far). Client is now trivial:
+      `ClientRestApi.linkJobDownload(objectLocation)` (no run/exec/channel), and `JobController.exploreDownloadLink`
+      drops the `active` gate — it surfaces whenever the last run's row count > 0, read from the persisted progress
+      teaser (`"count"`, matching `PreviewWorker` — the `"rows"`→`"count"` progress-key fix from the first pass is
+      kept, since the client's `JobWorkerProgress.ofProgressMap` needs `rowCount` for the gate). `ExploreWorkerTest`
+      now asserts the dir + `table.csv` PERSIST after settle (was: swept). The removed live-only path took
+      `JobConventions.downloadParameter`, `CommonRestApi.logicDownload`/`RestHandler.logicDownload`, the onQuery
+      download branch, and the public `IndexedCsvTable.flush()` with it. Also added `ExploreTool` under
+      `JobGroup_Sinks` (the only worker that lacked a ribbon tool). Verified: `:kzen-auto-js:compileKotlinJs` +
+      `:kzen-auto-jvm:test --tests "*WorkerTest" --tests "*Job*Test"` green. **Follow-ups (noted, not blocking):**
+      post-run in-card BROWSE (the live serve path is dead post-settle — needs a detached read over the persisted
+      dir) and cross-restart download visibility (the row-count gate comes from the per-session trace, so after a
+      process restart the on-disk data survives but the button hides until re-run — needs a persistent row-count
+      probe).
+  - **All P4i work done** — five config editors (Pivot / ValueSetFilter / Sort / Export / MultiFileInput), summary/
+    schema threading, ribbon tools for every worker (incl. `ExploreTool`), and the Explore persisted-result download.
+- **P4j — next.** A/B parity + Report removal (the original M5, once parity holds).
 
 ### P5 — performance
 
