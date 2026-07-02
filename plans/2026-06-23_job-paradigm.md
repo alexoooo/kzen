@@ -77,7 +77,7 @@ worker can run framework-driven or self-managed, have its state migrated, and ho
 | **P1** | **typed channels** (`elementType` + `ChannelTypeDefiner`) | ✅ done 2026-06-24 | `JobChannelTypingTest` (3) |
 | **P2** | **nested Logic** (`JobLogicHost` + `RunWorker`) | ✅ done 2026-06-24; step-control unified per-spine 2026-06-25 | `JobNestedLogicTest` (6), `StepNavigationTest` |
 | **P3** | **state migration** (pause → edit config → continue); lossless channel carryover | ✅ done 2026-06-25 | `JobStateMigrationTest` (2), `JobMigrationCarryoverTest`, `JobChannelTest` |
-| P4 | Report parity as composable Workers (pivot/summary/sort/value-set-filter/export/explore/multi-input) — see P4 sub-plan below | 🔄 in progress | P4-0 batching ✅ (`JobBatchingTest`), P4a scratch dir ✅ (`JobScratchDirTest`), P4b summary ✅ (`SummaryWorkerTest`), P4c value-set filter ✅ (`ValueSetFilterWorkerTest`), P4d pivot ✅ (`PivotWorkerTest`), P4e sort ✅ (`SortWorkerTest`), P4f export ✅ (`ExportWriterWorkerTest`), P4g explore ✅ (`ExploreWorkerTest`), P4h multi-file ✅ (`MultiFileReaderWorkerTest`), P4i editors 🔄 (SortSpecEditor ✅, ExportSpecEditor ✅) |
+| P4 | Report parity as composable Workers (pivot/summary/sort/value-set-filter/export/explore/multi-input) — see P4 sub-plan below | 🔄 in progress | P4-0 batching ✅ (`JobBatchingTest`), P4a scratch dir ✅ (`JobScratchDirTest`), P4b summary ✅ (`SummaryWorkerTest`), P4c value-set filter ✅ (`ValueSetFilterWorkerTest`), P4d pivot ✅ (`PivotWorkerTest`), P4e sort ✅ (`SortWorkerTest`), P4f export ✅ (`ExportWriterWorkerTest`), P4g explore ✅ (`ExploreWorkerTest`), P4h multi-file ✅ (`MultiFileReaderWorkerTest`), P4i editors 🔄 (SortSpecEditor ✅, ExportSpecEditor ✅, MultiFileInputEditor ✅ + `/file-listing` REST route) |
 | P5 | performance (record pooling, self-managed workers) | ⬜ todo | — |
 | P6 | interactivity hardening (idle-server vs deadlock) | ⬜ todo | — |
 | — | P2 follow-ups (scalar source/sink, JS editor; frame-tree/trace ✅ 2026-06-26) | ⬜ backlog | — |
@@ -458,7 +458,27 @@ Progress:
       `Wrapper is: AttributeEditor` in `job-js.yaml` (the `editor: ExportSpecEditor` binding already existed) + an
       `ExportTool` ribbon tool under `JobGroup_Sinks`. Verified: `:kzen-auto-js:compileKotlinJs` +
       `:kzen-auto-jvm:test --tests "*Job*Test"` green. **No unit test** — pure JS UI, covered transitively.
-    - `PivotSpecEditor` / `ValueSetFilterEditor` / `MultiFileInputEditor` — todo.
+    - **`MultiFileInputEditor` ✅ 2026-07-02 (full directory browse — user chose it over a paths-list-only editor).**
+      Edits a `MultiFileReaderWorker`'s `paths` (an ordered `List<String>` of concrete input files, read in list
+      order): a reorderable / removable selected-paths list (up / down move a file earlier / later in the read
+      sequence) + a directory browser (directory field + name filter → click into subdirs, add files). Writes
+      rewrite the WHOLE `paths` list via `UpsertAttributeCommand` (robust vs inherited-only list on a fresh
+      palette insert, robust vs duplicates, trivial reorder — there is no `paths` spec class, so this localized
+      list-notation write is the seam). **Scope discovery:** the plan assumed the browse could "reuse the
+      `FileListingAction` REST endpoint Report's input browser already calls," but that endpoint is a
+      *ReportDocument detached action* reading the directory from the report's own `InputBrowserSpec` notation —
+      NOT reusable for a Job worker. So this pass **added a document-agnostic REST route** `GET /file-listing?
+      directory=…&filter=…` (`CommonRestApi` + `RestHandler.fileListing` calling the reused
+      `FileListingAction.scanInfo` + `KzenAutoMain` route + `KzenAutoContext` wires `fileListingAction` into
+      `RestHandler`) and a `ClientRestApi.listFiles(directory, filter): List<DataLocationInfo>`. This editor is the
+      documented exception to "editors stay pure" — its `Wrapper` injects `ClientRestApi` (directory browse is a
+      static filesystem query, not a run-scoped serve query). Registered as a `Wrapper is: AttributeEditor` in
+      `job-js.yaml` (the `editor: MultiFileInputEditor` binding already existed) + a `MultiFileReaderTool` ribbon
+      tool under `JobGroup_Sources`. Verified: `:kzen-auto-js:compileKotlinJs` + `:kzen-auto-jvm:test --tests
+      "*Job*Test"` green (server REST changes compile, JS bundle rebuilt). **No unit test** — the `fileListing`
+      handler is thin param-mapping over the already-covered `scanInfo`; editor is pure JS UI.
+    - `PivotSpecEditor` / `ValueSetFilterEditor` — todo (both lean on upstream schema / distinct-values, so they
+      want the `JobController` `summaryDetail`/schema threading first).
 - **P4j — todo.** A/B parity + Report removal (the original M5, once parity holds).
 
 ### P5 — performance
