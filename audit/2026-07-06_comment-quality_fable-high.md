@@ -2,13 +2,15 @@
 
 **Task:** (1) Amend `docs/CODING_STANDARDS.md` with comment writing-style guidance (target audience =
 first-time reader, not the prompter); (2) identify low-quality comments added since Claude Code use
-began (cutoff 2026-05-01) across the kzen repos; (3) propose a fix for each. Fixes are PROPOSED here,
-not applied to code.
+began (cutoff 2026-05-01) across the kzen repos; (3) propose a fix for each.
 
 **Status:**
 - [x] Standards amendment written to `docs/CODING_STANDARDS.md` (CC-02 "Writing style" subsection)
 - [x] Candidate verification pass (context read, verdict + proposed fix per item)
 - [x] Final summary
+- [x] All 39 fixes (F01–F39) applied to code (2026-07-07)
+- [x] Concision pass over the same comments (2026-07-07): trimmed redundant words / irrelevant
+      details; CC-02 gains a "Less is more" bullet
 
 **Method:** extracted every comment line added since 2026-05-01 that still survives at HEAD
 (`git log -p` since cutoff + grep against HEAD), across kzen-auto (3,895 surviving lines),
@@ -31,7 +33,7 @@ objects, `GraphController` are all GONE; `LogicTraceStore` and both `LogicTraceH
 
 ---
 
-## Findings — proposed fixes (not yet applied)
+## Findings — fixes (applied 2026-07-07)
 
 Severity: ● = dead referent / pure history, delete or rewrite; ◐ = real constraint wrapped in
 diff-speak, rewrite present-tense.
@@ -260,4 +262,4 @@ misnomer, not a dead referent. **Fix:** `// The LogicTraceStore-backed handle re
   each with a concrete proposed replacement. Two dominant classes: dead-referent comparisons
   ("the old X", "replaces the former Y" — 20 items) and change-narration wrapping a real constraint
   ("previously", "now that", "no longer" — 19 items, rewrite present-tense).
-- Fixes are proposed only; nothing applied to code yet.
+- All 39 fixes applied to code on 2026-07-07 (comment-only edits; no behavioural change).
