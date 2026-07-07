@@ -46,7 +46,23 @@ Do explain non-obvious why:
 useCommonJs()
 ```
 
-**Why:** Well-named identifiers say *what* the code does. A comment adds value only when it captures a hidden constraint, a workaround for a specific bug, a non-trivial invariant, or behaviour that would surprise a reader.
+**Writing style — the audience is a first-time reader, not the person who requested the change.**
+Write every comment for a hypothetical developer (or AI) reading the file cold, who sees only today's tree — no diff, no conversation, no memory of what the code used to look like. Concretely:
+
+- **Never narrate the change.** "now", "no longer", "previously", "moved here from X", "replaces the former X" describe the *diff*, not the code. The first-time reader has no "before" to compare against, so these words carry zero information for them — and they rot into confusion once the referenced history scrolls away. State the present-tense fact or constraint instead; the history belongs in the commit message.
+- **Never echo the prompt or the review conversation.** Quoting ad-hoc wording from the request, or justifying the change to the person who asked for it ("this avoids the problem you mentioned"), is talking to the wrong audience. If the justification encodes a real constraint, restate it as that constraint.
+- **Never compare against something that was just deleted.** "unlike the old regex", "matching the old JobControlImpl", "smaller than the former 1.5em" reference code the reader cannot see. A comparison is only useful when the referent is *live*: another class still in the tree, an external library's documented behaviour, or a plausible design alternative a reader would naturally reach for.
+
+Comparisons that ARE legitimate, because the referent exists outside the diff:
+```kotlin
+// Replaces react.PureComponent (removed in kotlin-wrappers 2026.x).   ← external API, verifiable
+// Legacy `item` notation still parses; saved documents on disk use it. ← on-disk artifact, live
+// Queried lazily rather than passed as a prop — the pane remounts per document. ← design alternative + why
+```
+
+The rewrite test: would this comment still make sense to someone who checks out only today's commit, with no access to the diff or the conversation that produced it? If not, either restate it as a present-tense constraint/invariant, or delete it.
+
+**Why:** Well-named identifiers say *what* the code does. A comment adds value only when it captures a hidden constraint, a workaround for a specific bug, a non-trivial invariant, or behaviour that would surprise a reader. A comment addressed to the prompter is noise the moment the change merges: its referents (the request, the deleted code, the "before" state) are gone, so it costs every future reader a lookup that can never succeed.
 
 
 ## CC-03 — Scalability of code
