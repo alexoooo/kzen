@@ -92,7 +92,7 @@ When bumping Kotlin (even patch versions like `2.4.0` → `2.4.x`):
 
 `kzen-shell` is the desktop entry point and the only piece a packaged user actually launches. Its job is to **act as a single-port reverse proxy in front of multiple child JVM processes**:
 
-1. `KzenShellMain.main` calls `kzenShellInit` → `KzenShellContext.start()` which downloads & unzips the launcher artifact (currently hard-coded to `file:///C:/Users/ostro/IdeaProjects/kzen-launcher/.../kzen-launcher-0.29.1-SNAPSHOT.zip`) into `../work/kzen-launcher/...` if missing, then spawns it as `main.jar` on a free port.
+1. `KzenShellMain.main` calls `kzenShellInit` → `KzenShellContext.start()` which downloads & unzips the launcher artifact (source resolved by `KzenShellProperties.load`: `--launcher.zip=` arg > `kzen-shell.properties` in the working dir; the `dist` zip bundles a release copy pointing at the launcher's GitHub URL) into the configured `launcher.dir` if missing, then spawns it as `main.jar` on a free port.
 2. Ktor binds `127.0.0.1:8080` and routes `/<name>/<subpath>` to the child process registered as `<name>` in `ProcessRegistry`. The literal name `main` is rewritten to whichever process was registered with `attributes["location"] == <launcherDir>/main.jar` — i.e. the launcher.
 3. `/shell/project/start|stop` and `/shell/project` are the only first-class endpoints; everything else is a generic GET/PUT/POST proxy implemented in `ProxyHandler`.
 4. `ProjectRegistry` (a Guava cache) tracks user-launched projects; each project is its own jar started by `MainJarRunner` on its own free port and reverse-proxied through the same name-prefix scheme.
@@ -113,13 +113,15 @@ Each of these is a Gradle multi-module project with a fixed three-module shape:
 
 For foundational concepts shared across all KMP siblings (the Notation → Definition → Instance three-layer model, CQRS, suffix conventions), see [`../kzen-lib/docs/architecture.md`](../kzen-lib/docs/architecture.md).
 
-### Versioning
+### Versioning & releases
 
-- `kzen-shell`, `kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher` are all `0.29.1-SNAPSHOT`
+- `kzen-shell`, `kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher` are all `0.29.1-SNAPSHOT`, a **coordinated release train** — bump them together (see [`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md)).
+- **Cutting a release is a documented step-by-step procedure: [`docs/RELEASING.md`](docs/RELEASING.md)** — the version-bump surface (8 locations), `publishToMavenLocal` order, `dist` builds, GitHub releases via `gh`, the Maven mirror, and where the operator must act. Follow it rather than improvising.
 
-When cutting a release, bump all five `build.gradle.kts` `version =` lines together, and update the version-bearing zip references: the launcher's project-archetype candidates in `kzen-launcher-jvm/src/main/resources/kzen-launcher.properties` (`archetype.project.N`, resolved by `resolveArchetypeUrl()` — ordered dev `build/dist` file paths first, release URL last) and the shell's launcher-zip source in `KzenShellProperties` (`launcher.zip` property / `--launcher.zip=` arg override).
+Reference facts the runbook builds on:
 
-The launcher and project distribution zips (`kzen-launcher-<v>.zip`, `kzen-project-<v>.zip`) **are** produced by a Gradle task — `./gradlew :<sibling>-jvm:dist` (a `Zip` task) writes `<sibling>-jvm/build/dist/<sibling>-<v>.zip`, assembling the thin `main.jar` (renamed from the module jar, `Class-Path` → `dependencies/`) + `dependencies/` (the whole `runtimeClasspath`), and for kzen-project also the loose seed notation under `src/main/resources/notation/`. Because `dependencies/` is the runtime classpath, a project dist only carries a fix in a sibling (e.g. kzen-auto-jvm) after that sibling is republished to mavenLocal *then* `:kzen-project-jvm:dist` re-runs. Dev pickup is automatic: the launcher re-acquires a `file://` archetype on every `ArchetypeRepo.init()` (i.e. on launcher restart — see the `scheme == "file"` re-install branch), and its candidate list points at `build/dist/` first.
+- The launcher/project/shell distribution zips are produced by a Gradle `Zip` task — `./gradlew :<sibling>-jvm:dist` (shell: `:kzen-shell:dist`) writes `build/dist/<name>-<v>.zip`, assembling the thin `main.jar` (`Class-Path` → `dependencies/`) + `dependencies/` (the whole `runtimeClasspath`); kzen-project also bundles the loose seed notation under `src/main/resources/notation/`, and kzen-shell also bundles a release `kzen-shell.properties`. Because `dependencies/` is the runtime classpath, a project dist only carries a fix in a sibling (e.g. kzen-auto-jvm) after that sibling is republished to mavenLocal *then* `:kzen-project-jvm:dist` re-runs.
+- Artifact sources are externalized to config (no machine paths in source): the shell's launcher source is `kzen-shell.properties` (`launcher.zip`, `--launcher.zip=` override); the launcher's project-archetype candidates are `kzen-launcher-jvm/src/main/resources/kzen-launcher.properties` (`archetype.project.N`, resolved by `resolveArchetypeUrl()` — dev `build/dist` paths first, GitHub release URL last). Dev pickup is automatic: `file://` sources are re-acquired on every boot (shell `ArtifactRepo.downloadIfAbsent`; launcher `ArchetypeRepo.init` `scheme == "file"` re-install branch), while `https` release sources install once.
 
 ## Working with this repo from AI agents
 
