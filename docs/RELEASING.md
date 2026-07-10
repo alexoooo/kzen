@@ -200,12 +200,12 @@ from GitHub into `work/` → runs the launcher (via the bundled `jdk\`) → laun
 UI on `127.0.0.1:8080`. **[OPERATOR]** open it, create a project, confirm the project process launches.
 *(Headless option: drive `/shell/project` / `/shell/project/start` via curl instead of a browser.)*
 
-> **Hard-refresh if you dev on this origin.** If you have run dev/SNAPSHOT builds on `localhost:8080`
-> before, the browser may serve a **stale cached SPA bundle** (the launcher/project frontends are served
-> at a fixed `static/…-js.js` path with no cache-busting). Symptom: an old archetype/label, or a
-> create-time `Archetype not found` error, while the server is correct
-> (`curl …/main/rs/query/archetype` returns the right data). Fix: **Ctrl+Shift+R** / clear cache for the
-> origin. Verify server-side headlessly before assuming a release defect. (See Known limitations.)
+> **First upgrade from a pre-0.30.0 build may need one hard-refresh.** The SPA route now sends
+> `Cache-Control: no-cache`, so the browser revalidates the bundle each load and picks up an upgraded
+> build automatically. A browser that cached the bundle from an *older* (pre-fix) build on this origin
+> (e.g. `localhost:8080`) may serve it once more — symptom: an old archetype/label, or a create-time
+> `Archetype not found`, while the server is correct (`curl …/main/rs/query/archetype` returns the right
+> data). Fix: **Ctrl+Shift+R** once. Verify server-side headlessly before assuming a release defect.
 
 ## Phase 7 — Publish Maven libs to the mirror [AI copies/stages → OPERATOR authorizes push]
 
@@ -272,15 +272,7 @@ Not blockers:
 - **Not offline-first.** The JDK is bundled (so the app runs with no local Java), but first run still
   downloads the launcher and project-archetype zips from GitHub — network is needed the first time.
   Pre-seeding those under `work/` inside the zip would make first boot fully offline.
-- **No atomic staging** in the runtime `ArtifactRepo`/`ArchetypeRepo` (the shell's launcher/archetype
-  *download* at runtime, distinct from the build-time JDK task) — it extracts into the target dir and
-  leaves `archive.zip` behind, and the presence check treats a leftover `archive.zip` as "present", so a
-  crash mid-extract leaves a half-populated dir that is **not** re-tried on next boot (no self-heal).
-  Harden before shipping widely (stage → verify `main.jar` → atomic move; drop the leftover archive).
-  (Tracked in `kzen/plans/2026-07-08_release-distribution-pipeline.md` item B.)
-- **SPA bundle is not cache-busted.** The launcher/project frontends serve `static/<name>-js.js` at a
-  fixed path with no content hash or no-cache headers, so a returning user on the same origin
-  (e.g. `localhost:8080`) can get **stale JS after an upgrade** — it looks like a release defect but is
-  browser cache (hard-refresh fixes it; see Phase 6). Fix before wide distribution: hashed bundle
-  filename (esbuild `[hash]`) or `Cache-Control`/revalidate on the SPA bundle. (Tracked in agent memory;
-  a future JS-touching release.)
+
+Resolved in 0.30.0 (formerly listed here): the runtime `ArtifactRepo`/`ArchetypeRepo` download+extract is
+now atomically staged and verified (self-healing on a mid-extract crash), and the SPA route sends
+`Cache-Control: no-cache` so an upgraded bundle is picked up without a hard-refresh.
