@@ -1,11 +1,48 @@
 # Release / distribution pipeline — proposal (Phase 4, full)
 
-> **Status: proposed.** Written 2026-07-08 after implementing the *local-dev slice* of the
+> **Status: release half largely executed in the 0.29.1 cut (2026-07-10);** item B (download
+> atomicity) + two small cleanups remain — see the "Status after the 0.29.1 release" section below.
+> Written 2026-07-08 after implementing the *local-dev slice* of the
 > shell/launcher/project distribution rework (see "Already landed" below). This document records the
 > discoveries from that work and specifies the remaining, release-oriented half so it can be picked
 > up later. It refines — and stays subordinate to — Phase 4 of
 > `2026-07-06_shell-launcher-project-improvements.md` (that plan's progress tracker remains the
 > umbrella index; tick its Phase 4 box only when *this* document is fully executed).
+
+## Status after the 0.29.1 release (2026-07-10)
+
+The release half was executed while cutting **0.29.1**; `docs/RELEASING.md` is now the authoritative
+runbook. Outcome per item:
+
+- **A — Release config delivery: DONE.** The shell `dist` bundles a generated release
+  `kzen-shell.properties` (`generateReleaseConfig`; version derived from the Gradle `version`, no source
+  literal). Minor/mooted leftovers: read *beside the jar* — the generated `kzen.bat`/`kzen-cmd.bat` do
+  `cd /d "%~dp0"`, so CWD is already the extract dir; a louder "no launcher source configured" error is a
+  nice-to-have.
+- **B — `ArtifactRepo` atomicity / verification / stream hygiene: NOT DONE — the main open item.** Still
+  extracts into the target dir and leaves `archive.zip`; `isPresent` treats a leftover `archive.zip` as
+  "done", so a crash mid-extract is never re-tried (no self-heal). Mis-scoped logger persists
+  (`ArtifactRepo.kt:21` → `DownloadService::class`). Staging → verify `main.jar` → atomic-move, plus
+  stream `use{}` / zip-slip hardening, remain (zip-slip overlaps source-plan Phase 3). **Harden before
+  distributing to non-devs.**
+- **C — Runnable / offline-first: core DONE and exceeded; one optional leftover.** The `.bat` launchers
+  shipped, and we went *beyond* the plan by bundling a full **Temurin JDK** (`ProvisionAdoptiumJdk` — the
+  plan only suggested guarding for a PATH JVM), so no local Java is needed. Optional remaining: **pre-seed
+  the launcher zip under `work/`** for a fully-offline first run (today first boot downloads
+  launcher+project from GitHub). `kzen.sh`/Linux + macOS bundles are deliberately deferred (Windows-only).
+- **D — Config cleanup + docs: docs DONE; one small code cleanup left.** `docs/RELEASING.md` written;
+  umbrella + sibling `AGENTS.md` gotchas corrected; stale `application.yaml` **deleted (2026-07-10)**.
+  Remaining: make `KzenShellProperties` non-nullable and drop the vestigial `port: Int = 80`.
+
+**Discovered during the release (new, not in the original proposal):** the frontends serve
+`static/<name>-js.js` at a fixed path with **no cache-busting**, so a returning user on the same origin
+gets stale JS after an upgrade (looks like a release defect; it's browser cache). Fix = hashed bundle
+filename or `Cache-Control`. Tracked in `docs/RELEASING.md` (Known limitations) and agent memory
+(`project-launcher-spa-cache-busting-gap`).
+
+**Net remaining:** item **B** (download atomicity — substantive), the **`KzenShellProperties`** tidy (D),
+optional **offline pre-seeding** (C), and **SPA cache-busting** (new). The rest of Phase 4's release half
+is complete.
 
 ## Why
 

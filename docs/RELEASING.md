@@ -171,6 +171,11 @@ Full end-to-end verification is Phase 6 (needs the GitHub uploads).
    **[OPERATOR]** approve each. *(Order tip: create the launcher & project releases before the shell
    release so their download URLs are live when someone runs the app.)*
 
+   **Large-asset note:** the full `kzen-<VERSION>.zip` is ~170 MB and can overrun a foreground upload
+   timeout. Upload it in the background (or expect a multi-minute upload). If `gh release create` times
+   out mid-upload, the tag + release + any smaller asset are already created — finish the missing one with
+   `gh release upload v<VERSION> --repo alexoooo/kzen --clobber ..\kzen-shell\build\dist\kzen-<VERSION>.zip`.
+
 4. **Provenance tags** on the code repos with no downloadable asset:
 
    ```powershell
@@ -195,17 +200,34 @@ from GitHub into `work/` → runs the launcher (via the bundled `jdk\`) → laun
 UI on `127.0.0.1:8080`. **[OPERATOR]** open it, create a project, confirm the project process launches.
 *(Headless option: drive `/shell/project` / `/shell/project/start` via curl instead of a browser.)*
 
+> **Hard-refresh if you dev on this origin.** If you have run dev/SNAPSHOT builds on `localhost:8080`
+> before, the browser may serve a **stale cached SPA bundle** (the launcher/project frontends are served
+> at a fixed `static/…-js.js` path with no cache-busting). Symptom: an old archetype/label, or a
+> create-time `Archetype not found` error, while the server is correct
+> (`curl …/main/rs/query/archetype` returns the right data). Fix: **Ctrl+Shift+R** / clear cache for the
+> origin. Verify server-side headlessly before assuming a release defect. (See Known limitations.)
+
 ## Phase 7 — Publish Maven libs to the mirror [AI copies/stages → OPERATOR authorizes push]
 
 Only if the release includes the libraries (for external plugin authors). `kzen-repo` is a flat Maven-2
 tree under `artifacts\` served raw from GitHub; entries are `publishToMavenLocal` outputs copied verbatim.
 
-- Copy the new `<VERSION>` version dirs from `~\.m2\repository\tech\kzen\lib\**` and `…\auto\**` (all
-  published modules incl. `kzen-auto-plugin`; each dir has `.jar`, `.pom`, `.module`, `-sources.jar`, and
-  for JS `.klib`) into the matching
-  `..\kzen-repo\artifacts\tech\kzen\{lib,auto}\<module>\<VERSION>\`.
-- Refresh each module's `maven-metadata*.xml` if present (add the new version to `<versions>`/`<latest>`).
-- `git -C ..\kzen-repo add -- <the new paths>`, commit, **[OPERATOR]** authorize push.
+- Copy the new `<VERSION>` version dirs from `~\.m2\repository\tech\kzen\lib\**` and `…\auto\**` into the
+  matching `..\kzen-repo\artifacts\tech\kzen\{lib,auto}\<module>\<VERSION>\`. The mirror tracks a **fixed
+  module set** — copy exactly those already present, at the new version:
+  - **lib (6):** `kzen-lib-common`, `-common-js`, `-common-jvm`, `kzen-lib-js`, `-js-js`, `kzen-lib-jvm`
+  - **auto (7):** `kzen-auto-common`, `-common-js`, `-common-jvm`, `kzen-auto-js`, `-js-js`, `kzen-auto-jvm`, `kzen-auto-plugin`
+  - **Do NOT** add `kzen-lib-reflect-ksp` (KSP processor — never mirrored; the sample plugin resolves
+    only `kzen-auto-plugin`) or the deprecated `-common-metadata` (stopped at 0.21.0). Each dir has
+    `.jar`, `.pom`, `.module`, `-sources.jar`, and for JS `.klib` (the KMP root also a
+    `-kotlin-tooling-metadata.json`) — file sets already match the existing mirrored versions.
+- **`maven-metadata-local.xml` is gitignored in `kzen-repo`** (`.gitignore`) — never committed; the
+  mirror resolves purely by exact-version dirs (kzen deps are exact-pinned, no metadata lookup). There is
+  **nothing to refresh** — skip it. (`publishToMavenLocal` regenerates a local copy; leave it ignored.)
+- Stage the new `<VERSION>` dirs by explicit path and commit **per sibling**, matching the mirror's
+  convention — `kzen-lib <VERSION>` then `kzen-auto <VERSION>` — then **[OPERATOR]** authorize push. (The
+  LF→CRLF warnings on `.module`/`.pom`/`.json` are the usual autocrlf and harmless; jars/klibs are binary
+  and copied byte-faithfully — spot-check one `md5sum` against `~\.m2` if unsure.)
 
 Verify: from a clean local Maven cache, `kzen-sample-plugin` (`pom.xml` `kzen.version=<VERSION>`) resolves
 `tech.kzen.auto:kzen-auto-plugin:<VERSION>` from the mirror.
@@ -251,7 +273,14 @@ Not blockers:
   downloads the launcher and project-archetype zips from GitHub — network is needed the first time.
   Pre-seeding those under `work/` inside the zip would make first boot fully offline.
 - **No atomic staging** in the runtime `ArtifactRepo`/`ArchetypeRepo` (the shell's launcher/archetype
-  *download* at runtime, distinct from the build-time JDK task) — a crash mid-download can leave a
-  half-extracted dir; the `https` presence check is dir-exists only (not "contains `main.jar`"), so it
-  won't self-heal. Harden before shipping widely. (Tracked in
-  `kzen/plans/2026-07-08_release-distribution-pipeline.md` item B.)
+  *download* at runtime, distinct from the build-time JDK task) — it extracts into the target dir and
+  leaves `archive.zip` behind, and the presence check treats a leftover `archive.zip` as "present", so a
+  crash mid-extract leaves a half-populated dir that is **not** re-tried on next boot (no self-heal).
+  Harden before shipping widely (stage → verify `main.jar` → atomic move; drop the leftover archive).
+  (Tracked in `kzen/plans/2026-07-08_release-distribution-pipeline.md` item B.)
+- **SPA bundle is not cache-busted.** The launcher/project frontends serve `static/<name>-js.js` at a
+  fixed path with no content hash or no-cache headers, so a returning user on the same origin
+  (e.g. `localhost:8080`) can get **stale JS after an upgrade** — it looks like a release defect but is
+  browser cache (hard-refresh fixes it; see Phase 6). Fix before wide distribution: hashed bundle
+  filename (esbuild `[hash]`) or `Cache-Control`/revalidate on the SPA bundle. (Tracked in agent memory;
+  a future JS-touching release.)
