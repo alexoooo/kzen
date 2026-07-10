@@ -62,7 +62,7 @@ Each sibling has its own AGENTS.md (and README); the recurring pattern for `kzen
 
 - **kzen-auto** — `tech.kzen.auto.server.dev.BackendDevelopment` (IDE) + `./gradlew -t :kzen-auto-jvm:classes`; `tech.kzen.auto.server.dev.FrontendDevelopment` (IDE) + `./gradlew -t :kzen-auto-js:jsEsbuildBundle -PjsWatch` (esbuild bundles the development executable, unminified — see the JS-build note below). The end-to-end self-test suite lives in the `kzen-auto-test` subproject — run as `cd ../kzen-auto && ./gradlew :kzen-auto-test:selfTest` (opt-in; NOT pulled in by `build`). See [`../kzen-auto/kzen-auto-test/AGENTS.md`](../kzen-auto/kzen-auto-test/AGENTS.md).
 - **kzen-launcher** — `tech.kzen.launcher.server.dev.FrontendDevelopment` (IDE) + `./gradlew -t :kzen-launcher-js:jsEsbuildBundle -PjsWatch`
-- **kzen-project** — `tech.kzen.project.server.KzenProjectMain` (IDE, `--server.port=8081`) + `./gradlew -t :kzen-project-js:run` (proxy on 8080 with webpack-served JS, everything else from 8081). The README says `KzenProjectApp` — that class doesn't exist; use `KzenProjectMain`.
+- **kzen-project** — `tech.kzen.project.server.KzenProjectMain` (IDE, `--server.port=8081`) + `./gradlew -t :kzen-project-js:run` (proxy on 8080 with webpack-served JS, everything else from 8081).
 
 End-user runtime entry point is `tech.kzen.shell.KzenShellMainKt`, which boots Ktor on `127.0.0.1:8080` and opens the desktop UI.
 
