@@ -212,6 +212,11 @@ UI on `127.0.0.1:8080`. **[OPERATOR]** open it, create a project, confirm the pr
 Only if the release includes the libraries (for external plugin authors). `kzen-repo` is a flat Maven-2
 tree under `artifacts\` served raw from GitHub; entries are `publishToMavenLocal` outputs copied verbatim.
 
+`kzen-repo` is a Maven **library** mirror only — it does **not** host distribution zips (those were removed
+from it in 2018; app zips ship as GitHub *release* assets — do not revive kzen-repo for zips). Only
+*release* versions are published anywhere: SNAPSHOT/dev distribution stays on the local filesystem (the
+`file://` dev candidates in the `.properties` files), never uploaded.
+
 - Copy the new `<VERSION>` version dirs from `~\.m2\repository\tech\kzen\lib\**` and `…\auto\**` into the
   matching `..\kzen-repo\artifacts\tech\kzen\{lib,auto}\<module>\<VERSION>\`. The mirror tracks a **fixed
   module set** — copy exactly those already present, at the new version:

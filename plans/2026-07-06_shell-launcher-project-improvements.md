@@ -18,7 +18,7 @@
 > - [ ] Phase 1 — proxy rework: async, header-faithful, correct error semantics (kzen-shell)
 > - [ ] Phase 2 — child liveness: exit detection, bounded start, status surface (kzen-shell)
 > - [ ] Phase 3 — trust-boundary hardening: fetch-metadata gate, TLS, path validation (shell + launcher)
-> - [ ] Phase 4 — configuration + distribution pipeline: no hard-coded URLs, Gradle dist zips (all three)
+> - [x] Phase 4 — configuration + distribution pipeline: no hard-coded URLs, Gradle dist zips (all three)
 > - [ ] Phase 5 — registry robustness + status in the UI (kzen-launcher, + shell coordination)
 > - [ ] Phase 6 — kzen-project template: module registration fix + project upgrade path
 > - [ ] Phase 7 — hygiene sweep: dead code, naming, docs (all three)
