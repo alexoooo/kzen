@@ -117,7 +117,9 @@ For foundational concepts shared across all KMP siblings (the Notation → Defin
 
 - `kzen-shell`, `kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher` are all `0.29.1-SNAPSHOT`
 
-When cutting a release, bump all five `build.gradle.kts` `version =` lines together; the shell's hard-coded launcher zip path in `KzenShellMain.kt` (line ~44) and the launcher's hard-coded project zip path in `KzenLauncherMain.kt` (line ~99) must also be updated. Note: the launcher and project distribution zips (`kzen-launcher-<v>.zip`, `kzen-project-<v>.zip`) are NOT produced by any Gradle task — they're hand-zipped from the `<sibling>-jvm/build/libs/` outputs (rename the fat jar to `main.jar`, bundle with `dependencies/`).
+When cutting a release, bump all five `build.gradle.kts` `version =` lines together, and update the version-bearing zip references: the launcher's project-archetype candidates in `kzen-launcher-jvm/src/main/resources/kzen-launcher.properties` (`archetype.project.N`, resolved by `resolveArchetypeUrl()` — ordered dev `build/dist` file paths first, release URL last) and the shell's launcher-zip source in `KzenShellProperties` (`launcher.zip` property / `--launcher.zip=` arg override).
+
+The launcher and project distribution zips (`kzen-launcher-<v>.zip`, `kzen-project-<v>.zip`) **are** produced by a Gradle task — `./gradlew :<sibling>-jvm:dist` (a `Zip` task) writes `<sibling>-jvm/build/dist/<sibling>-<v>.zip`, assembling the thin `main.jar` (renamed from the module jar, `Class-Path` → `dependencies/`) + `dependencies/` (the whole `runtimeClasspath`), and for kzen-project also the loose seed notation under `src/main/resources/notation/`. Because `dependencies/` is the runtime classpath, a project dist only carries a fix in a sibling (e.g. kzen-auto-jvm) after that sibling is republished to mavenLocal *then* `:kzen-project-jvm:dist` re-runs. Dev pickup is automatic: the launcher re-acquires a `file://` archetype on every `ArchetypeRepo.init()` (i.e. on launcher restart — see the `scheme == "file"` re-install branch), and its candidate list points at `build/dist/` first.
 
 ## Working with this repo from AI agents
 
