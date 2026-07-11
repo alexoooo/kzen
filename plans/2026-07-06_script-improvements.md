@@ -105,7 +105,9 @@ trace-store unification (engine 4); polling → SSE + step budget (engine 5); mu
 pause-during-stepping, publish/history hot path, hosted-frame compaction (engine 1);
 `ModelDetachedExecutor` whole-project-graph-per-call — which today makes every validation request
 build the entire server graph (graph 3b); definition caching (graph 1); closure content digest
-(graph 2 — phase 4 here reuses it if landed); notation-driven `isLogic` marker (graph 5b).
+(graph 2 — phase 4 here reuses it if landed); notation-driven `isLogic` marker (graph 5b);
+move execution to a step ("Set Next Statement"): `2026-07-10_execution-control.md` (loop-body
+targets there extend on this plan's phase 5 cursors).
 
 **Deliberately out of scope** (decided; do not re-open inside a phase):
 - Restructuring inline branches into hosted child frames (would give stepping for free but bloats

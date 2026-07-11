@@ -253,6 +253,10 @@ position; run-to skips other boundaries and clears its one-shot; breakpoint insi
 (stepping command active) still parks. Manual UI: toggle a breakpoint mid-run; slow-motion stops on
 it; selfTest.
 
+**Cross-reference:** the move-to-step plan (`2026-07-10_execution-control.md`) composes with this
+phase's positions and shares the per-step affordance home ("Run to here" / "Set next step here"
+are adjacent menu items — coordinate whichever lands second).
+
 ---
 
 ## Phase 4 — Trace unification: retire the `LogicTraceStore` bridge
