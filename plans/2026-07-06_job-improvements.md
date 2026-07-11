@@ -23,7 +23,7 @@
 > Phase 8 repoints code-comment references here.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — progress wire contract + trace bounding (fixes the Pivot teaser bug)
+> - [x] Phase 1 — progress wire contract + trace bounding (fixes the Pivot teaser bug) — landed 2026-07-11
 > - [ ] Phase 2 — Job signature: parameters in, results out (composition centerpiece)
 > - [ ] Phase 3 — Report subsumption A: pluggable input formats + design-time services
 > - [ ] Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path
@@ -228,6 +228,28 @@ progress push from growing engine history without bound; fix the Pivot teaser bu
 **Verification.** Job suites green; run the Sample Job — Pivot card shows a live teaser; Preview
 card unchanged visually; confirm engine history growth per minute drops (log `history.size` in a
 manual run before/after).
+
+**As-built (2026-07-11).** Landed as planned, with these mechanical resolutions:
+- Keys + the teaser bound (`progressTeaserRowCount = 10`) live in `JobConventions` (commonMain),
+  used by the JVM workers and the JS displays alike.
+- `WorkerBase` gained a *delegating overload* `progress(snapshot, force)` (defaults to the 1-arg
+  hook) rather than changing the hook signature — only Preview/Summary/Pivot override it; the
+  other 11 overriders are untouched.
+- Pivot's forced-final push is bounded at its existing `defaultQueryLimit` (1000) — the Pivot
+  analogue of Preview's full window (≤ `sample` = 1000); a larger pivot gets a truncated
+  post-run card with an accurate total count. The teaser reads the live builder
+  (`view.builder.preview(view.values, 0, limit)`) — safe for the same single-threaded reason
+  `onQuery` already does; note the 10-row H2 page read runs per publish (pre-throttle), accepted
+  as comparable to Summary's per-publish `TableSummary` build.
+- Summary's periodic push is count-only; `SummaryWorkerDisplay` renders the count caption alone
+  when the summary key is absent, so the live card shows a running count instead of nothing
+  (full per-column summary appears from the final push; the filter/pivot editors stay live via
+  the serve pull path, unchanged).
+- Contract tests: Preview/Summary/Pivot worker tests use per-file recording `JobControl` fakes
+  with multi-chunk inputs (one non-forced push per batch); Pivot's test reproduces
+  `PreviewWorkerDisplay`'s parse semantics against the shared constants.
+- Engine-plan phase 4 coordination note added in `EngineJobControl.publishProgress` (mark the
+  emit non-retained when transient emits land).
 
 ---
 
