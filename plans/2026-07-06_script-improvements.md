@@ -310,6 +310,11 @@ caller. kzen-auto-jvm only.
   stay the parsed notations — the compare semantics are unchanged, only the key set widens.
   Unresolvable links (blank `instructions`, dangling path) are skipped, matching the "recompile
   failure falls back to keep-running" policy (ServerLogicController.kt:738-744).
+- **Coordinate with graph-plan phase 2** (it replaces `closureNotations`/`baselineNotations` with
+  `transitiveDigest`/`baselineClosureDigest`): if that has landed first, implement the widened
+  signal in the digest domain — the linked-document discovery above stays exactly as specified,
+  but the compare becomes a combined digest over root closure + each linked document's closure,
+  rather than resurrecting the notation-map compare.
 - Migration already handles the rest: `pendingMigration` recompiles the root, the rebuilt
   `ScriptRunContext` gets a fresh `childLogics` cache and a fresh `structure.graphNotation`
   (ScriptRunContext.kt:84, :226-229), so the next `host` compiles the edited callee. Completed

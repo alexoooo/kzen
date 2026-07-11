@@ -218,6 +218,10 @@ compiled behaviour", the same reasoning `closureNotations` encodes today).
    compare, key it off the same closure digest.
 4. Docs: kzen-lib architecture doc gains a paragraph on closure digests; kzen-auto architecture
    §"pendingMigration" note updated.
+5. Downstream coordination: script-plan phase 3 later widens this same signal to weakly-linked
+   logic documents, and the move-to plan (`2026-07-10_execution-control.md`) updates the same
+   baseline at `moveTo` — both work in the digest domain once this phase lands (notes added in
+   those plans).
 
 ### Verification
 
@@ -428,6 +432,11 @@ from objects B/C in the same document, and unchanged-document writes stay no-ops
 (`writeIfRequired`'s `updatedBody != previousBody` check becomes meaningfully stable for
 hand-formatted files). Update the now-accurate `DirectGraphStore.writeCopy` comment. Extend
 `YamlUnparseTest` + a `DirectGraphStore`-level round-trip test with a commented fixture.
+
+**Coordinate with `2026-07-10_yaml-parser-strings-and-comments.md`** (same touch-points:
+`YamlNotationParser.unparseDocument`, the unparse emitters): land that parser/emitter rework
+*first* — its one-time output churn (values re-emitting bare/`|-`) should precede byte-identical
+segment preservation, so 7b's per-object equality operates on the new stable format.
 
 ### Verification
 

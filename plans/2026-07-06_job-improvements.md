@@ -16,7 +16,8 @@
 > This plan deliberately does **not** duplicate their items — see "Covered elsewhere" below.
 >
 > The original build plan (`2026-06-23_job-paradigm.md`, the P4*/M* milestones referenced from
-> code comments) is retained as a **historical record** (completed work + decisions log). Its
+> code comments) is retained as a **historical record in git history only** (deleted from
+> `plans/`; recover via `git show ef0dbd4~1:plans/2026-06-23_job-paradigm.md`). Its
 > still-live content is fully consolidated here — the open backlog into phases 4/5/7/8/9, the
 > durable gotchas and design rationale into the appendix — so it needs no further maintenance.
 > Phase 8 repoints code-comment references here.

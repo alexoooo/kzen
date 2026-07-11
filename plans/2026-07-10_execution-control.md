@@ -117,8 +117,8 @@ interface next to `Logic`.
    and is a headline use case** (jump *past* a failing step = forward skip from the error park).
 10. **A jump always recompiles and migrates** — it shares the barrier with any concurrent
     notation edit (the `pendingMigration` concern dissolves: `moveTo` recompiles from the current
-    notation unconditionally and updates `baselineNotations`, so an edit-then-jump takes both in
-    one rebuild).
+    notation unconditionally and updates `baselineNotations` — or `baselineClosureDigest`, once
+    graph-plan phase 2 lands — so an edit-then-jump takes both in one rebuild).
 11. **Carried `result` is kept** across a jump; a ResultStep at/after the target re-runs and
     overwrites it. Corner (documented, accepted): a forward jump that *skips* a ResultStep which
     had run before an earlier backward jump leaves the older carried result in place.

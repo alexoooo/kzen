@@ -290,6 +290,13 @@ and lean on the survey step before touching anything.**
 - **Re-entry ghost-clearing** falls out structurally: each invocation of a sub-logic is its own
   node with its own `live` map, and frame-keyed queries hit that node. The **run-merged** view
   (`lookupRun`) = fold of all nodes' live maps, latest `sequence` wins.
+- **Transient emits ship here** (recorded per script-plan phase 7 and job-plan phases 1/7, which
+  adopt it): once traces are engine-served, `Execution.emit` gains `retain: Boolean = true` — a
+  non-retained emit updates the node's `live` projection (and notifies) without appending to
+  retained history. This phase adds only the flag + engine semantics + a `RunEngineTest` case
+  (non-retained emit visible in `live`/run-merged views, absent from `history`); Script's
+  Running/marker emits and Job's throttled progress-marker emits flip to `false` in their own
+  plans' phases, not here.
 - **Survey first, then cut.** Step 1 of the session: enumerate *every* caller of `LogicTrace`,
   `LogicTraceHandle` (including `handle.clearAll(prefix)` — the "Clear all traces" UI action and
   any loop-iteration live-reset), the `LogicTraceEndpoint` detached actions, and the JS call sites
