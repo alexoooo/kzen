@@ -17,7 +17,17 @@
 > verification. Phases are ordered by priority and are independent unless noted.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — trust-boundary hardening (shell + launcher)
+> - [x] Phase 1 — trust-boundary hardening (shell + launcher) — landed 2026-07-10. As built:
+>   `SecurityGate` (fetch-metadata + Host gate) duplicated in `tech.kzen.shell.security` and
+>   `tech.kzen.launcher.server.security`, installed ahead of routing in both `ktorMain`s; one
+>   tightening beyond the text below (user-approved): cross-site top-level navigations are also
+>   rejected for the known mutating paths (`/shell/project/start|stop`, launcher `/rs/command/*`),
+>   closing `window.location`-style CSRF — proxied kzen-auto GET command endpoints remain the
+>   accepted residual. Also: `trustBadCertificate()` deleted from both DownloadServices (README
+>   notes point corporate-MITM users at `-Djavax.net.ssl.trustStore`); `ProxyHandler.start`
+>   requires `main.jar` inside the given home; `ProjectNameValidation` gates create + rename
+>   (single segment, ≤128, reserved routing/device names) with 400 semantics on all launcher
+>   command routes; first tests added to kzen-shell (`kotlin("test")` + ktor-server-test-host).
 > - [ ] Phase 2 — child exit detection, surfaced to the UI (shell + launcher UI)
 > - [ ] Phase 3 — registry durability + explicit project home (launcher, + shell spawn arg)
 > - [ ] Phase 4 — kzen-project template: extension point + project upgrade path
