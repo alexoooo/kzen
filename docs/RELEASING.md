@@ -242,7 +242,10 @@ Verify: from a clean local Maven cache, `kzen-sample-plugin` (`pom.xml` `kzen.ve
 1. Bump the 8 version locations to the **next dev version** (`0.29.2-SNAPSHOT`).
 2. Roll the dev-facing `.properties` strings the release didn't touch:
    - `kzen-launcher\...\resources\kzen-launcher.properties`: `archetype.project.1`/`.2` → next
-     `-SNAPSHOT` project zip name; `.3` → next release URL (`v0.29.2/kzen-project-0.29.2.zip`).
+     `-SNAPSHOT` project zip name; `.3` → next release URL (`v0.29.2/kzen-project-0.29.2.zip`);
+     `archetype.project.released` → the **just-released** URL (`v0.29.1/kzen-project-0.29.1.zip`),
+     so the newest published release stays in the launcher's archetype dropdown alongside the
+     new dev snapshot.
    - `kzen-shell\kzen-shell.properties`: active `launcher.zip`/`.dir` → next `-SNAPSHOT`; the commented
      release lines → next `v0.29.2/…-0.29.2`.
 3. Re-`publishToMavenLocal` kzen-lib + kzen-auto at the new `-SNAPSHOT` so dev builds resolve.
@@ -278,6 +281,6 @@ Not blockers:
   downloads the launcher and project-archetype zips from GitHub — network is needed the first time.
   Pre-seeding those under `work/` inside the zip would make first boot fully offline.
 
-Resolved in 0.30.0 (formerly listed here): the runtime `ArtifactRepo`/`ArchetypeRepo` download+extract is
+Resolved in 0.30.0 (formerly listed here): the runtime `ArtifactInstaller`/`ArchetypeRepo` download+extract is
 now atomically staged and verified (self-healing on a mid-extract crash), and the SPA route sends
 `Cache-Control: no-cache` so an upgraded bundle is picked up without a hard-refresh.
