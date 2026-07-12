@@ -134,7 +134,7 @@ any order.
 | ~~0.3~~ ✓ 2026-07-11 | **FL1** structure core tests + OptionalInput + lint | pins the untested load-bearing layer before FL2 |
 | ~~0.4~~ ✓ 2026-07-11 | **FL2** run loop: instance-per-run + non-fatal tracing | kills the FlowMessageInspector run-killer + N×V rebuild |
 | ~~0.5~~ ✓ 2026-07-11 | **S1** expression engine | classloader-per-iteration + diagnostic-text inference; highest value/risk in the script plan |
-| 0.6 | **FE1** vision core hardening | tests + 10× matcher constants + DOM-mutation fix |
+| ~~0.6~~ ✓ 2026-07-12 | **FE1** vision core hardening | tests + 10× matcher constants + DOM-mutation fix |
 
 Exit: no cross-site reachability into the shell/launcher; Pivot card live; a Flow trace can
 never kill a run; formula evaluation is O(map-lookup); the matcher is tested and benchmarked.

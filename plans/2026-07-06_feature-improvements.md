@@ -18,7 +18,15 @@
 > `2026-07-06_job-improvements.md` (headless mode; phase 2 here must degrade gracefully in it).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — vision core hardening: tests + benchmark, matcher perf, DOM-mutation fix, definition robustness
+> - [x] Phase 1 — vision core hardening: tests + benchmark, matcher perf, DOM-mutation fix, definition robustness
+>   (landed 2026-07-12; as-built: pure matcher extracted as `TemplateMatcher` — the plan's sanctioned
+>   alternative — so the test is `TemplateMatcherTest` (+ `RgbGridTest`) rather than "VisionUtilsTest";
+>   `VisionUtils` retains only `xpathEscape`; `Result` nested in `VisionService`; benchmark: 338 ms → 56 ms
+>   on the common-colour pathological case. 1f riders: `onClientState`'s `TargetType.valueOf` also made
+>   tolerant (malformed notation degrades to the existing early return instead of crashing the render);
+>   `onTypeChange` cancels the pending text debounce — cancel, not flush, because `onBlur` already flushes
+>   genuine pending text before a dropdown click, and a flush at switch time races the value-clearing
+>   `setState`, emitting exactly the value-less map 1f suppresses.)
 > - [ ] Phase 2 — same-pipeline capture: browser-sourced patches, desktop capture demoted + delay timer, headless grace
 > - [ ] Phase 3 — locate-now preview in the editor + match diagnostics + documented technique boundary
 > - [ ] Phase 4 — tolerant matching: NCC scores + thresholds + per-crop metadata sidecar (labels, offsets)
@@ -332,6 +340,13 @@ candidate was. kzen-auto-jvm + common + light js.
   grid derived from `RgbGrid` once per image; integral images for windowed mean/variance; score
   every candidate origin, return candidates above threshold as (rect, score), non-max-suppressed
   within a crop-sized neighbourhood. Default threshold **0.95**, constant in `VisionService`.
+  **Calibration fixture (added 2026-07-12):** `kzen-auto-jvm/src/test/resources/vision/
+  rasterization-drift-{crop,screenshot}.png` — a real Action Target crop vs a separately captured
+  desktop screenshot of the same UI (glyph rasterized 19x12 vs 18x11; exact match finds nothing —
+  pinned by `TemplateMatcherTest.rasterizationDriftFindsNoExactMatch`). Best NCC measures ~0.85 at
+  the true location, which is also the global maximum — **below the 0.95 default**. Turn this pair
+  into the phase's positive test and re-examine the default (or lean on per-crop thresholds) with
+  it in hand.
   If implementation proves finicky, BoofCV is the sanctioned fallback (see out-of-scope) —
   record in the as-built.
 - **Per-crop metadata sidecar** — a `crops:` map attribute on the Feature's `main` object, keyed
