@@ -226,11 +226,13 @@ render per step.
 **As-built (landed 2026-07-11, all green: full `:kzen-auto-jvm:test`):**
 
 - **1a class cache + instance reuse.** `CachedKotlinCompiler` gained an in-memory loaded-class cache
-  in front of `tryLoad` — a **bounded Guava LRU** (`maximumSize`, not an unbounded map: each retained
+  in front of `tryLoad` — a **bounded Caffeine cache** (`maximumSize`, not an unbounded map: each retained
   `Class` pins its `URLClassLoader` in Metaspace, and a long-lived process compiles far more distinct
   expressions than are live at once; an evicted entry transparently reloads from the durable on-disk
-  jar). The 1c compile lock is likewise a fixed-size Guava `Striped<Lock>` rather than a
-  monitor-per-signature map, so the lock table stays bounded. Per-run instance reuse threads through a
+  jar). Caffeine (`com.github.ben-manes.caffeine:caffeine`, declared explicitly in `kzen-auto-jvm`) is
+  the maintained successor to Guava's now-deprecated `com.google.common.cache`. The 1c compile lock is a
+  fixed-size Guava `Striped<Lock>` (a concurrency utility, not a cache — no Caffeine equivalent) rather
+  than a monitor-per-signature map, so the lock table stays bounded. Per-run instance reuse threads through a
   new generic
   `StepExecution.perRunSingleton<T>(key, factory)` (backed by a `HashMap<String, Any>` in
   `ScriptRunContext`) — chosen over exposing a `MutableMap<String, StepExpression>` so no eval-package
