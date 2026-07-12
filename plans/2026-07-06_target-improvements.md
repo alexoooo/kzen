@@ -47,7 +47,27 @@
 >   `setState`, emitting exactly the value-less map 1f suppresses.)
 > - [ ] Phase 2 — correct clicking: root-cause the exact-match regression, exclude self-matches, enrich diagnostics
 > - [ ] Phase 3 — step-editor polish: value-field label overlap + navigate-to-Target link icon
-> - [ ] Phase 4 — Target screen View/Add split + locate overlay + capture sources
+> - [x] Phase 4 — Target screen View/Add split + locate overlay + capture sources
+>   (landed 2026-07-12, pulled ahead of phases 2/3 as a visual debugging aid for phase 2; as-built
+>   deltas: (1) sections are ROUTED — `?section=view|add` hash param, tabs are real `<a href>`
+>   anchors via `NavigationRoute` (Ctrl+Click opens a tab, refresh keeps the page; absent param →
+>   View when crops exist else Add, never written back); (2) `TargetLocateAction` does NOT capture —
+>   it locates crops in a client-POSTed screenshot PNG (body) and returns dimensions + per-crop
+>   rects (`TargetLocateResult` wire model in common), so display and matching share bytes by
+>   construction and phase 5's tolerance slider can re-locate without recapture;
+>   (3) per-crop matching is a new `TargetLocator.locateAllByCrop` (no uniqueness/limit) — the
+>   click path's limited `locateAll` untouched; (4) capture sources: Screen (0/3/10 s client-side
+>   delay) + Browser (latest traced run via `LogicTraceEndpoint` actionTraced→mostRecent→lookupRun,
+>   thumbnail strip, auto-selects newest); the live-browser stretch source was SKIPPED — the trace
+>   strip covers the workflow, revisit after script plan phase 2; (5) riders landed: MIME typo
+>   fixed in TargetController AND StepImage.pngUrl (`data:image/png`), `capturedDataUrl`
+>   intermission removed (Save jumps to View via `parameterize`), ScreenshotTaker headless grace
+>   (HeadlessException/AWTError → clean failure, rendered inline — no more eternal
+>   "&lt;taking screenshot&gt;"). Overlay boxes are percentage-positioned divs (of screenshot
+>   natural size from the locate response) — no resize listeners. Tolerance-control slot marked in
+>   `TargetView`. Tests: `TargetLocatorTest` (crop-keyed matches over `MapNotationMedia`),
+>   `TargetLocateActionTest` (wire round-trip); `:kzen-auto-jvm:test` + selfTest green.
+>   Manual smoke pending user.)
 > - [ ] Phase 5 — tolerant matching: NCC scores + per-document tolerance + multi-scale
 > - [ ] Phase 6 — open target-type set: locator SPI + registry, match policy, browser-step dedup
 > - [ ] Phase 7 — decision gate: desktop actuation (ActionSurface) or park desktop capture

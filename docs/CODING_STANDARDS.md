@@ -449,3 +449,22 @@ A concrete-type reference is legitimate only as **self-reference**: a `*Conventi
 This extends CC-05 (generic name + feature-specific literal = overload) and CC-04 (a feature is removable in one delete). CC-05 bans the mechanical shape; CC-17 states why it is fatal here: the hard-coded branch set is **closed**, so it can never see a type contributed at runtime, silently excluding every plugin extension.
 
 **Why:** kzen's whole value is that behaviour is contributed as notation, not code. A hard-coded type-name switch quietly caps the system at the types the author knew about — the exact opposite of the promise — and the omission is invisible (no error, the new type just gets nothing), as the `PivotWorker` preview gap that this rule's introduction uncovered shows.
+
+
+## CC-18 — User-facing text speaks the user's language
+
+**Every string the user can see — labels, statuses, verdicts, inline errors — is product copy, addressed to the user in the product's domain vocabulary. Never quote ad-hoc phrasing from the task or conversation that produced the code, and never leak developer-only referents (class names, internal mechanisms, one specific consumer's use case) into it.**
+
+The CC-02 rewrite test, adapted: would the string still make sense — and still be true — for a user who never saw the conversation that produced it, in every context this UI reaches?
+
+Don't:
+```kotlin
+1 -> "1 match in total — a Click step would click it"   // echoes the task at hand; assumes one specific consumer
+```
+
+Do:
+```kotlin
+1 -> "1 match — target uniquely located"                // the feature's own contract, true for every consumer
+```
+
+**Why:** CC-02 bans prompt-echo in comments, where the cost falls on the next developer; in UI copy the same echo ships to the user, who has even less context. A string naming one specific consumer (or the requester's example scenario) becomes wrong the moment another consumer exists — and the domain-language restatement is just as short.
