@@ -11,7 +11,9 @@
 > visual document selector "Target". The review section below predates the rename; phases have
 > been updated. This file itself was renamed from `2026-07-06_feature-improvements.md`.
 
-> **Status: in progress — restructured 2026-07-12** after a field bug report and a UI redesign
+> **Status: COMPLETE 2026-07-12** — all seven phases landed (see the tracker's as-built notes;
+> manual smoke of phases 3/5/6 UI surfaces pending user). Originally restructured 2026-07-12
+> after a field bug report and a UI redesign
 > decision (both recorded in the field-report section below). Written 2026-07-06 from a design
 > review of the Target document type — the visual action-target manager for point-and-click RPA —
 > across all three layers: common (`TargetDocument` / `TargetSpec` / `TargetSpecDefiner` /
@@ -45,8 +47,38 @@
 >   `onTypeChange` cancels the pending text debounce — cancel, not flush, because `onBlur` already flushes
 >   genuine pending text before a dropdown click, and a flush at switch time races the value-clearing
 >   `setState`, emitting exactly the value-less map 1f suppresses.)
-> - [ ] Phase 2 — correct clicking: root-cause the exact-match regression, exclude self-matches, enrich diagnostics
-> - [ ] Phase 3 — step-editor polish: value-field label overlap + navigate-to-Target link icon
+> - [x] Phase 2 — correct clicking: root-cause the exact-match regression, exclude self-matches, enrich diagnostics
+>   (landed 2026-07-12; **2b verdict**: the machine runs a 4K display at **150% scaling** (3840 physical /
+>   2560 logical), which creates two pixel spaces. AWT `Robot` (UI Screen capture) captures at PHYSICAL
+>   resolution and exact-matches fresh Robot screenshots — demonstrated live in the new View screen. The
+>   user's `exact-screenshot.png` (Windows Screenshot tool → MSPaint) landed in LOGICAL space: glyph
+>   footprint 12x8 vs 18x11 in the Robot crop, exactly 1.5x apart — it can never exact-match either
+>   pipeline. Selenium's browser screenshot is also physical-scale (DPR 1.5) but Chrome rasterizes fonts
+>   differently than the desktop compositor (the phase-1 rasterization-drift fixture, 19x12 vs 18x11), so
+>   desktop-captured crops exact-match only desktop screenshots and browser-captured crops only browser
+>   screenshots. Same-machine desktop capture IS pixel-exact within its own pipeline — the Screen source
+>   stays first-class; cross-pipeline crops are phase 5's job (its pyramid includes 1.5). No code
+>   regression found; "used to work" was within-pipeline matching. As-built deltas: (1) success-path
+>   diagnostics ride a new `StepTrace.note` field (wire-additive) + `StepExecution.traceNote` — NOT inside
+>   `traceDetail` — because the detail slot is single-value and binary-typed across ~8 client consumers
+>   (film strip, thumbnails); note renders as a subdued "Note" section in the step display. (2) The click
+>   path now uses `locateAllByCrop` (returns `CropMatches` with crop dimensions) with a per-crop
+>   diagnostic cap of 8; flat `locateAll` deleted (no remaining callers). Errors name each crop, its
+>   dimensions, match locations, and screenshot dimensions; message builders are pure companion functions
+>   with unit tests. (3) Self-match exclusion: `TargetDocument.previewDataAttribute`
+>   (`data-kzen-target-preview`) marks TargetAttributeView's preview img, TargetView's crop thumbnails +
+>   screenshot overlay, and TargetAdd's capture surface; the locator drops candidates inside a marked
+>   ancestor via `closest()`, uniqueness applies to survivors, exclusions are counted in errors/notes.
+>   selfTest green with exclusion active (Plus Circle click unaffected — its preview renders in the
+>   tester viewport but the marker now excludes it deterministically regardless of visibility).
+>   User's Script correct-click: pending crop recapture via the Browser source (both existing crops are
+>   desktop-space; the browser screenshot needs a browser-pipeline crop) or phase 5 tolerance.)
+> - [x] Phase 3 — step-editor polish: value-field label overlap + navigate-to-Target link icon
+>   (landed 2026-07-12; both value rows (textual + visual select) get a 0.75em top margin clearing the
+>   MUI floating-label overhang; the Visual select is now a flex row (grow/minWidth-0) with an
+>   open-in-new IconButton ("Open the selected target", disabled with no selection) mirroring
+>   SelectLogicEditor; `TargetSpecEditor.Wrapper` gained `@Service navigationGlobal` via a new
+>   `TargetSpecEditorProps`. Manual smoke pending user.)
 > - [x] Phase 4 — Target screen View/Add split + locate overlay + capture sources
 >   (landed 2026-07-12, pulled ahead of phases 2/3 as a visual debugging aid for phase 2; as-built
 >   deltas: (1) sections are ROUTED — `?section=view|add` hash param, tabs are real `<a href>`
@@ -68,9 +100,78 @@
 >   `TargetView`. Tests: `TargetLocatorTest` (crop-keyed matches over `MapNotationMedia`),
 >   `TargetLocateActionTest` (wire round-trip); `:kzen-auto-jvm:test` + selfTest green.
 >   Manual smoke pending user.)
-> - [ ] Phase 5 — tolerant matching: NCC scores + per-document tolerance + multi-scale
-> - [ ] Phase 6 — open target-type set: locator SPI + registry, match policy, browser-step dedup
-> - [ ] Phase 7 — decision gate: desktop actuation (ActionSurface) or park desktop capture
+> - [x] Phase 5 — tolerant matching: NCC scores + per-document tolerance + multi-scale
+>   (landed 2026-07-12; hand-rolled zero-mean grayscale NCC in `TemplateMatcher.locateScored`
+>   (BT.601 luma, integral-image window mean/variance with a flat-window skip, per-origin
+>   correlation, NMS within half-a-crop), exact `locate` untouched. **Calibration**: the
+>   rasterization-drift fixture scores 0.850 at (374, 518) — exactly the plan's prediction — so the
+>   presets are Exact 1.0 / Strict 0.9 / **Normal 0.8** / Loose 0.7 (the plan's nominal 0.85 Normal
+>   would have missed the 0.84997 real-world case by a hair; recalibrated). Multi-scale pyramid
+>   `[1.0, 1.1, 0.9, 1.25, 0.8, 0.75, 1.5, 0.67]` (bilinear, includes phase 2's 1.5 verdict case),
+>   nearest-to-1 first with **stop-at-first-matching-scale** — deliberate deviation from
+>   scan-all + cross-scale NMS: NCC isn't comparable across window sizes (smaller windows score
+>   higher on less evidence), so a small-scale false positive could outrank a true match; the
+>   below-threshold `best` diagnostic likewise reports the crop at its OWN scale. Per-document
+>   `tolerance:` scalar on the main object parsed by `TargetDocument.tolerance` (absent or ≥1.0 =
+>   exact-only; extra notation attributes are inert to definition, like archetype `title`/`icon`).
+>   `TargetLocator.locateAllByCrop` runs exact first, falls back to scored per crop; `CropMatches`
+>   carries scored matches (exact = score/scale 1.0) + `bestRejected`; wire model restructured
+>   (`TargetCropMatches{matches, closest}`, `TargetMatchRect` + score/scale). Errors/notes report
+>   scores and "closest 0.91 at [x, y]". View: tolerance select (presets + Custom passthrough,
+>   writes UpsertAttribute on the main object — "Exact" writes `tolerance: 1` since no
+>   whole-attribute-removal command exists; command success auto re-locates), score labels on crop
+>   rows and overlay boxes (score + ×scale chip above each box). New scored-path benchmark: flat
+>   1920x1080 in <5 s budget (measured ~50 ms; drift fixture full-pyramid miss ~1 s at 1070x634).
+>   Tests: drift found-at-Normal/rejected-at-Strict-with-best, noise-perturbed found+threshold
+>   honoured, 1.25x found via pyramid (per-pixel LCG texture — a smooth gradient self-matches
+>   across neighbouring scales and can't test scale selection), NMS spacing, tolerance-less docs
+>   bit-identical, both benchmarks. `:kzen-auto-jvm:test` + selfTest green. Manual smoke pending:
+>   drop the user's Target to Normal in View — the desktop crop's box should light up with its
+>   score against a browser screenshot.)
+> - [x] Phase 6 — open target-type set: locator SPI + registry, match policy, browser-step dedup
+>   (landed 2026-07-12; `TargetType` enum DELETED, `TargetSpec` is an interface with a `policy` val
+>   (default Unique), per-type classes carry policy. **Key as-built deviation — the define side is
+>   notation-declarative, not handler code**: a definer object cannot take an autowired instance
+>   list (GraphDefiner instantiates definers mid-definition via a path that only awaits
+>   creatorDependencies, so the handler instances don't exist yet — the whole test suite crashed
+>   with "Missing: TargetSpecDefiner - FocusTargetType" until restructured; fixing that ordering is
+>   a kzen-lib change, out of scope). So each `is: TargetSpecType` object declares `typeName:` +
+>   `valueKind: none|text|reference` (the three shapes the definition layer offers) which
+>   `TargetSpecDefiner` reads straight from notation, while the object's `class:` (a
+>   `TargetSpecType` subclass, `createSpec` only) autowires into `TargetSpecCreator` (creators ARE
+>   safe — instantiated by GraphCreator, which orders references correctly). Server:
+>   `TargetTypeLocator` SPI (canLocate/locate with the service as context), four built-in locator
+>   objects, `TargetLocator.register()` for third parties, dispatch `when` gone. Client:
+>   `TargetTypeDisplay` SPI (dropdown label + value row + collapsed summary + a
+>   `summaryDependencies` hook preserving render-scoping), four fragments, TargetSpecEditor /
+>   TargetAttributeView are thin type-agnostic hosts (editor preserves foreign keys like `policy:`
+>   across rewrites; rename-tracking generalized to any reference-parsable value). Gotcha pinned:
+>   the `TargetTypeDisplay` archetype needs `meta: objectLocation: {is: ObjectLocation, by: Self}`
+>   or the CLIENT graph fails at boot with a blank UI (diagnosed via headless-Chrome console dump;
+>   selfTest's symptom was every Text click "not found"). Match policy: `policy: unique (default) |
+>   first | nth (+index) | best` on the target map, `TargetLocator.selectByPolicy` uniform across
+>   types (Text/Xpath now findElements + policy — the silent first-match is gone; Visual orders
+>   candidates (y,x), Best by score; Focus inherently single). Migrated 3 tester targets to
+>   `policy: first` (two `label/..//textarea` xpaths — MUI multiline renders a hidden autosize
+>   shadow textarea, so those were NEVER unique — and Text "Result" which also matches the added
+>   step's card). Browser-step dedup: `BrowserTargetStep` base (locate → note → act → screenshot);
+>   Click/Submit/Focus/Write/Read supply only `act` (Click keeps the input[type=submit] fold).
+>   Third-party proof: `CssSelectorTarget` + spec-type + locator entirely in the test source set
+>   (hand-registered per the ScriptStepTestModule convention) + `target-extensibility-test.yaml`;
+>   `TargetExtensibilityTest` defines/creates through the real notation machinery and locates
+>   through `register()` with zero shared-file edits. The synthetic type's JS fragment was skipped
+>   (JVM test can't exercise it; the client seam is the same autowire mechanism). No policy editor
+>   UI (notation-editable only — not user-requested). architecture.md §6 gained the target-SPI
+>   paragraph; AGENTS.md has no god-object gotcha to update. `:kzen-auto-jvm:test` +
+>   `:kzen-auto-js:compileKotlinJs` + selfTest green.)
+> - [x] Phase 7 — decision gate: desktop actuation (ActionSurface) or park desktop capture
+>   (resolved 2026-07-12 as **Branch B — browser-first stands**, recorded in
+>   kzen-auto/docs/architecture.md §6 (target paragraph): desktop capture is a capture-source
+>   convenience, `ScreenshotTaker` is the future hook, the locator SPI's driver-typed context is
+>   the retype seam. Rationale: no concrete desktop-automation need exists; branch A is
+>   medium-high risk (input injection, focus stealing, OS permissions) with no user demand;
+>   B is fully reversible. NB: chosen autonomously as the plan's low-risk default — re-open the
+>   gate if desktop RPA becomes near-term.)
 
 ## Context — what the review found (2026-07-06; pre-rename names, pre-FE1 anchors)
 
