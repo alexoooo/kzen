@@ -1,5 +1,15 @@
 # Feature (visual action targets) improvements — phased plan
 
+> **Rename note (2026-07-12):** the Feature concept was renamed to **Target** as the umbrella for
+> element targeting (visual today; CSS/XPath/relational expressions planned). Old names in this
+> document map as: archetype `Feature` → `Target` (UI title "Action Target" → "Target");
+> `FeatureDocument` → `TargetDocument`; packages `…document.feature` → `…document.target` and
+> `…server.objects.feature` → `…server.objects.target`; `FeatureController` → `TargetController`;
+> `VisionService` → `TargetLocator` (moved to `server.service.target` — it dispatches all
+> TargetSpec kinds). `service.vision` keeps `TemplateMatcher`/`RgbGrid`/`VisionUtils` as the
+> visual-strategy engine. In the step editor, the type dropdown is labelled "Target Type" and the
+> visual document selector "Target". Body text below predates the rename.
+
 > **Status: planned.** Written 2026-07-06 from a design review of the Feature document type — the
 > visual action-target manager for point-and-click RPA — across all three layers: common
 > (`FeatureDocument` / `TargetSpec` / `TargetSpecDefiner` / `TargetSpecCreator`), server
@@ -127,9 +137,10 @@ small; apply the conventions, don't re-derive them).
   swap in the as-built note.
 - Piercing iframes / shadow DOM from `elementFromPoint` (documented boundary, phase 3).
 - Multi-monitor selection — only if phase 6 chooses branch A.
-- Renaming `Feature`/`feature` packages to match the "Action Target" UI title. The Flow rename is
-  precedent that it's doable, but churn > value while the semantics are still moving; revisit
-  after phase 6. Docs (phase 3) state the equivalence explicitly.
+- ~~Renaming `Feature`/`feature` packages to match the "Action Target" UI title.~~ Done 2026-07-12
+  (see the rename note at the top): standardized on **Target** as the umbrella name, ahead of this
+  plan's schedule, once the concept's future scope (selectors, surfaces, visual expressions) made
+  the name decidable.
 
 ## Ground rules for every phase
 
