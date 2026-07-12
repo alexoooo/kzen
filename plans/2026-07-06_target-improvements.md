@@ -163,7 +163,18 @@
 >   (JVM test can't exercise it; the client seam is the same autowire mechanism). No policy editor
 >   UI (notation-editable only — not user-requested). architecture.md §6 gained the target-SPI
 >   paragraph; AGENTS.md has no god-object gotcha to update. `:kzen-auto-jvm:test` +
->   `:kzen-auto-js:compileKotlinJs` + selfTest green.)
+>   `:kzen-auto-js:compileKotlinJs` + selfTest green. Post-landing fix 2026-07-12: `unique`
+>   counted candidates across crops, so 3 crops agreeing on the same element read as ambiguity
+>   ("More than one target found ... all at [~78, ~618]"). A document's crops are alternative
+>   appearances of ONE target — `TargetLocator.collapseByElement` now collapses candidates that
+>   resolve to the same DOM element before `selectByPolicy` (null-element matches stay distinct);
+>   the success note reports agreement ("(3 crops agree)"). The View preview mirrors this with
+>   geometry (`TargetLocateResult.distinctTargetCount`, overlap-clustering — the preview has no
+>   DOM, e.g. desktop capture): "N matches agree on one target — uniquely located". Also fixed
+>   the Browser (latest run) source: browser screenshots ride step traces as the `detail` binary,
+>   but the client filtered for top-level `BinaryExecutionValue` and always found nothing — now
+>   `StepTrace.ofExecutionValueOrNull(value)?.detail` (works only for runs traced since the last
+>   run/restart: `ServerLogicController.start` calls `logicTraceStore.clearAll()`).)
 > - [x] Phase 7 — decision gate: desktop actuation (ActionSurface) or park desktop capture
 >   (resolved 2026-07-12 as **Branch B — browser-first stands**, recorded in
 >   kzen-auto/docs/architecture.md §6 (target paragraph): desktop capture is a capture-source
