@@ -24,7 +24,7 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — structure core: FlowMatrix/FlowDag/FlowUtils test harness, OptionalInput readiness fix, definition robustness, pre-run structure lint, one signature derivation — landed 2026-07-11 (as-built note at the end of Phase 1)
-> - [ ] Phase 2 — server run loop: graph instance per run (not per vertex execution), non-fatal + throttleable tracing, inspection cost bounds
+> - [x] Phase 2 — server run loop: graph instance per run (not per vertex execution), non-fatal + throttleable tracing, inspection cost bounds — landed 2026-07-11 (as-built note at the end of Phase 2)
 > - [ ] Phase 3 — vertex SPI generalization: capability interfaces replace concrete-class special cases, message inspection on the vertex, channel contracts, multi-parameter RunLogic
 > - [ ] Phase 4 — client render performance + error visibility: compute-once routing, consumed-subset state, Error phase rendered, refetch scoping, display hygiene
 > - [ ] Phase 5 — editing UX: move commands, auto-pipe routing tool, row/column shifting, legacy `flow/edit` cleanup
@@ -370,6 +370,57 @@ kzen-auto-jvm (+ one common doc touch).
 step through FizzBuzz Flow Loop — per-vertex cards still update on every step (paused-path
 tracing untouched); run it free — final state correct.
 
+**As-built (2026-07-11).** Landed as planned with these deviations/findings:
+
+- **Paused/stepping detection uses the checkpoint-gap proxy**, because `Execution` deliberately
+  exposes no run-mode query (the engine owns stepping). `checkpoint()` only *suspends* while
+  paused/stepping, so `run()` measures `System.nanoTime()` across consecutive checkpoint-returns:
+  a gap ≥ 50 ms (well above a µs-scale hot-loop execution, well below human step cadence) ⇒
+  `pausedOrStepping`, which forces the normal pre/post-execution traces (fidelity). First iteration
+  forces (null sentinel). Free-running traces are per-vertex wall-clock throttled (≥ 100 ms window,
+  first-emit-per-vertex always through). Both constants are `private companion` values in `FlowRun`
+  — no notation surface. Scheduling is provably immune (`snapshotVisual` reads `activeVertices`, not
+  emitted traces).
+- **`traceVertex` gained a `force` flag**; the throttle gate is checked *before* building the model,
+  so `inspectState`'s O(state) serialization is skipped when throttled (the AccumulateSink O(N²)
+  collapses). Force is `true` at both `recoverable` error handlers (red shows immediately) and at the
+  **run-end flush**; `false` for `clearIterationForLoop`'s `retrace` (forcing it would re-serialize a
+  reset downstream accumulator every iteration and re-introduce O(N²); stepping still lets these
+  through via the wall-clock throttle, their last emit being long ago).
+- **`clearMessagesAtEnd` now force-traces *every* vertex** (clearing message, keeping state), so run
+  completion always lands an accurate final frame regardless of throttling. Residual (noted acceptable):
+  a manual *pause* mid-free-run — distinct from stepping — may leave one in-flight vertex ≤ 100 ms
+  stale until the user steps/resumes, since `Execution` gives `FlowRun` no pause-settle callback; the
+  next step/resume is a slow tick that re-emits, and completion force-flushes.
+- **`MutableFlowOutput.clear()` added** and called before every `process`: under instance-per-run +
+  pause-on-error retry, a `process` that `set()` then threw would otherwise leave a stale item to
+  re-emit. Inputs need no extra reset (`populateInputs` set-or-clears every wired input each call).
+  `createInstance` (per-execution `createGraph`) became `instanceFor` (a lookup on the run's single
+  `GraphInstance`, built once in `run()` next to the matrix); `retrace` dropped its own build too.
+- **`FlowMessageInspector.inspectMessage` no longer throws**: `ofArbitrary` fast path →
+  supertype-aware registry match (`entries.firstOrNull { it.key.isInstance(message) }`, so an
+  interface registration would work) → truncated-`toString` fallback. A shared companion
+  `truncatedToString` (≤ `maxTraceChars = 1024` + ellipsis) is reused by `FlowRun.traceVertex`'s
+  try/catch belt-and-suspenders around `inspectState`/`inspectMessage`. The registry stays empty
+  (registration path is phase 3's SPI question) — this phase only removed the landmine.
+- **Regression test needs no test-only vertex**: `FlowInputVertex`'s message is the raw run argument,
+  so `flow-execution-test.yaml` re-used with a `private data class` argument exercises the run-killer
+  directly. `arbitraryDomainObjectMessageDoesNotKillRun` asserts `Outcome.Success` + `out == widget`
+  and reads the input vertex's rendered `toString` back from `engine.history(0)` (the run-end flush
+  clears the latest message, but history retains every frame). `streamSinkFinalStateTracedAtRunEnd`
+  reads the sink's final **state** from `snapshot().root.live` (state survives the flush).
+  `streamRunDoesNotRebuildGraphPerVertex` (a `FlowNotationTest` method, not a separate class) ran a
+  1..2000 / 3-vertex chain in ~1.3 s (bound 10 s). New fixtures: `flow-accumulate-test.yaml`,
+  `flow-benchmark-test.yaml` (both use `edges: []` vertical-adjacency auto-wiring).
+- **Micro-cleanups**: `ActiveVertexModel.epoch` Long → Int (redundant `.toInt()` dropped);
+  `VisualFlowModel.put/remove/rename/move/isInProgress/digest` and `VisualVertexModel.digest` +
+  `Digestible` deleted (grep-confirmed no external callers — only `isRunning`/`running` are live).
+  `VisualVertexModel.phase()`'s Error TODO left for phase 4.
+- Verification green: `:kzen-auto-common:allTests`, `:kzen-auto-js:compileKotlinJs` (the trimmed
+  common models still compile the JS frontend), full `:kzen-auto-jvm:test` (incl. `FlowMigrationTest`,
+  proving instance-per-run didn't break capture/restore). Manual smoke (step/free-run FizzBuzz Flow
+  Loop in the dev loop) remains for the next dev-loop session.
+
 ---
 
 ## Phase 3 — Vertex SPI generalization: capabilities, not classes
@@ -421,10 +472,13 @@ kzen-auto-jvm.
   Client editing of `arguments:` reuses the existing attribute-editor machinery (the
   `SelectLogicEditor` + signature display already exist for `instructions`); keep it minimal.
 - **Stale-doc sweep rides here** (these files are all being edited anyway): rewrite the KDocs of
-  `RunLogicVertex` / `FlowInputVertex` / `FlowOutputVertex` (references to the retired
-  `FlowExecution`, "FlowDocument reads tupleComponentName"), `FlowConventions.kt:58-59`
-  ("FlowDocument.define()"), `FlowLogicCompiler.kt:28` (same), and `FlowMatrix.kt:22`'s stale
-  "TODO: optimize via mutable builder" if untrue after phase 1.
+  `RunLogicVertex` / `FlowInputVertex` / `FlowOutputVertex` (the "FlowDocument reads
+  tupleComponentName" claim — false since phase 1 moved signature derivation to
+  `FlowConventions`), `FlowConventions.kt:58-59` ("FlowDocument.define()"),
+  `FlowLogicCompiler.kt:28` (same), and `FlowMatrix.kt:22`'s stale "TODO: optimize via mutable
+  builder" if untrue after phase 1. (The retired-`FlowExecution` references in those three vertex
+  KDocs + the `RunLogicVertex.process()` message were already cleaned in the FL2 session — they
+  now name `FlowRun`; only the `FlowDocument`/signature staleness remains here.)
 - **Third-party proof — the phase's acceptance criterion**: a synthetic capability vertex under
   `src/main` test-fixtures style (the Job synthetic-worker convention; KSP/`@Reflect` requires
   `src/main`) — e.g. a `ConstantInputVertex` implementing `FlowRunInput` with a transformed
