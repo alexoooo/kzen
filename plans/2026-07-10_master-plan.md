@@ -20,13 +20,13 @@
 | S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | planned |
 | J | `2026-07-06_job-improvements.md` | Job flavour + Report subsumption | J1–J9 | planned |
 | FL | `2026-07-06_flow-improvements.md` | Flow flavour, all layers | FL1–FL6 | planned (FL6 = gate) |
-| FE | `2026-07-06_feature-improvements.md` | Feature (action targets) + vision | FE1–FE6 | planned (FE6 = gate) |
+| FE | `2026-07-06_target-improvements.md` | Target (element targeting) + vision | FE1–FE7 | in progress (FE1 ✓; restructured + renamed 2026-07-12; FE7 = gate) |
 | SH | `2026-07-06_shell-launcher-project-improvements.md` | Shell/launcher/project trio | SH1–SH5 | pruned 2026-07-10 |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | S1–S10 + D1–D7 | **analysis — needs ratification** |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (one arc) | proposed |
 | XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) | XC1–XC3 | planned |
 
-~57 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:6, SH:5, XC:3, Y:~2,
+~58 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:3, Y:~2,
 EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided once, here.
 
 ## Cross-plan dependency map (the real edges)
@@ -38,7 +38,9 @@ Hard edges (do not start the right side before the left is checked):
 - G1 → G2 → G3; G1 → G4. G2 before S3 and before XC2 *if* they are to work in the digest domain
   (notes added in those plans); otherwise they land against `closureNotations` and G2 migrates
   them.
-- S2 → S5 (migration-state shape settles first). J3 → J4 → J9. FE2 → FE3; FE1 → FE4 → FE5.
+- S2 → S5 (migration-state shape settles first). J3 → J4 → J9. FE2 → FE4 → FE5 → FE6; FE1 → FE5.
+  (FE renumbered 2026-07-12: old FE2+FE3 merged into new FE4; new FE2 = correct-clicking bug,
+  new FE3 = step-editor polish.)
 - Y → G7 (shared `unparseDocument`; one-time format churn must precede byte-identical
   preservation — cross-refs added in both plans).
 - E4 ships the `Execution.emit(retain:)` flag (added 2026-07-10); S7's transient emits and
@@ -48,7 +50,7 @@ Hard edges (do not start the right side before the left is checked):
   covers it once).
 
 Soft edges (recommended order, not blocking): E3 before XC3 (shared per-step affordance home);
-S8 before FL4 (S8 defines the render-scoping conventions FL4 applies); S2 before FE2's stretch
+S8 before FL4 (S8 defines the render-scoping conventions FL4 applies); S2 before FE4's stretch
 goal (live-browser capture); E3+E5 before J7's gated parts; J1 before J8 (constants), J3 before
 J8 (editor fallback); FL1 before FL2 (tests as net); EXT-S7 coordinates with FL5 (whoever runs
 first ports `PluginController` off the legacy editor).
@@ -212,16 +214,17 @@ Independent of stages 2–4 except where marked; interleave at will. The strateg
 Exit: composed A/B gate green (same dataset through Report and Job — identical bytes); Report
 frozen; a headless run is "the same Job minus observability".
 
-### Stage 6 — client convergence + Flow/Feature capability (8 sessions)
+### Stage 6 — client convergence + Flow/Target capability (9 sessions; FE3 can ride with FE2)
 
 - S8 — Script client sweep **first** (defines the render-scoping conventions; also delivers 8c's
   notation-driven branch discovery that XC2a shares).
 - FL3 — vertex SPI capabilities (after FL2 from stage 0).
 - FL4 — Flow client perf + error visibility (applies S8's conventions).
 - FL5 — Flow editing UX (move/auto-pipe/shift; coordinate EXT-S7's `PluginController` port).
-- FE2 → FE3 — same-pipeline capture, then locate-now preview (FE2's stretch goal benefits from
-  S2 having landed in stage 2).
-- FE4 → FE5 — tolerant matching, then the open target-type SPI.
+- FE2 — correct-clicking bug (live regression in the user's working Script — **pull forward out
+  of stage order as needed**); FE3 — step-editor polish (small; can ride with FE2).
+- FE4 → FE5 → FE6 — View/Add split + capture sources (the stretch goal benefits from S2 having
+  landed in stage 2), then tolerant matching, then the open target-type SPI.
 
 Exit: third-party proofs green on both SPIs (synthetic capability vertex; synthetic
 `CssSelectorTarget`); no O(V²)/O(steps×branches) render paths left.
@@ -262,7 +265,7 @@ kzen-source edits.
 ### Stage 10 — decision gates (0–2 sessions)
 
 Deliberately last, decisions-not-code first: **FL6** (multi-output / crossing / nested-loop
-semantics), **FE6** (desktop actuation or park), and the EXT-D5 reopening trigger review. Each
+semantics), **FE7** (desktop actuation or park), and the EXT-D5 reopening trigger review. Each
 may resolve as a docs-only session.
 
 ## Sequence at a glance
@@ -274,20 +277,20 @@ Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC1 → XC2 → XC3                           (move-to-step)
 Stage 4  E4 → S7 → E5 → E6   ·  E7                 (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
-Stage 6  S8 → FL3 → FL4 → FL5 · FE2 → FE3 · FE4 → FE5                     ├─ interleave freely
+Stage 6  S8 → FL3 → FL4 → FL5 · FE2 → FE3 → FE4 → FE5 → FE6              ├─ interleave freely
 Stage 7  G3 · G5 · G6 · Y → G7 · (G4 if measured)                          │  against 2–4 and
 Stage 8  SH2 → SH3 → SH4 → SH5                                            ─┘  each other
 Stage 9  EXT ratify → hygiene → D1 arc
-Stage 10 FL6 · FE6 gates
+Stage 10 FL6 · FE7 gates
 ```
 
 ## Parallelism
 
 There is one executor, so "parallel" means *interleavable without re-churn*, not simultaneous:
 
-- Stages 5 (Job), 6 (client/Flow/Feature), 7 (graph tail), and 8 (trio) are mutually independent
+- Stages 5 (Job), 6 (client/Flow/Target), 7 (graph tail), and 8 (trio) are mutually independent
   and independent of stages 2–4, **except**: J7's gated parts (E3/E5), S7↔E4 (retain flag),
-  FL4←S8, FE2-stretch←S2, G3←G2. Use them as alternate tracks when an engine phase needs to
+  FL4←S8, FE4-stretch←S2, G3←G2. Use them as alternate tracks when an engine phase needs to
   settle or a mavenLocal publish round-trip makes a same-repo follow-up awkward.
 - Anything in stage 0 and the EXT hygiene session are safe filler at any point.
 - The spine that must stay ordered is: **E1 → E2 → {S6, E3, G2} → {S2/S3, XC1–3} → E4 → E5 → E6**.
