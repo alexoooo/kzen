@@ -23,7 +23,7 @@
 > conventions phase 4 here applies).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — structure core: FlowMatrix/FlowDag/FlowUtils test harness, OptionalInput readiness fix, definition robustness, pre-run structure lint, one signature derivation
+> - [x] Phase 1 — structure core: FlowMatrix/FlowDag/FlowUtils test harness, OptionalInput readiness fix, definition robustness, pre-run structure lint, one signature derivation — landed 2026-07-11 (as-built note at the end of Phase 1)
 > - [ ] Phase 2 — server run loop: graph instance per run (not per vertex execution), non-fatal + throttleable tracing, inspection cost bounds
 > - [ ] Phase 3 — vertex SPI generalization: capability interfaces replace concrete-class special cases, message inspection on the vertex, channel contracts, multi-parameter RunLogic
 > - [ ] Phase 4 — client render performance + error visibility: compute-once routing, consumed-subset state, Error phase rendered, refetch scoping, display hygiene
@@ -256,6 +256,54 @@ mid-run; the Logic signature has one derivation. kzen-auto-common + kzen-auto-jv
 `AppendText`; manual smoke: a Flow with a dangling pipe shows the lint banner and refuses to
 start with the finding list; the FizzBuzz Flow Loop document (read-only) shows no findings and
 still runs.
+
+**As-built (2026-07-11).** Landed as planned with these deviations/findings:
+
+- **`FlowStructureValidator` lives in `objects/document/flow`** (beside `FlowConventions` /
+  `FlowWiring`), not beside `FlowUtils` — the name findings need document-level notation
+  semantics. Geometry findings (`validateStructure(matrix)`) stay matrix-only and are
+  commonTest-covered; name findings (`validateNames`) are covered by `FlowNotationTest`'s
+  compile-failure cases (building inheritance-resolved `GraphNotation` in commonTest wasn't
+  worth the fixture weight).
+- **The cycle finding was dropped as unrepresentable**: every successor hop moves laterally
+  within a pipe row or strictly downward, so a matrix-derived DAG is acyclic by construction.
+  `FlowDag.of`'s `check` stays as pure defence; the client needs no dag-build guard.
+- **"Unreachable from any source" was subsumed** by the per-vertex wiring findings — every
+  unreachable chain contains a flagged root (unwired required input / fully-unwired vertex);
+  no separate reachability sweep.
+- **"More wired predecessors than declared inputs" IS representable and reported**: a source
+  beyond a fan-in's column span still finds it as successor via `findCellBelow`'s leftward-scan
+  arithmetic (a forward/backward asymmetry pinned by
+  `FlowDagTest.leftwardScanReachesVertexBeyondItsSpan`).
+- **Readiness unification details**: `isLayerReady`'s old `.any`-predecessor-message acceptance
+  became the same per-input rule as `nextInLayer` (the `unify` TODO); `nextInLayer`'s
+  single-vertex-layer shortcut was deliberately KEPT — an in-progress mid-stream vertex
+  re-executes without fresh inputs (e.g. a repeater draining state), pinned by
+  `FlowUtilsNextTest.inProgressSingleVertexLayerSelectedWithoutInputCheck`.
+- **Readiness rule REVISED same-day (regression found in FizzBuzz Flow Loop)**: the plan's
+  "a wired optional input still gates" contradicted the higher-priority "notation compatibility
+  is absolute" ground rule — FizzBuzz's `SelectLast` has both optionals wired but per iteration
+  only one branch produces (the filter drops the other), so it stalled. Final rule: required
+  inputs are strict (wired + upstream message), a wired optional never gates on its own (layer
+  order guarantees its upstream has settled — empty means "produced nothing this pass"), and at
+  least one wired input must hold a message (sources are always ready). Pinned by
+  `FlowUtilsNextTest.selectLastRunsWhenOnlyOneWiredOptionalHasMessage` and end-to-end by
+  `FlowNotationTest.selectLastMergesWhicheverBranchProducedEachIteration` over
+  `flow-select-last-test.yaml`, a reduced FizzBuzz-loop shape (the real document is excluded
+  from the test notation scan by `AutoTestUtils.readNotation`'s `main/` exclusion).
+- **1e resolves the `vertices` list references** (same resolution as `FlowMatrix`) instead of
+  `directNestedObjectPaths`: the old `inputParameterNames` silently missed top-level
+  (hand-written) vertices and only saw UI-created nested ones; the list order is the signature
+  order. `RunStepArgumentsEditor` inherits the fix unchanged.
+- Dangling-pipe detection is ingress-closure based and deliberately lenient toward stray side
+  branches pointing *into* a functioning run; every cell of a severed run is reported.
+- New files: 5 commonTest files under `paradigm/flow/` (`FlowStructureTestBuilder` + 4 suites),
+  `FlowStructureValidator.kt`, and 3 test fixtures (`flow-optional-input-test.yaml`,
+  `flow-invalid-unwired-required-test.yaml`, `flow-invalid-duplicate-parameter-test.yaml`).
+  The client banner mirrors `StageController.renderDefinitionErrors`' always-emitted stable
+  slot (sibling-remount hazard).
+- Manual smoke (dangling-pipe banner in the dev loop; FizzBuzz Flow Loop clean) remains for the
+  next dev-loop session; all automated verification is green.
 
 ---
 

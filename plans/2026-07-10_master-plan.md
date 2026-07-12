@@ -131,7 +131,7 @@ any order.
 |---|---|---|
 | ~~0.1~~ ✓ 2026-07-10 | **SH1** trust-boundary hardening | CSRF→delete/spawn/RCE + trust-all TLS; most urgent item in the epic |
 | ~~0.2~~ ✓ 2026-07-11 | **J1** progress wire contract + bounding | fixes the live Pivot-teaser bug; stops history leak |
-| 0.3 | **FL1** structure core tests + OptionalInput + lint | pins the untested load-bearing layer before FL2 |
+| ~~0.3~~ ✓ 2026-07-11 | **FL1** structure core tests + OptionalInput + lint | pins the untested load-bearing layer before FL2 |
 | 0.4 | **FL2** run loop: instance-per-run + non-fatal tracing | kills the FlowMessageInspector run-killer + N×V rebuild |
 | 0.5 | **S1** expression engine | classloader-per-iteration + diagnostic-text inference; highest value/risk in the script plan |
 | 0.6 | **FE1** vision core hardening | tests + 10× matcher constants + DOM-mutation fix |
