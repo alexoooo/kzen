@@ -84,7 +84,7 @@ When bumping Kotlin (even patch versions like `2.4.0` → `2.4.x`):
 - Each JS-bearing sibling (`kzen-lib`, `kzen-auto`, `kzen-project`, `kzen-launcher`) needs `./gradlew kotlinUpgradeYarnLock` run *before* checks/distribution tasks — otherwise `:kotlinStoreYarnLock` fails because resolved transitive JS dependencies shifted. The 4 regenerated `kotlin-js-store/yarn.lock` files must be committed alongside the version bump.
 - `:kzen-auto-plugin:publishToMavenLocal` must run before any non-composite consumer picks up the new bytecode — including external plugins compiled against the previous Kotlin and any standalone (per-repo, non-umbrella) build of `kzen-project`. Inside the composite umbrella Gradle substitutes the artifact so the published copy can lag, but in any other context `kzen-auto-plugin` is the gating step.
 - Recommended verification order: `kzen-lib` → `kzen-auto` (with `:kzen-auto-plugin:publishToMavenLocal` first) → `kzen-project` ‖ `kzen-launcher` → `kzen-shell`.
-- Run `cd ../kzen-auto && ./gradlew :kzen-auto-jvm:test --tests "*FormulaStepTest"` explicitly — it's the canary for `FormulaStep`'s coupling to Kotlin compiler diagnostic text (see `../kzen-auto/AGENTS.md` Gotchas). A silent inference regression here looks like a wrong inferred type, not a hard build failure.
+- Run `cd ../kzen-auto && ./gradlew :kzen-auto-jvm:test --tests "*FormulaStepTest"` explicitly — it's the canary for `FormulaStep`'s type inference, which reads the compiler's inferred `KType` via kotlin-reflect (see `../kzen-auto/AGENTS.md` Gotchas). A silent inference regression here looks like a wrong inferred type, not a hard build failure.
 
 ## Architecture
 

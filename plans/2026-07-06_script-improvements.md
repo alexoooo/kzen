@@ -14,7 +14,7 @@
 > **not** duplicate their items — see "Covered elsewhere" below. Coordinate where marked.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — expression engine: loaded-class caching + real type inference (kzen-auto-jvm)
+> - [x] Phase 1 — expression engine: loaded-class caching + real type inference (kzen-auto-jvm) — landed 2026-07-11
 > - [ ] Phase 2 — resources survive live edit + engine-owned resource values (kzen-lib + all flavours)
 > - [ ] Phase 3 — linked-document live edit (sub-script edits join the migration closure)
 > - [ ] Phase 4 — validation once per notation version (digest-keyed cache)
@@ -222,6 +222,56 @@ with a reachable `TODO()` (FormulaStep.kt:81) and a hand-rolled type-string pars
 1000 iterations over a Formula body completes in < a generous bound — catches classloader-per-
 iteration regressions); manual: DoWhile FizzBuzz script steps correctly; validation errors still
 render per step.
+
+**As-built (landed 2026-07-11, all green: full `:kzen-auto-jvm:test`):**
+
+- **1a class cache + instance reuse.** `CachedKotlinCompiler` gained an in-memory loaded-class cache
+  in front of `tryLoad` — a **bounded Guava LRU** (`maximumSize`, not an unbounded map: each retained
+  `Class` pins its `URLClassLoader` in Metaspace, and a long-lived process compiles far more distinct
+  expressions than are live at once; an evicted entry transparently reloads from the durable on-disk
+  jar). The 1c compile lock is likewise a fixed-size Guava `Striped<Lock>` rather than a
+  monitor-per-signature map, so the lock table stays bounded. Per-run instance reuse threads through a
+  new generic
+  `StepExecution.perRunSingleton<T>(key, factory)` (backed by a `HashMap<String, Any>` in
+  `ScriptRunContext`) — chosen over exposing a `MutableMap<String, StepExpression>` so no eval-package
+  type leaks into `script.api`. `StepExpressionSupport.evaluate` took an optional `instanceCache`
+  lambda (default = fresh instance); the three expression steps pass `execution::perRunSingleton`.
+- **1b merged single-class (refined the plan's separate-probe sketch).** `StepExpressionCompiler`
+  emits, for FormulaStep, a class whose user code is an inferred `probe()` member with `evaluate`
+  delegating to it — so definition (reflect the type) and run (call `evaluate`) share one content
+  signature and compile once. `StepReturnTypeInference` reads `clazz.kotlin.declaredFunctions`'
+  `probe` return `KType` and maps it with the registry-visibility filter (builtin whitelist ∪
+  `objectRegistryScan.classNames`, by full `ClassName` equality; outside → `Any`, nullability
+  preserved). Deleted FormulaStep's `parseInferredType`/`parseLiteralType`/`parseTypeMetadata`,
+  string constants, the reachable `TODO`, and the 3-probe dance.
+- **Load-bearing deviation — `ScriptKotlinCompiler` had to become `open`.** The reflect call
+  (`clazz.kotlin.declaredFunctions`) resolves the generated class's enclosing **script facade
+  `__`**, which the scripting compiler emits as `class __ extends ScriptKotlinCompiler`. That base
+  had been `final` since 2022 and worked for years only because the old expression path used the
+  compiled class **purely via Java `newInstance()`/`evaluate()`, never kotlin-reflect** — so `__` was
+  never loaded. The first kotlin-reflect use forced `__` to load and a final base threw
+  `IncompatibleClassChangeError: class __ cannot inherit from final class ScriptKotlinCompiler`.
+  A warm on-disk `code-cache` had masked this (the failure only appears on a cold recompile, which
+  the source-shape change forced). Confirmed pre-existing and reflect-specific by: `CalculatedColumnEvalTest`
+  (uses only **explicit** return types → no reflect on the generated class) passes cold; DoWhile's
+  **forced-Boolean** form passes; only the **inferred `probe()`** form failed. Fix: `open class
+  ScriptKotlinCompiler` (a `@KotlinScript` template being extendable is standard). Low-risk, still
+  instantiable; both Script and Report (CalculatedColumn) suites green after.
+- **1c.** Striped compile lock (above); DoWhile's `conditionScopeTypes` now delegates to shared
+  `StepExpressionSupport.typesOf` + `resolveNonUnit` (deleted its `nonUnitScope`); `ScriptValidator`
+  emits `StepValidation(null, "Unresolved: circular or unavailable dependency")` for fixpoint
+  survivors; `ScriptValidator.validate` takes an optional `scriptTree` the compiler passes through;
+  doc rot fixed in `ResultStep`/`StepExecution` (`ScriptExecutionContext` references).
+- **Tests.** Extended `FormulaStepTest` (nullable → `String?`, `List<Int>`, `Unit`, `Long`, `Char`→`Any`
+  visibility fallback, and an unresolved-dependency diagnostic); a `ScriptNotationTest` 1000-iteration
+  ForEach benchmark (asserts value `1001000`, wall-clock < 20 s — well under a second in practice).
+  Registry positive-case test deferred (no `ObjectRegistry` test fixture exists; the `Char`→`Any`
+  case exercises the "outside whitelist ∪ registry" branch). `escapeKotlinVariableName` collision
+  TODO left as-is (not observed).
+- **Note on the `code-cache` caveat**: because compiled-formula jars persist under `<workdir>/code-cache`
+  and are content-addressed by source only, a change to the generated-class *shape* forces cold
+  recompiles — clear the cache when changing `StepExpressionCompiler` output. Reflect-on-`__` now
+  works because the base is `open`, so this is a one-time hazard for this phase.
 
 ---
 
