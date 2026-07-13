@@ -13,7 +13,7 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — definition caching + hot-path correctness (kzen-lib only) ✓ 2026-07-12
-> - [ ] Phase 2 — closure content digest (retire `baselineNotations` notation-compare)
+> - [x] Phase 2 — closure content digest (retire `baselineNotations` notation-compare) ✓ 2026-07-13
 > - [ ] Phase 3 — scoped instantiation + instance caching (Flow per-vertex, detached actions)
 > - [ ] Phase 4 — incremental define (per-object definition cache, opt-in SPI)
 > - [ ] Phase 5 — declarative notation binding + notation-driven logic marker
@@ -240,6 +240,17 @@ compiled behaviour", the same reasoning `closureNotations` encodes today).
 Baseline suites; kzen-auto Job migration tests (`JobMigrationTest`) and a manual live-edit
 smoke: start a Script run, edit an unrelated document (no migrate), edit the running document
 (migrate fires) — same behaviour as before, now via digest.
+
+**As-built (2026-07-13).** Landed as specified, with three notes. (1) The BFS extraction is
+`transitiveClosure(Collection<ObjectLocation>): Set<ObjectLocation>`; `filterTransitive` and
+`transitiveDigest` both call it. A closure member missing from `coalesce` (synthesized object)
+digests as null via `addDigestibleNullable` — deterministic, mirroring the old `mapNotNull`
+tolerance. (2) The new test is `kzen-lib-jvm/.../GraphDefinitionTransitiveTest` (not commonTest as
+planned — define needs the real base notation, which only the JVM harness loads); it pins
+digest-equal-across-builds, closure-member edit ⇒ change, outside-closure edit ⇒ no change, and
+filterTransitive/transitiveClosure agreement. (3) Step 3 was a no-op: `JobLogicCompiler` /
+`JobChannelSynthesis` do no notation comparison on migrate ticks — they only re-synthesize
+deterministically for carryover; migration detection lives solely in `ServerLogicController`.
 
 ---
 
