@@ -12,7 +12,7 @@
 > `baselineNotations` apparatus — coordinate if both are in flight).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — definition caching + hot-path correctness (kzen-lib only)
+> - [x] Phase 1 — definition caching + hot-path correctness (kzen-lib only) ✓ 2026-07-12
 > - [ ] Phase 2 — closure content digest (retire `baselineNotations` notation-compare)
 > - [ ] Phase 3 — scoped instantiation + instance caching (Flow per-vertex, detached actions)
 > - [ ] Phase 4 — incremental define (per-object definition cache, opt-in SPI)
@@ -184,6 +184,18 @@ test; a `GraphCreator` test for the ambiguity error and one exercising a deep (>
 dependency chain through define+create (guards both 1c and the old level-cap assumption — note
 the definer's level count is meta-tower depth, so 16 stays plenty *there*; the new error message
 is what's being tested). Rebuild kzen-auto against the published lib; run its baseline.
+
+**As-built (2026-07-12).** Landed as specified, with three notes. (1) *Create-time ambiguity is
+only reachable via global-host resolution* (the creator lookup in `createGraph`'s main loop):
+`Locator.locateAll`'s host-document filter either disambiguates a location-hosted reference or
+empties it to null (→ the unsatisfied-set error), so the plan's "same name in two documents,
+referenced from a third" scenario surfaces as a clean unsatisfied diagnostic, not ambiguity.
+`GraphCreatorTest` pins the ambiguity error by shadowing `AttributeObjectCreator` in a user
+document (shadow's own creator path-qualified to dodge a self-edge). (2) `ReflectionRegistry` is
+commonMain where `synchronized` doesn't exist — added `tech.kzen.lib.platform.platformSynchronized`
+expect/actual (JVM = `synchronized`, JS = direct invoke). (3) Kahn leveling resolves references
+once against the full location set (deterministic) instead of incrementally against closed-so-far;
+level membership and in-level ordering are preserved (ordinal sort).
 
 ---
 
