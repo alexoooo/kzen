@@ -13,7 +13,7 @@
 > kotlinx-ready, which E5 should reuse (note added there is NOT required; one-way reference).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — kzen-launcher codec convergence (kotlinx both sides)
+> - [x] Phase 1 — kzen-launcher codec convergence (kotlinx both sides) ✓ 2026-07-13 (as-built note at end)
 > - [ ] Phase 2 — wire-codec classification + kotlinx.serialization foundation (kzen-lib/kzen-auto)
 > - [ ] Phase 3 — first endpoint-family migration (storage/file-listing/output) + **payoff gate**
 > - [ ] Phase 4 — logic/task/trace/detached family (gated on phase 3's verdict)
@@ -403,3 +403,20 @@ the kzen-auto items are dropped.
 Registered in `2026-07-10_master-plan.md` as **SER** (2026-07-13): phase 1 is stage 0 session
 0.7; phases 2–5 are an interleavable track in stage 7, with a soft edge SER4-before-E5 (E5's
 push format should reuse the kotlinx trace/status DTOs).
+
+## Phase 1 as-built (2026-07-13)
+
+Landed as planned, with three refinements:
+
+- Every payload already had a `@Serializable` DTO in kzen-launcher-common
+  (`ArchetypeDetail` included — step 3's "move/confirm" was already done), so
+  **kzen-launcher-jvm gained no serialization plugin**: the server just responds with the
+  common DTOs, and `respondCommand`'s error bodies use `buildJsonObject` (runtime-only).
+- `ShellSimulator.Status` + its local `State(wire:)` enum were not annotated but **deleted** —
+  they existed only to hand-mirror the common `RunningProject`/`RunningState` DTO, whose
+  `@SerialName` values reproduce the exact wire strings. The simulator now uses the common DTO
+  directly.
+- `RestHandler.listProjects()` returns `List<ProjectDetail>`; the now-unused
+  `CommonRestApi.projectExists` key constant was deleted (the other keys remain as query-param
+  names). `jackson-module-kotlin` was narrowed to `tools.jackson.core:jackson-databind`
+  (ProjectRepo is tree-API-only), per step 1's note.

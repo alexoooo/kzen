@@ -25,7 +25,7 @@
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | S1–S10 + D1–D7 | **analysis — needs ratification** |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (one arc) | proposed |
 | XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) | XC1–XC3 | planned |
-| SER | `2026-07-13_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER1–SER5 | planned (SER3 = gate; added 2026-07-13) |
+| SER | `2026-07-13_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER1–SER5 | in progress (SER1 ✓ 2026-07-13; SER3 = gate) |
 
 ~63 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:3, Y:~2,
 SER:5, EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided once,
@@ -145,7 +145,7 @@ call). **SH1 first**, rest in any order.
 | ~~0.4~~ ✓ 2026-07-11 | **FL2** run loop: instance-per-run + non-fatal tracing | kills the FlowMessageInspector run-killer + N×V rebuild |
 | ~~0.5~~ ✓ 2026-07-11 | **S1** expression engine | classloader-per-iteration + diagnostic-text inference; highest value/risk in the script plan |
 | ~~0.6~~ ✓ 2026-07-12 | **FE1** vision core hardening | tests + 10× matcher constants + DOM-mutation fix |
-| 0.7 | **SER1** launcher codec convergence | finishes the half-done kotlinx migration; drops Jackson 2 from the launcher server; proves `ktor-serialization-kotlinx-json` before SER2–5 touch kzen-auto |
+| ~~0.7~~ ✓ 2026-07-13 | **SER1** launcher codec convergence | finishes the half-done kotlinx migration; drops Jackson 2 from the launcher server; proves `ktor-serialization-kotlinx-json` before SER2–5 touch kzen-auto |
 
 Exit: no cross-site reachability into the shell/launcher; Pivot card live; a Flow trace can
 never kill a run; formula evaluation is O(map-lookup); the matcher is tested and benchmarked.
