@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | in progress (E1–E2 ✓ 2026-07-12) |
 | G | `2026-07-05_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G1–G7 | in progress (G1 ✓ 2026-07-12) |
-| S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | planned |
+| S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | in progress (S1 ✓ 2026-07-11, S6 ✓ 2026-07-12 then reverted 2026-07-13) |
 | J | `2026-07-06_job-improvements.md` | Job flavour + Report subsumption | J1–J9 | planned |
 | FL | `2026-07-06_flow-improvements.md` | Flow flavour, all layers | FL1–FL6 | planned (FL6 = gate) |
 | FE | `2026-07-06_target-improvements.md` | Target (element targeting) + vision | FE1–FE7 | in progress (FE1 ✓; restructured + renamed 2026-07-12; FE7 = gate) |
@@ -150,12 +150,16 @@ Order: **E1 → E2 (+ S6 immediately after) → E3**, and **G1 → G2** (any int
 - ~~E1~~ ✓ 2026-07-12 — engine hot path + pause-overrides-stepping (+ E1f edit-dirty flag).
 - ~~G1~~ ✓ 2026-07-12 — definition caching + correctness cliffs.
 - ~~E2~~ ✓ 2026-07-12 — `checkpoint(at:)` + engine-owned position; retires `$next-step`. Unblocks XC and S6.
-- S6 — inline-branch stepping (`nestingDepth`) — rides directly on E2's signature churn
-  (hot-seam rule 3); doing it here avoids touching the call site twice.
+- ~~S6~~ ✓ 2026-07-12 — inline-branch stepping (`nestingDepth`) — rode directly on E2's signature
+  churn (hot-seam rule 3), merged over the same call site. **REVERTED 2026-07-13** (user decision
+  after live use): nesting-aware limits made auto-step-over blast a whole ForEach in one tick and
+  step-out exit just the branch instead of the document. Step-over/out are frame-only again
+  (classic debugger: step-over skips calls/frames, not loop bodies). The ForEach iteration-counter
+  trace detail landed with S6 and stays. XC2 now merges over the simpler (E2-shaped) call site.
 - G2 — closure content digest; retires `baselineNotations` (hot-seam rule 4).
 - E3 — breakpoints + run-to-element (small phase; also the "run up to a step" user ask).
 
-Exit: positions on the wire; breakpoints/run-to usable; step-over/out respect branches; one
+Exit: positions on the wire; breakpoints/run-to usable; one
 `tryDefine` per notation version; digest-based migration signal.
 
 ### Stage 2 — Script live-edit correctness (4 sessions)

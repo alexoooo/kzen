@@ -19,7 +19,10 @@
 > - [ ] Phase 3 — linked-document live edit (sub-script edits join the migration closure)
 > - [ ] Phase 4 — validation once per notation version (digest-keyed cache)
 > - [ ] Phase 5 — mid-loop migration resume (loop cursors, generic step carry-state)
-> - [ ] Phase 6 — step-over/out across inline branches (logical nesting depth)
+> - [x] Phase 6 — step-over/out across inline branches (logical nesting depth) — landed 2026-07-12,
+>   REVERTED 2026-07-13 (user decision after live use: auto-step-over blasted a whole ForEach in one
+>   tick; step-out exited the branch instead of the document — step-over/out are frame-only again;
+>   the ForEach iteration-counter trace detail stays; see the Phase 6 as-built note)
 > - [ ] Phase 7 — trace bounding: display truncation + referenced-aware loop collection
 > - [ ] Phase 8 — client sweep: hot paths, display dedup, notation-driven branch discovery
 
@@ -497,6 +500,39 @@ being extended; land together or immediately after.
 nested boundaries free and parks at the next nesting-0 boundary; step-out from nesting 2 parks at
 nesting 1; hosted-child stepping unchanged. Manual: step-over a ForEach runs the whole loop;
 step-into still descends; step-over a RunStep still runs the sub-script to completion; selfTest.
+
+> **As built (2026-07-12):** landed as planned, plus three notes. (1) The engine tracks each
+> node's last checkpoint nesting (`NodeRuntime.nesting`, updated by every checkpoint) so
+> nesting-less parks — explicit pause / pause-on-error — park at the failing step's nesting;
+> otherwise a step-over after an error park inside a branch would run to the end of the enclosing
+> branch instead of the next body step. Step limits are a private lexicographic `Frontier(depth,
+> nesting)` in `RunEngine`. (2) The nice-to-have loop counter deviated: the client's
+> `ForEachStepDisplay.renderCurrentItem` already renders the loop's trace detail as
+> `item: <detail>` (the server-side emit was dropped in the engine rewrite, 4bc9bcf2), so
+> `ForEachStep` now emits `"$item (i of n)"` — restoring the live item display with the counter
+> folded in — rather than a bare counter that would render mislabelled. (3) selfTest's fizzBuzz
+> fails on clean HEAD too (verified by stash-bisect): `Click Text "Script"` now matches 2 elements
+> and the new `TargetMatchPolicy.Unique` default (target commits 5f1b62da/66cd9200) rejects the
+> ambiguity the old first-match behaviour tolerated — pre-existing, orthogonal to this phase.
+> New tests: `RunEngineTest.stepOverAndOutRespectNestingDepth`; `StepNavigationTest`
+> `stepOverForEachRunsWholeLoop` / `stepIntoForEachDescendsIntoBody` / `stepOutOfLoopBodyExitsLoop`.
+>
+> **REVERTED (2026-07-13), user decision after live use.** The nesting-aware limits collided with
+> real stepping workflows: the client's slow loop only issues step-over, so parked AT a ForEach it
+> ran the entire loop in one tick (iterations no longer watchable), and step-out from inside an If
+> branch exited just the branch where exiting the document was expected. Step-over/out are
+> frame-only again (classic debugger semantics: step-over skips calls/frames, not loop bodies) —
+> `checkpoint(nestingDepth:)`, `Frontier`, `NodeRuntime.nesting`, and the spine's `branchDepth`
+> are all removed; note (1) above is moot. The ForEach iteration-counter detail (note 2) stays.
+> The three `StepNavigationTest` cases were reworked to pin the frame-only semantics
+> (`stepOverWalksForEachOneBoundaryAtATime` / `stepIntoForEachDescendsIntoBody` /
+> `stepOutOfLoopBodyExitsDocument`); `stepOverAndOutRespectNestingDepth` was dropped with the
+> engine revert. The selfTest failure (note 3) was root-caused the same day: the second "Script"
+> match is the "New Script..." MenuItem still mounted during the MUI menu's ~300ms closing
+> transition — fixed by a new `delaySeconds: Double` attribute on the browser target steps: a
+> post-action settle delay (act, wait, then screenshot — the causing step owns the settle time),
+> set to 0.5 on the two "New Script..." menu clicks; plus the Unique ambiguity error now naming
+> each matched element.
 
 ---
 
