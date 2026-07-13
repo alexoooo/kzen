@@ -15,7 +15,7 @@
 
 | ID | Document | Scope | Phases | Status |
 |---|---|---|---|---|
-| E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | planned |
+| E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | in progress (E1–E2 ✓ 2026-07-12) |
 | G | `2026-07-05_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G1–G7 | in progress (G1 ✓ 2026-07-12) |
 | S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | planned |
 | J | `2026-07-06_job-improvements.md` | Job flavour + Report subsumption | J1–J9 | planned |
@@ -149,7 +149,7 @@ Order: **E1 → E2 (+ S6 immediately after) → E3**, and **G1 → G2** (any int
 
 - ~~E1~~ ✓ 2026-07-12 — engine hot path + pause-overrides-stepping (+ E1f edit-dirty flag).
 - ~~G1~~ ✓ 2026-07-12 — definition caching + correctness cliffs.
-- E2 — `checkpoint(at:)` + engine-owned position; retires `$next-step`. Unblocks XC and S6.
+- ~~E2~~ ✓ 2026-07-12 — `checkpoint(at:)` + engine-owned position; retires `$next-step`. Unblocks XC and S6.
 - S6 — inline-branch stepping (`nestingDepth`) — rides directly on E2's signature churn
   (hot-seam rule 3); doing it here avoids touching the call site twice.
 - G2 — closure content digest; retires `baselineNotations` (hot-seam rule 4).

@@ -8,7 +8,7 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — engine correctness + hot path (kzen-lib only) ✓ 2026-07-12
-> - [ ] Phase 2 — boundary identity (`checkpoint(at:)`, engine-owned position)
+> - [x] Phase 2 — boundary identity (`checkpoint(at:)`, engine-owned position) ✓ 2026-07-12
 > - [ ] Phase 3 — breakpoints + run-to-element
 > - [ ] Phase 4 — trace unification (retire `LogicTraceStore` bridge)
 > - [ ] Phase 5 — push transport (SSE) + incremental fetch + slow-motion step budget
@@ -230,6 +230,20 @@ flavour — knows each node's current position. Retires the `$next-step` reserve
 park/release and shows in snapshots; manual UI check that the Script next-step highlight behaves
 identically (including inside `MultiStep` branches and after rename-while-paused — position is
 stable-id-keyed so rename survival must hold); selfTest.
+
+**As-built (2026-07-12):** landed as planned, with two clarifications. (1) Anonymous checkpoints
+(`at = null`) **preserve** the last recorded position rather than clearing it — the `StepExecution`
+SPI forward (`ScriptRunContext.checkpoint()`) is no-arg, so a step's internal pausability checkpoint
+must not blank the highlight; position clears only by node settling (terminal frames are pruned from
+the status frame tree, which is what clears the client highlight after completion). (2)
+`StepNavigationTest.assertNextToRun` turned out to be a *functional* reader of the retired marker
+(not just a comment): rewritten to read `LogicRunFrameInfo.position` off `status()` via a local
+deepest-frame-per-document search mirroring the client's `LogicRunFrames.frameForDocument`. Client
+side, `ScriptProgressStore.refresh` stashes `activeFrame?.position` as `ScriptProgressState.nextToRun`
+(null on the inactive/post-run and error paths) and `computeStepTraceInfo` compares it against the
+step's `ObjectLocation`. The Job/Report reserved-marker routings (`$job-progress`, `$trace-path`)
+are untouched. Baseline + selfTest green; the manual `FrontendDevelopment` highlight smoke
+(MultiStep branches, rename-while-paused) remains for the operator.
 
 ---
 
