@@ -7,7 +7,7 @@
 > dependency; do not start a phase whose prerequisite is unchecked.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — engine correctness + hot path (kzen-lib only)
+> - [x] Phase 1 — engine correctness + hot path (kzen-lib only) ✓ 2026-07-12
 > - [ ] Phase 2 — boundary identity (`checkpoint(at:)`, engine-owned position)
 > - [ ] Phase 3 — breakpoints + run-to-element
 > - [ ] Phase 4 — trace unification (retire `LogicTraceStore` bridge)
@@ -175,6 +175,19 @@ internals; client code.
 
 **Verify:** full baseline suite; add a coarse perf guard to `RunEngineTest` (e.g. 100k emits on a
 10-node tree completes in single-digit seconds — generous bound, just catches O(N²) regressions).
+
+**As-built (2026-07-12):** landed as planned, with these implementation choices: the frame-close
+observer is a dedicated `RunEngine.observeFrames` (jvm-only; the common `Run` contract stays minimal —
+the controller holds a `RunEngine`-typed field), gated on `!migrating` like publish (migration
+supersedes frames, it doesn't close them); compaction removes the settled subtree from `nodes` +
+`childLogic` via `removeSubtree` after `disposeResources` (which reads the node map); an `internal
+nodeCount()` accessor supports the bounding test. 1f: `ServerLogicController` implements
+`LocalGraphStore.Observer` itself (matching the `objectStableMapper` precedent), registered in
+`KzenAutoContext.init()`; the flag is cleared before the closure compare and re-set on the recompile
+catch path. The two controller migration tests fabricate edits out-of-band (local `NotationReducer`,
+never through the store), so they now hand the controller the store notification production would have
+delivered (`runBlocking { controller.onStoreRefresh(edited) }`) before the edited release — note the
+Job-flavour one passed vacuously without it (its sample-size edit doesn't change the row count).
 
 ---
 

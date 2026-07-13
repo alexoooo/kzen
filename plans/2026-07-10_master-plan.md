@@ -147,7 +147,7 @@ The engine/graph phases everything else keys off. E and G interleave freely (dis
 
 Order: **E1 → E2 (+ S6 immediately after) → E3**, and **G1 → G2** (any interleaving).
 
-- E1 — engine hot path + pause-overrides-stepping (+ E1f edit-dirty flag).
+- ~~E1~~ ✓ 2026-07-12 — engine hot path + pause-overrides-stepping (+ E1f edit-dirty flag).
 - G1 — definition caching + correctness cliffs.
 - E2 — `checkpoint(at:)` + engine-owned position; retires `$next-step`. Unblocks XC and S6.
 - S6 — inline-branch stepping (`nestingDepth`) — rides directly on E2's signature churn
