@@ -166,9 +166,10 @@ Order: **E1 → E2 (+ S6 immediately after) → E3**, and **G1 → G2** (any int
   (classic debugger: step-over skips calls/frames, not loop bodies). The ForEach iteration-counter
   trace detail landed with S6 and stays. XC2 now merges over the simpler (E2-shaped) call site.
 - ~~G2~~ ✓ 2026-07-13 — closure content digest; retires `baselineNotations` (hot-seam rule 4).
-- E3 — breakpoints + run-to-element (small phase; also the "run up to a step" user ask).
+- ~~E3~~ ✓ 2026-07-13 — breakpoints (run-to dropped per user decision — breakpoints subsume it;
+  also the "run up to a step" user ask: breakpoint + Run + remove).
 
-Exit: positions on the wire; breakpoints/run-to usable; one
+Exit: positions on the wire; breakpoints usable (run-to = breakpoint + Run + remove); one
 `tryDefine` per notation version; digest-based migration signal.
 
 ### Stage 2 — Script live-edit correctness (4 sessions)

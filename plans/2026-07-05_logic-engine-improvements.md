@@ -9,7 +9,7 @@
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — engine correctness + hot path (kzen-lib only) ✓ 2026-07-12
 > - [x] Phase 2 — boundary identity (`checkpoint(at:)`, engine-owned position) ✓ 2026-07-12
-> - [ ] Phase 3 — breakpoints + run-to-element
+> - [x] Phase 3 — breakpoints (run-to dropped — breakpoints subsume it) ✓ 2026-07-13
 > - [ ] Phase 4 — trace unification (retire `LogicTraceStore` bridge)
 > - [ ] Phase 5 — push transport (SSE) + incremental fetch + slow-motion step budget
 > - [ ] Phase 6 — multiple concurrent runs + per-run trace retention
@@ -283,6 +283,32 @@ it; selfTest.
 **Cross-reference:** the move-to-step plan (`2026-07-10_execution-control.md`) composes with this
 phase's positions and shares the per-step affordance home ("Run to here" / "Set next step here"
 are adjacent menu items — coordinate whichever lands second).
+
+**As-built (2026-07-13):** landed with these deviations. (1) **runTo dropped entirely** (user
+decision): no `runToTarget`, no `/logic/runTo`, no "run to here" UI — breakpoints subsume it (add
+a breakpoint at the target, Run, remove it); the XC plan's phase-3 coordination note was updated
+accordingly. (2) **Breakpoint hit parks `Explicit` regardless of the in-flight command** — the
+design bullet's "or a stepping command whose rule would *not* park here" contradicted its own
+rationale: the slow-motion loop only halts on `isHaltPaused()` (Explicit/Error), so a would-be
+Boundary settle on a breakpointed element is upgraded to Explicit. Accepted side effect: a manual
+Pause that settles exactly on a breakpointed boundary reports ExplicitPaused. (3) **Stop-the-world**
+(user decision): the breakpoint park also drops the engine command to Paused, so concurrent spines
+park at their next boundary and the run settles quiescent (mirrors `pause()`). (4) **Start-time
+breakpoints ride `/logic/startRun`/`/logic/startStep`** as repeated `breakpoint` params set between
+`start()` and the drive — race-free for the earliest steps; the `PUT/GET /logic/breakpoints`
+endpoint handles mid-run replace-sets; PUT twins added for the start routes (long lists overflow
+the GET URL limit). (5) **Client state is stable-id-keyed in `ClientLogicState.breakpoints`**
+(registry + push in `ClientLogicGlobal`, dot rendered by `StepHeader`/`ScriptStepDisplayDefault`),
+NOT per-step `ScriptStepState`: the `steps` map's ObjectLocation keys are never migrated on rename
+and the unmount-when-gone prune fires on rename, which would silently detach a dot from a step the
+engine still stops at; the client `ObjectStableMapper` rename-tracks ids for free. `setBreakpoints`
+sits on the common `Run` interface (a §4 control verb); the controller passthrough is non-interface
+(the `startStep`/`setPauseOnError` precedent); `ObjectStableMapper.objectLocationOrNull` was added
+for the deleted-step prune at push time. (6) **Script-only UI** (user decision): Flow works at the
+engine/REST level (vertices checkpoint stable ids since phase 2) but has no toggle UI; If/Loop/
+DoWhile branch headers (`DoWhileStepDisplay`/`BranchHeaderSlab` StepHeader hosts) also not wired —
+the dot renders only where the new optional StepHeader props are passed. Both are trivial
+follow-ups.
 
 ---
 

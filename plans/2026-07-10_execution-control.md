@@ -83,8 +83,11 @@ interface next to `Logic`.
    `Node.position`, `$next-step` retirement — the jump UI and the no-op guard read position, and
    landing jump before phase 2 would mean adapting the `$next-step` marker protocol twice).
    Engine-plan **phase 3 is soft** (recommended first): the jump *mechanism* never calls
-   `runTo`/breakpoints, but the two features share the per-step affordance home and are a natural
-   menu pair ("Run to here" = execute intervening / "Set next step here" = skip intervening).
+   breakpoints, but the two features share the per-step affordance home. (As built 2026-07-13,
+   E3 shipped breakpoints only — `runTo` was dropped per user decision, "run up to a step" =
+   breakpoint + Run + remove — and the affordance is a gutter dot on the step run-icon box, not
+   a menu — an inline dot in the StepHeader right cluster, immediately left of Delete (the
+   user-confirmed home for per-step actions); XC3's "Set next step here" joins that cluster.)
 5. **The jump command lives on the controller/migrate path, not on `Run`** (rationale in "Where
    the command lives" below). Engine carries the target as an opaque one-shot value through
    `migrate`; Script interprets it at restore time where the outcome maps live.
@@ -334,12 +337,13 @@ failing step).
 **Goal:** "Set next step here" on every step card, enabled while paused; skipped steps render
 distinctly; advisory warning for value-skipping jumps.
 
-**Prerequisite:** phase 2. Coordinate with engine-plan phase 3's UI ("run to here" + breakpoint
-gutter): whichever lands second joins the affordance home the first created — the step header's
-right cluster (`StepHeader.renderRightCluster`,
-`kzen-auto-js/.../script/step/header/StepHeader.kt:229-308`; `props.objectLocation` :32) or the
-gutter family (`ScriptGutterRow.kt` / `StepDependencyGutter.kt`), implementer's choice, but jump
-and run-to must be adjacent menu items.
+**Prerequisite:** phase 2. Coordinate with engine-plan phase 3's UI (landed 2026-07-13 as a
+breakpoint dot in the StepHeader right cluster, immediately left of Delete — rendered by
+`StepHeader.renderBreakpointDot`; placement user-confirmed after two rejected gutter attempts;
+no "run to here" action — runTo was dropped, breakpoints subsume it): "Set next step here"
+should join the same right cluster (`StepHeader.renderRightCluster`,
+`kzen-auto-js/.../script/step/header/StepHeader.kt`; `props.objectLocation`), keeping the
+breakpoint dot's hover-reveal idiom.
 
 ### Steps
 
