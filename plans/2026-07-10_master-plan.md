@@ -25,9 +25,11 @@
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | S1–S10 + D1–D7 | **analysis — needs ratification** |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (one arc) | proposed |
 | XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) | XC1–XC3 | planned |
+| SER | `2026-07-13_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER1–SER5 | planned (SER3 = gate; added 2026-07-13) |
 
-~58 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:3, Y:~2,
-EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided once, here.
+~63 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:3, Y:~2,
+SER:5, EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided once,
+here.
 
 ## Cross-plan dependency map (the real edges)
 
@@ -43,13 +45,18 @@ Hard edges (do not start the right side before the left is checked):
   new FE3 = step-editor polish.)
 - Y → G7 (shared `unparseDocument`; one-time format churn must precede byte-identical
   preservation — cross-refs added in both plans).
+- SER2 → SER3 → SER4 → SER5 (strict chain; SER3 is a payoff gate — a "stop" verdict drops
+  SER4 and SER5's kzen-auto items). SER1 is prerequisite-free; SER5's launcher/shell items
+  need only SER1.
 - E4 ships the `Execution.emit(retain:)` flag (added 2026-07-10); S7's transient emits and
   J1/J7's non-retained progress markers adopt it *after* E4.
 - XC1–XC3 and S8 (client conventions) before **E6** (multi-run re-keys `ClientLogicState` per
   document — the widest client audit; everything client-global should exist by then so the audit
   covers it once).
 
-Soft edges (recommended order, not blocking): E3 before XC3 (shared per-step affordance home);
+Soft edges (recommended order, not blocking): SER4 before E5 (E5's push format should reuse the
+kotlinx trace/status DTOs; if E5 runs first it lands on the map codecs and SER4 migrates them);
+E3 before XC3 (shared per-step affordance home);
 S8 before FL4 (S8 defines the render-scoping conventions FL4 applies); S2 before FE4's stretch
 goal (live-browser capture); E3+E5 before J7's gated parts; J1 before J8 (constants), J3 before
 J8 (editor fallback); FL1 before FL2 (tests as net); EXT-S7 coordinates with FL5 (whoever runs
@@ -124,10 +131,11 @@ Push-backs / judgement calls (recorded here, not edited into the plans):
 Recommended spine: 0 → 1 → 2 → 3 → 4, with stages 5–8 interleavable against 2–4 whenever a
 change of pace or a mavenLocal-publish wait makes it convenient (see Parallelism).
 
-### Stage 0 — standalone urgent fixes (6 sessions)
+### Stage 0 — standalone urgent fixes (7 sessions)
 
-All prerequisite-free; each is a user-facing correctness or security fix. **SH1 first**, rest in
-any order.
+All prerequisite-free; each is a user-facing correctness or security fix (SER1, added
+2026-07-13, is the exception: a small self-contained hygiene win slotted here per priority
+call). **SH1 first**, rest in any order.
 
 | Session | Phase | Why here |
 |---|---|---|
@@ -137,6 +145,7 @@ any order.
 | ~~0.4~~ ✓ 2026-07-11 | **FL2** run loop: instance-per-run + non-fatal tracing | kills the FlowMessageInspector run-killer + N×V rebuild |
 | ~~0.5~~ ✓ 2026-07-11 | **S1** expression engine | classloader-per-iteration + diagnostic-text inference; highest value/risk in the script plan |
 | ~~0.6~~ ✓ 2026-07-12 | **FE1** vision core hardening | tests + 10× matcher constants + DOM-mutation fix |
+| 0.7 | **SER1** launcher codec convergence | finishes the half-done kotlinx migration; drops Jackson 2 from the launcher server; proves `ktor-serialization-kotlinx-json` before SER2–5 touch kzen-auto |
 
 Exit: no cross-site reachability into the shell/launcher; Pivot card live; a Flow trace can
 never kill a run; formula evaluation is O(map-lookup); the matcher is tested and benchmarked.
@@ -233,7 +242,7 @@ frozen; a headless run is "the same Job minus observability".
 Exit: third-party proofs green on both SPIs (synthetic capability vertex; synthetic
 `CssSelectorTarget`); no O(V²)/O(steps×branches) render paths left.
 
-### Stage 7 — graph ergonomics + notation format (6 sessions)
+### Stage 7 — graph ergonomics + notation format + wire serialization (10 sessions)
 
 - G3 — scoped instantiation + instance caching (pull earlier if Report-panel latency bites).
 - G5 — codec layer + notation-driven `isLogic` marker.
@@ -241,9 +250,13 @@ Exit: third-party proofs green on both SPIs (synthetic capability vertex; synthe
 - **Y → G7** — yaml parser rework, then reducer split + template-respecting deparse (hot-seam
   rule 5).
 - G4 — incremental define, **only if the post-G1 measurement demands it** (see push-backs).
+- **SER2 → SER3 (gate) → SER4 → SER5** — kotlinx.serialization wire convergence in
+  kzen-lib/kzen-auto (independent of the G/Y items; interleavable anywhere after SER1, but
+  SER4 before E5 is the soft edge — pull the chain earlier if stage 4 approaches E5 first).
+  A "stop" verdict at SER3 drops SER4 and shrinks SER5 to its launcher/shell items.
 
 Exit: comments/formatting survive edits to other objects; one-object instantiation for detached
-actions; failures name their origin.
+actions; failures name their origin; one JSON codec per process (Jackson 2 off every classpath).
 
 ### Stage 8 — platform trio remainder (4 sessions)
 
@@ -275,14 +288,14 @@ may resolve as a docs-only session.
 ## Sequence at a glance
 
 ```
-Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1          (independent; SH1 first)
+Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first)
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC1 → XC2 → XC3                           (move-to-step)
 Stage 4  E4 → S7 → E5 → E6   ·  E7                 (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  S8 → FL3 → FL4 → FL5 · FE2 → FE3 → FE4 → FE5 → FE6              ├─ interleave freely
-Stage 7  G3 · G5 · G6 · Y → G7 · (G4 if measured)                          │  against 2–4 and
+Stage 7  G3 · G5 · G6 · Y → G7 · (G4 if measured) · SER2 → SER3 → SER4 → SER5 │ against 2–4 and
 Stage 8  SH2 → SH3 → SH4 → SH5                                            ─┘  each other
 Stage 9  EXT ratify → hygiene → D1 arc
 Stage 10 FL6 · FE7 gates
@@ -294,8 +307,9 @@ There is one executor, so "parallel" means *interleavable without re-churn*, not
 
 - Stages 5 (Job), 6 (client/Flow/Target), 7 (graph tail), and 8 (trio) are mutually independent
   and independent of stages 2–4, **except**: J7's gated parts (E3/E5), S7↔E4 (retain flag),
-  FL4←S8, FE4-stretch←S2, G3←G2. Use them as alternate tracks when an engine phase needs to
-  settle or a mavenLocal publish round-trip makes a same-repo follow-up awkward.
+  FL4←S8, FE4-stretch←S2, G3←G2, and SER4 soft-before E5. Use them as alternate tracks when an
+  engine phase needs to settle or a mavenLocal publish round-trip makes a same-repo follow-up
+  awkward.
 - Anything in stage 0 and the EXT hygiene session are safe filler at any point.
 - The spine that must stay ordered is: **E1 → E2 → {S6, E3, G2} → {S2/S3, XC1–3} → E4 → E5 → E6**.
 
