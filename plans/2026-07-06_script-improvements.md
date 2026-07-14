@@ -17,7 +17,7 @@
 > - [x] Phase 1 — expression engine: loaded-class caching + real type inference (kzen-auto-jvm) — landed 2026-07-11
 > - [x] Phase 2 — resources survive live edit + engine-owned resource values (kzen-lib + all flavours) — landed 2026-07-13
 > - [x] Phase 3 — linked-document live edit (sub-script edits join the migration closure) — landed 2026-07-13
-> - [ ] Phase 4 — validation once per notation version (digest-keyed cache)
+> - [x] Phase 4 — validation once per notation version (digest-keyed cache) — landed 2026-07-13
 > - [ ] Phase 5 — mid-loop migration resume (loop cursors, generic step carry-state)
 > - [x] Phase 6 — step-over/out across inline branches (logical nesting depth) — landed 2026-07-12,
 >   REVERTED 2026-07-13 (user decision after live use: auto-step-over blasted a whole ForEach in one
@@ -465,6 +465,28 @@ validation request and every run compile when nothing changed. kzen-auto-jvm onl
 **Verify:** baseline; a test asserting `validate` runs once for two identical requests and re-runs
 after an edit (count via a test hook or by instrumenting the compile count through
 `CachedKotlinCompiler`); manual: editor validation latency visibly drops on large scripts.
+
+**As-built (2026-07-13).** G2's digest path was taken, via S3's widened signal:
+`ScriptValidationCache` (new, next to `ScriptValidator`; hand-constructed in `KzenAutoContext`,
+registered in `graphEnvironment`, Caffeine LRU of 100 keyed by `Digest`) wraps both call sites —
+`ScriptValidator.execute` (via a fourth `@Service` param; a hit also skips
+`filterTransitive`/`createGraph`) and `ScriptLogicCompiler.compile` (via a new
+`LogicCompilerServices.scriptValidationCache` field, threaded from a new `ServerLogicController`
+constructor param). Two key components beyond the plan text, both found necessary during
+implementation review:
+(1) the per-document closure digest is insufficient — `RunStep.definition` reads the weakly-linked
+callee's `results` signature, so the key reuses `LinkedLogicDocuments.transitiveDigest` (root ∪
+linked logic documents), sharing entries between the editor and run-compile paths (both digest the
+full `transitiveSuccessful`);
+(2) `validate` also calls `ObjectRegistryDocument.scan(graphNotation)` — a global registry scan
+feeding Formula type visibility — so the key folds in each registry document's path + sorted
+declared class names (notation-only; classpath availability is process-static). Same staleness
+contract as the migration signal: a third-party step reading an *unrelated* document would see
+stale validation until its own closure changes (documented in the cache KDoc). Digest failure
+(mid-edit broken closure) falls back to uncached compute; the cached value is a defensive copy;
+the `GraphInstance` is not cached (graph-plan 3b owns that). Tests: `ScriptValidationCacheTest`
+(compute-count over identical / own-edit / unrelated-edit / linked-callee-edit / registry-edit
+requests, on the `script-engine-run-test` fixtures + the bundled `auto-jvm/registry` document).
 
 ---
 

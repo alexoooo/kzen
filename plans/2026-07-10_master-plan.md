@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | in progress (E1–E2 ✓ 2026-07-12) |
 | G | `2026-07-05_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G1–G7 | in progress (G1 ✓ 2026-07-12, G2 ✓ 2026-07-13) |
-| S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | in progress (S1 ✓ 2026-07-11, S2 ✓ 2026-07-13, S3 ✓ 2026-07-13, S6 ✓ 2026-07-12 then reverted 2026-07-13) |
+| S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | in progress (S1 ✓ 2026-07-11, S2 ✓ 2026-07-13, S3 ✓ 2026-07-13, S4 ✓ 2026-07-13, S6 ✓ 2026-07-12 then reverted 2026-07-13) |
 | J | `2026-07-06_job-improvements.md` | Job flavour + Report subsumption | J1–J9 | planned |
 | FL | `2026-07-06_flow-improvements.md` | Flow flavour, all layers | FL1–FL6 | planned (FL6 = gate) |
 | FE | `2026-07-06_target-improvements.md` | Target (element targeting) + vision | FE1–FE7 | in progress (FE1 ✓; restructured + renamed 2026-07-12; FE7 = gate) |
@@ -182,7 +182,8 @@ The pause → edit → resume story. Order: **S2 → S3 → S5**; S4 anywhere in
 - ~~S3~~ ✓ 2026-07-13 — linked-document live edit (digest-domain per the G2 note; also fixes Job
   `RunWorker` and Flow `RunLogic` callees generically — `LinkedLogicDocuments` widens the
   controller's digest signal, no kzen-lib change).
-- S4 — validation once per notation version (reuses G2's `transitiveDigest`).
+- ~~S4~~ ✓ 2026-07-13 — validation once per notation version (reused G2's digest via S3's
+  `LinkedLogicDocuments` widened signal; registry-scan component added — see the S-plan as-built).
 - S5 — mid-loop migration resume (loop cursors; also XC's v2 extension point).
 
 Exit: browser survives any edit; callee edits migrate the caller; validation cached; loops
