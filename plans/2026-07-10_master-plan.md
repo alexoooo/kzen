@@ -24,10 +24,10 @@
 | SH | `2026-07-06_shell-launcher-project-improvements.md` | Shell/launcher/project trio | SH1–SH5 | pruned 2026-07-10 |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | S1–S10 + D1–D7 | **analysis — needs ratification** |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (one arc) | proposed |
-| XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) | XC1–XC3 | planned |
+| XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) + structured control flow (continue/break/return) | XC1–XC5 | planned (revised 2026-07-14: +XC4/XC5 control flow, executed first) |
 | SER | `2026-07-13_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER1–SER5 | in progress (SER1 ✓ 2026-07-13; SER3 = gate) |
 
-~63 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:3, Y:~2,
+~65 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:5, Y:~2,
 SER:5, EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided once,
 here.
 
@@ -35,7 +35,9 @@ here.
 
 Hard edges (do not start the right side before the left is checked):
 
-- E1 → E2 → E3; E2 → **XC1 → XC2 → XC3**; E2 → S6 (same `checkpoint` signature churn — land
+- E1 → E2 → E3; E2 → **XC1 → XC2 → XC3**; **XC4 → XC5** and **XC4 → XC2** (XC4 lands the
+  shared `ScriptNestingAnalysis`, `rerun` metadata, and spine early-exit that XC2 merges over;
+  XC4 itself is prerequisite-free); E2 → S6 (same `checkpoint` signature churn — land
   adjacently); E2 → E4 → E5 → E6.
 - G1 → G2 → G3; G1 → G4. G2 before S3 and before XC2 *if* they are to work in the digest domain
   (notes added in those plans); otherwise they land against `closureNotations` and G2 migrates
@@ -50,7 +52,7 @@ Hard edges (do not start the right side before the left is checked):
   need only SER1.
 - E4 ships the `Execution.emit(retain:)` flag (added 2026-07-10); S7's transient emits and
   J1/J7's non-retained progress markers adopt it *after* E4.
-- XC1–XC3 and S8 (client conventions) before **E6** (multi-run re-keys `ClientLogicState` per
+- XC1–XC5 and S8 (client conventions) before **E6** (multi-run re-keys `ClientLogicState` per
   document — the widest client audit; everything client-global should exist by then so the audit
   covers it once).
 
@@ -71,17 +73,21 @@ Files/concepts touched by 3+ plans; the sequencing rules that prevent re-churn:
    and E6's audit migrates it once.
 2. **`RunEngine.migrate` barrier** — extended by S2 (lifted resources), XC1 (moveTarget), split
    by E4 (shutdown/dispose). Rule: land S2 and XC1 **adjacently** (same code region, same test
-   file), both before E4's lifecycle split.
-3. **`ScriptRunContext.runSteps` checkpoint call site** — E2 (`at:`), S6 (`nestingDepth`), XC2
-   (descend suppression). Rule: E2 → S6 → XC2, each a mechanical merge over the previous.
+   file), both before E4's lifecycle split. (S2 ✓ 2026-07-13 — the adjacency window has passed
+   and the barrier region is stable; the binding remainder is XC1 before E4.)
+3. **`ScriptRunContext.runSteps` checkpoint call site** — E2 (`at:`), S6 (`nestingDepth` —
+   landed then reverted 2026-07-13), XC4 (pending-signal short-circuit), XC2 (skip/descend
+   suppression). Rule: E2 → XC4 → XC2, each a mechanical merge over the previous (XC4's
+   early-exit acts after a step runs, XC2's before — orthogonal insertion points).
 4. **The pendingMigration baseline signal** — E1f (dirty flag), G2 (digest replaces notation-map
    compare), S3 (widen to linked documents), XC2c (moveTo updates baseline). Rule: **G2 first**,
    then S3/XC2c work in the digest domain (adaptation notes added 2026-07-10).
 5. **`YamlNotationParser.unparseDocument`** — Y (emitter rework) + G7b (template-respecting
    deparse). Rule: **Y first**.
-6. **`ScriptDependencyAnalysis.branchAttributeNames`** — S8c (metadata discovery) + XC2a (jump
-   analysis reuses the same seam). Rule: both sit behind one function; whichever lands first,
-   the other reuses it (already noted in both plans).
+6. **`ScriptDependencyAnalysis.branchAttributeNames`** — S8c (metadata discovery) + XC4a
+   (`ScriptNestingAnalysis` — enclosing-loop enumeration) + XC2a (jump analysis, a consumer of
+   XC4a's helper). Rule: all sit behind one function; whichever lands first, the others reuse it
+   (already noted in both plans; with XC4 first, XC4a builds it).
 7. **`logic-spec.md` §4/§5** — E2/E3/E5, S2/S6, XC1/XC2 all amend it. No ordering beyond the
    code ordering above; every plan already requires same-session spec updates.
 
@@ -199,16 +205,23 @@ The pause → edit → resume story. Order: **S2 → S3 → S5**; S4 anywhere in
 Exit: browser survives any edit; callee edits migrate the caller; validation cached; loops
 resume at their iteration.
 
-### Stage 3 — execution control (3 sessions)
+### Stage 3 — execution control (5 sessions)
 
-The VB "Set Next Statement" arc — the reason this review happened. Prereqs all met by stage 1
-(E2 hard, E3 soft, S6 already merged at the checkpoint call site).
+The execution-control arc, widened 2026-07-14: structured control flow (ControlStep
+continue/break + ResultStep End Script — pure Script semantics, zero engine change) runs
+**first**, then the VB "Set Next Statement" arc. Prereqs all met by stage 1 (E2 hard, E3 soft;
+S6 reverted 2026-07-13, so the checkpoint call site is the simpler E2 shape).
 
-**XC1 → XC2 → XC3.** Land XC1 adjacent to S2's migrate work if the schedule allows (hot-seam
-rule 2). XC3 joins whatever affordance home E3's UI created.
+**XC4 → XC5 → XC1 → XC2 → XC3.** XC4 lands the shared `ScriptNestingAnalysis` + `rerun`
+metadata + spine early-exit that XC2 merges over (hot-seam rules 3 and 6). (The original "land
+XC1 adjacent to S2's migrate work" note is moot — S2 landed 2026-07-13; the migrate-barrier
+region is stable.) XC3 joins the affordance home E3's UI created, with the user-ratified
+draggable next-to-run arrow as the primary affordance.
 
-Exit: move-to-step works end-to-end — backward re-run, forward skip with `Skipped` display and
-the `referencedValue` backstop, error-park escape.
+Exit: continue/break/return work end-to-end (skip/finish against a selected enclosing loop,
+End Script returns from the current document); move-to-step works end-to-end — backward re-run,
+forward skip with `Skipped` display and the `referencedValue` backstop, error-park escape,
+arrow drag + fallback action.
 
 ### Stage 4 — trace & transport (5 sessions)
 
@@ -305,7 +318,7 @@ may resolve as a docs-only session.
 Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first)
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
-Stage 3  XC1 → XC2 → XC3                           (move-to-step)
+Stage 3  XC4 → XC5 → XC1 → XC2 → XC3               (control flow + move-to-step)
 Stage 4  E4 → S7 → E5 → E6   ·  E7                 (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  S8 → FL3 → FL4 → FL5 · FE2 → FE3 → FE4 → FE5 → FE6              ├─ interleave freely
@@ -325,7 +338,8 @@ There is one executor, so "parallel" means *interleavable without re-churn*, not
   engine phase needs to settle or a mavenLocal publish round-trip makes a same-repo follow-up
   awkward.
 - Anything in stage 0 and the EXT hygiene session are safe filler at any point.
-- The spine that must stay ordered is: **E1 → E2 → {S6, E3, G2} → {S2/S3, XC1–3} → E4 → E5 → E6**.
+- The spine that must stay ordered is: **E1 → E2 → {S6, E3, G2} → {S2/S3, XC4–5, XC1–3} → E4 → E5 → E6**
+  (within stage 3: XC4 → XC5 → XC1 → XC2 → XC3).
 
 ## Verification
 
