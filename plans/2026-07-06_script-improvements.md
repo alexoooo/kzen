@@ -18,7 +18,7 @@
 > - [x] Phase 2 — resources survive live edit + engine-owned resource values (kzen-lib + all flavours) — landed 2026-07-13
 > - [x] Phase 3 — linked-document live edit (sub-script edits join the migration closure) — landed 2026-07-13
 > - [x] Phase 4 — validation once per notation version (digest-keyed cache) — landed 2026-07-13
-> - [ ] Phase 5 — mid-loop migration resume (loop cursors, generic step carry-state)
+> - [x] Phase 5 — mid-loop migration resume (loop cursors, generic step carry-state) — landed 2026-07-13
 > - [x] Phase 6 — step-over/out across inline branches (logical nesting depth) — landed 2026-07-12,
 >   REVERTED 2026-07-13 (user decision after live use: auto-step-over blasted a whole ForEach in one
 >   tick; step-out exited the branch instead of the document — step-over/out are frame-only again;
@@ -533,6 +533,89 @@ counter step in the body), edit an unrelated step, resume → counter shows no r
 iterations 0-1 and the run completes with 4 outputs; (2) DoWhile equivalent; (3) non-Collection
 items (a Sequence-producing formula) still restarts cleanly; (4) loop-completed-pre-edit still
 short-circuits wholesale. Manual UI smoke + selfTest.
+
+**As-built (landed 2026-07-13):** implemented as designed — `StepExecution.recordCarry(location,
+state)` / `restoredCarry(location)` (null clears; carry survives any edit, documented in the
+kdocs), `ScriptRunContext.carryStates`/`restoredCarries`, `ScriptMigrationState.stepCarry`,
+`ForEachStep.LoopCursor(completedIterations, collectedOutputs)` resume (requires `items` to be a
+`Collection`; else restart), DoWhile completed-iteration-count marker. Three gap-fills found
+necessary during planning/implementation review, all in the same shape:
+
+1. **`dropReplay` widened into the generic iteration reset** (the correctness lynchpin): beyond
+   pruning `restoredOutcomes`, it now also prunes the steps' entries from **`completedOutcomes`**
+   — without this, a capture taken mid-iteration-N contains iteration N-1's outcomes for body
+   steps past the frontier, and the resumed in-flight iteration would short-circuit them with
+   stale values and skip their side effects (the plan's "the in-flight iteration's body prefix is
+   in `restoredOutcomes`" implicitly assumed a prefix-only capture) — and from
+   **`restoredCarries`**, so a nested loop's cursor from a different enclosing iteration is never
+   consumed by a later fresh pass. Loops call it at the start of **every** iteration except a
+   resumed in-flight one (the up-front call is deleted; the non-resume first iteration's
+   per-iteration call subsumes it).
+2. **Cursor re-recorded at loop entry**: the rebuilt run's live carry map starts empty, so a
+   second edit before the next iteration completes must still capture the cursor (proven by the
+   double-migration test). Bonus: a fresh run's entry record (cursor 0) makes a pause during
+   iteration 0 resumable too — DoWhile's mid-flight signal is therefore carry *presence*, not
+   count > 0.
+3. **Carry cleared on loop completion** (`recordCarry(location, null)`): a completed loop carries
+   its own outcome and is short-circuited wholesale; a stale cursor must not migrate.
+
+No `logic-spec.md` change: §5 already frames migration as "an element that does not opt into
+carrying specific state restarts cleanly" — loops now opt in via the carry, and the
+non-`Collection` fallback is exactly the §5 safe default. Tests:
+`ServerLogicControllerLoopMigrationTest` (5 cases: ForEach resume / DoWhile resume /
+IntRange-items fallback restart / completed-loop wholesale short-circuit / double migration) on
+new fixtures `script-loop-migration-test.yaml`, `script-loop-migration-range-test.yaml`,
+`script-dowhile-migration-test.yaml` + new test-only `CountingStep` (process-global invocation
+counter, registered via `ScriptStepTestModule`). Full `:kzen-auto-jvm:test` and
+`:kzen-auto-test:selfTest` green.
+
+**Follow-up fix (2026-07-14) — hosted-child migration capture: invocation identity.** Live use
+with `FizzBuzz Script Loop.yaml` (a ForEach whose body hosts a RunStep sub-script, items a
+`1..100` IntRange) surfaced two regressions: post-edit iterations showed the sub-script
+instantly "already ran and completed" with wrong (other-item) values, and every edit reset the
+loop. Root causes and fixes:
+
+1. **Pre-existing `RunEngine` defect cluster** (kzen-lib), exposed by S5 making mid-loop editing
+   a real workflow: the migrate barrier captured *every* node with a provider — including
+   retained **settled** child frames, so multiple invocations of one hosted document (settled
+   iterations + the live one) collided on the same stable id with map order picking the winner —
+   and `restoredForNode` delivered the capture to *any* same-stable-id node without removing it,
+   so **every fresh child invocation adopted the pre-edit invocation's `ScriptMigrationState`**
+   (wholesale short-circuit = instant-Done traces + another item's values). Engine fixes
+   (spec §5 "invocation identity" bullet added): (a) on a stable-id collision the **live frame's
+   capture wins deterministically** (settled-only captures still carry — a first attempt that
+   skipped settled captures entirely broke `JobMigrationTest`: Job relaunches every worker, and
+   a completed reader must adopt its "done" state or it re-reads the file — caught by the suite,
+   reworked to live-wins); (b) adoption is **call-site-gated** (`Captured.callSite` recorded at
+   the barrier vs the requesting node's `callerStableId`); (c) new
+   **`Execution.discardCaptured(callSites)`** removes captures of invocations hosted from the
+   given call-sites, transitively including their descendants' (barrier-recorded parent link),
+   closing unclaimed `AutoCloseable` states. `ScriptRunContext.dropReplay` calls it with the
+   same nested ids — the iteration reset now also abandons hosted-child invocations, so a
+   restarted/next iteration's fresh invocation starts clean while the resumed in-flight
+   iteration's re-host (no reset) still adopts its own capture (cross-document resume kept).
+   New `RunEngineTest` cases: `settledInvocationCaptureCarriedOnRelaunch`,
+   `liveInvocationCaptureWinsStableIdCollisionOverSettled`,
+   `discardCapturedDropsAbandonedInvocationAndDescendants`,
+   `capturedStateDeliveredOnlyToSameCallSite`.
+2. **The cursor carries the LIVE iterator** (user decision, replacing a first-cut skip-N +
+   re-iterability whitelist — `Collection`/progression checking was over-specific and still left
+   arbitrary `Iterable`s restarting): `ForEachStep.LoopCursor` holds the iterator itself plus the
+   in-flight item (already consumed from it; the resumed iteration replays it), index, collected
+   outputs, and size-for-counter. Resume continues the same traversal for ANY `Iterable` — no
+   restart path for a mid-flight loop at all. Best-effort by design: the iterator belongs to the
+   pre-edit items value, so an edit to the items PRODUCER isn't reflected until the loop next
+   starts — accepted and documented (interactive development prefers this over re-running
+   completed iterations' side effects; live modification can never be 100% correct while the
+   executing timeline is being edited).
+3. New tests: `forEachHostedChildResumesAcrossMidChildEdit` (the FizzBuzz shape: IntRange loop +
+   RunStep child + pause inside the child, on new fixtures `script-loop-child-migration-test.yaml`
+   + `script-loop-migration-child-test.yaml`) and `sequenceBackedItemsResumeViaCarriedLiveIterator`
+   (sequence-wrapped non-Collection items resume too, on
+   `script-loop-migration-noncollection-test.yaml`, which replaced the range fixture). Known
+   remaining gap (pre-existing, out of scope): concurrently-live children of the *same* document
+   (possible in Job) still alias by stable id at the barrier. Verified: kzen-lib + full
+   `:kzen-auto-jvm:test` + selfTest green.
 
 ---
 
