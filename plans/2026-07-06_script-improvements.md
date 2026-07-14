@@ -16,7 +16,7 @@
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — expression engine: loaded-class caching + real type inference (kzen-auto-jvm) — landed 2026-07-11
 > - [x] Phase 2 — resources survive live edit + engine-owned resource values (kzen-lib + all flavours) — landed 2026-07-13
-> - [ ] Phase 3 — linked-document live edit (sub-script edits join the migration closure)
+> - [x] Phase 3 — linked-document live edit (sub-script edits join the migration closure) — landed 2026-07-13
 > - [ ] Phase 4 — validation once per notation version (digest-keyed cache)
 > - [ ] Phase 5 — mid-loop migration resume (loop cursors, generic step carry-state)
 > - [x] Phase 6 — step-over/out across inline branches (logical nesting depth) — landed 2026-07-12,
@@ -412,6 +412,30 @@ mid-parent, apply a notation command to the **sub**-document, release → assert
 (e.g. the sub-script's edited literal shows in the child's next outcome). Manual: pause parent at
 a step before a RunStep, edit the sub-script's formula, resume → new behaviour; same for a Flow
 RunLogic callee. Baseline + Job suite (`JobMigrationTest` guards the Job side) + selfTest.
+
+**As-built (landed 2026-07-13):** implemented in the **digest domain** per the G2 coordination note
+(G2 had landed the same day) — no notation-map compare resurrected, and **no kzen-lib change**
+(`GraphDefinition.transitiveDigest(DocumentPath)` was already public). New
+`LinkedLogicDocuments` (kzen-auto-jvm, next to the controller): `linkedDocumentPaths` does the
+notation-driven discovery exactly as specified (scalar attribute metadata `is: ObjectLocation` →
+value resolves via `coalesce.locateOptional` to **another** document passing
+`AutoConventions.isLogic`; blank/dangling/unparseable links and same-document targets skipped;
+BFS visited-set cycle guard), and `transitiveDigest` combines the per-document
+`GraphDefinition.transitiveDigest` over the discovered set, sorted by document path for
+determinism. `ServerLogicController` uses it at **both** capture sites (baseline in `start`,
+compare in `pendingMigration`) — same function at both, else the first release would spuriously
+migrate. *Refinement of the spec wording:* discovery scans each visited document's **own notation
+objects** rather than the full definition closure — hosting objects live in the hosting document
+by construction, archetype docs carry only blank defaults, and this stays well-defined when a
+callee's definition is mid-edit broken. Tests: `LinkedLogicDocumentsTest` (discovery: RunStep
+callee found, intra-document refs contribute nothing, mutual-hosting cycle terminates via new
+fixtures `script-linked-cycle-{a,b}-test.yaml`; signal precision: callee edit changes the digest,
+unlinked-document edit doesn't) + `ServerLogicControllerLinkedDocumentMigrationTest` (public
+control surface: pause parent after Seed, edit the **child's** formula out-of-band +
+`onStoreRefresh`, release → result 106 not stale 7, on the existing `script-engine-run-test` /
+`-child-test` fixture pair). Full `:kzen-auto-jvm:test` green (JobMigrationTest / FormulaStepTest
+included). Flow `RunLogic` and Job `RunWorker` ride the same generic path (identical
+`instructions` metadata) with zero flavour-specific code.
 
 ---
 
