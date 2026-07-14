@@ -190,7 +190,11 @@ The pause → edit → resume story. Order: **S2 → S3 → S5**; S4 anywhere in
   migration-capture invocation identity in `RunEngine` (live-wins collision, call-site-gated
   adoption, `Execution.discardCaptured`) + the loop cursor now carries the LIVE iterator (any
   Iterable resumes; no re-iterability check) — fixed the FizzBuzz-Loop stale-sub-script
-  regressions; see the S-plan Phase 5 as-built follow-up note.
+  regressions; see the S-plan Phase 5 as-built follow-up note. Follow-up 2 ✓ 2026-07-14:
+  per-iteration TRACE reset (spec §7 "resettable live state", lost in the engine rewrite) —
+  new `Execution.resetEmitted` + `TraceReset` signal + `LogicTraceStore.clearValues`, wired
+  through `dropReplay`, so iteration 2+ no longer ghosts the prior pass's sub-branch values
+  (film-strip history survives); see the S-plan Phase 5 follow-up note 2.
 
 Exit: browser survives any edit; callee edits migrate the caller; validation cached; loops
 resume at their iteration.

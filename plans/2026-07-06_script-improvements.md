@@ -617,6 +617,44 @@ loop. Root causes and fixes:
    (possible in Job) still alias by stable id at the barrier. Verified: kzen-lib + full
    `:kzen-auto-jvm:test` + selfTest green.
 
+**Follow-up fix 2 (2026-07-14) — per-iteration trace reset.** The user's second FizzBuzz symptom
+(loop sub-branch traces not reset per iteration — iteration 2+ showed the sub-script's steps as
+already executed with the previous iteration's values) was a separate regression: the RunEngine
+rewrite kept the execution-model iteration reset (`dropReplay`) but dropped the trace-display
+half — the old per-iteration `LogicTraceHandle.clearAll(prefix)` survived in the store with no
+caller (the `ExecutionLogicTraceHandle` adapter is a no-op), `RunEngine.emit` never clears
+`runtime.live`, and hosted-child buffers' lazy clear (`getOrCreateBuffer` on re-open) fires only
+at the NEXT invocation's first emit — too late for the client's `mostRecent`+`lookupRun`
+fallback, which faithfully rendered the settled prior invocation's full Done buffer. Fix
+(spec §7 "resettable live state", now implemented):
+
+1. **New engine primitive `Execution.resetEmitted(addresses, callSites)`** (kzen-lib): clears
+   the node's own `runtime.live` at the addresses and recursively the live maps of retained
+   child subtrees hosted from the call-sites; fires a new **`TraceReset`** signal
+   (`RunEngine.observeResets`) synchronously off-lock BEFORE returning, so a drain-then-clear
+   consumer is ordered exactly between the superseded pass's last emit and the fresh pass's
+   first. Kept deliberately separate from `discardCaptured` (every-iteration observability vs
+   migration-window register op).
+2. **`LogicTraceStore.clearValues`** (two overloads): per-execution path removal, and per-run
+   call-site clearing that walks the store-recorded `callerStableId`/`parentExecutionId` buffer
+   linkage transitively — store-side linkage deliberately, so pre-migration invocations (whose
+   old node ids the rebuilt engine tree no longer knows) are covered. Values only; the
+   append-only `events` film-strip and `stableIdHistory` survive.
+3. **Bridge**: `ServerLogicController` gains a third engine bridge (`resetBridge` →
+   `onTraceReset`: drain `mirrorTrace` first, then both `clearValues`), with the address→path
+   mapping extracted to `tracePathOf` shared with `mirrorTrace`. `ScriptRunContext.dropReplay`
+   calls `resetEmitted(addresses, stableIds)` alongside `discardCaptured` — `dropReplay` stays
+   the single iteration-reset signal; ForEach/DoWhile and the client unchanged (the client's
+   fallback renders cleared buffers as not-yet-run, which is correct).
+4. Tests: `RunEngineTest` ×4 (own-live clear + history retained, settled-child subtree clear,
+   observer ordering/payload/unsubscribe, empty no-op), new `LogicTraceStoreResetTest` (path
+   clear keeps events; call-site clear transitive within run, other runs untouched), new
+   `ServerLogicControllerLoopTraceResetTest` ×3 (inline body ghost gone mid-iteration; hosted
+   child: only the live invocation holds values, film-strip survives — via new test-only
+   `BinaryDetailStep` + `script-loop-trace-reset[-child]-test.yaml` fixtures; reset composes
+   with mid-loop migration resume — replayed prefix re-emits, "199" invariant holds). Verified:
+   kzen-lib + full `:kzen-auto-jvm:test` + selfTest green.
+
 ---
 
 ## Phase 6 — Step-over/out across inline branches (logical nesting depth)
