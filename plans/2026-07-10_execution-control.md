@@ -31,7 +31,7 @@
 > - [ ] Phase 1 — engine carry: one-shot move target through the migration barrier (kzen-lib only)
 > - [ ] Phase 2 — Script jump semantics + controller + wire (auto-common + auto-jvm + client transport)
 > - [ ] Phase 3 — client affordance: draggable next-to-run arrow + "Set next step here" fallback + skipped-step display (auto-js)
-> - [ ] Phase 4 — control flow, server: completion signals + ControlStep + ResultStep End Script (auto-common + auto-jvm)
+> - [x] Phase 4 ✓ 2026-07-14 — control flow, server: completion signals + ControlStep + ResultStep End Script (auto-common + auto-jvm)
 > - [ ] Phase 5 — control flow, client: ControlStep / ResultStep editors + step displays (auto-js)
 
 ## Context
@@ -569,6 +569,38 @@ trace); (6) ResultStep `endScript` at root → run ends with the result, later s
 (7) `endScript` in a RunStep-hosted sub-script → sub-script returns, caller continues; (8)
 ControlStep whose `loop` is not an ancestor → validation error (run-blocked); (9) pause inside
 an iteration → edit → resume → Skip still works (signal machinery vs. migration replay).
+
+### As built (2026-07-14)
+
+Landed as designed; anchors were re-verified against the code first (several line refs had
+drifted). Deltas worth recording:
+
+- **Signal target = `ObjectLocation`, compared in stable-id space.** Decision 12 says
+  `ObjectStableId`, but no step holds the mapper (steps work in `ObjectLocation`). Reconciliation:
+  `ScriptControlSignal.SkipIteration`/`FinishLoop` carry `ObjectLocation`; `consumeLoopSignal`
+  compares `objectStableMapper.objectStableId(target) == …(self)` — rename-safe, and moot anyway
+  (a signal never survives a checkpoint). Same guarantee, simpler API.
+- **`StepExecution` surface**: `raiseControlSignal(signal)` + `consumeLoopSignal(selfLocation)`
+  **plus** `pendingControlSignal()` (peek) — the third method lets a loop distinguish "no signal"
+  from "a foreign signal to propagate". `ScriptControlSignal` lives in `…/objects/script/api/`.
+- **Spine short-circuit** merged over the E2-shaped `runSteps`: after the `recoverable` unit, a
+  passed-through container gets a no-outcome `Done` trace + return; the raiser gets its normal
+  `markDone` + return. Review hardening: the `recoverable` **error handler also clears the pending
+  signal** (invariant: no signal coexists with a park). Root consumption is
+  `ScriptRunContext.consumeRootSignalOrFail()` from `ScriptLogic.run`.
+- **`action` / `then` are plain `String` attributes** (validated in `definition()`), not new
+  enum+definer types — keeps XC4 minimal; phase 5 picks the select editor.
+- **EndScript needs no per-step capture** (review Finding 1 resolved): EndScript unwinds to the
+  root and `ScriptLogic.run` returns → the run is *terminal* (no park), and terminal runs are never
+  migrated/replayed (decision 9). Documented as an invariant in the `ScriptRunContext` kdoc.
+- **`ScriptNestingAnalysis`** (kzen-auto-common) is built on `ScriptTree` (already generic branch
+  discovery) and reads `meta.<branch>.rerun` via `GraphNotation.firstAttribute` (the `is:`
+  inheritance chain) — fully notation-driven, no hardcoded branch list, and did **not** need to
+  touch `ScriptDependencyAnalysis.branchAttributeNames` (that seam's refactor stays script-plan 8c).
+- **Deferred**: test case (9) (pause→edit→resume→Skip) — covered by the release-local invariant (a
+  signal never coexists with a park, so a migration barrier never sees a pending signal); a
+  dedicated migration test would only re-assert that. Cases 1–8 are green in `ScriptControlFlowTest`
+  (8) + `ScriptNestingAnalysisTest` (4); full `:kzen-auto-jvm:test` = 396 green.
 
 ---
 
