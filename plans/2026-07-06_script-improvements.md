@@ -15,7 +15,7 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — expression engine: loaded-class caching + real type inference (kzen-auto-jvm) — landed 2026-07-11
-> - [ ] Phase 2 — resources survive live edit + engine-owned resource values (kzen-lib + all flavours)
+> - [x] Phase 2 — resources survive live edit + engine-owned resource values (kzen-lib + all flavours) — landed 2026-07-13
 > - [ ] Phase 3 — linked-document live edit (sub-script edits join the migration closure)
 > - [ ] Phase 4 — validation once per notation version (digest-keyed cache)
 > - [ ] Phase 5 — mid-loop migration resume (loop cursors, generic step carry-state)
@@ -334,6 +334,33 @@ disposed at next sweep; (3) `releaseResource` from a descendant still deregister
 resource. kzen-auto: manual browser Script — open, pause, **edit an unrelated step**, resume,
 click step still drives the same browser window; then edit that *deletes* the open step's document
 → browser closes on next edit cycle. selfTest.
+
+**As-built (landed 2026-07-13):** implemented as designed, one engine addition found by selfTest
+(below). Engine side: registrations lifted at the `migrate` barrier into `migrationResources` (keyed
+by owner stable id), re-adopted at node spawn (root + child — removal is the claim, eager unlike lazy
+`restored`), unclaimed entries disposed by `sweepOrphans` regardless of close policy; `Registration`
+carries the `value`, read via the `releaseResource`-style ancestor walk. kzen-auto:
+`ScriptRunResources`, the `inheritResources` setter, and the `is ScriptLogic` host special case all
+deleted; `openResource`/`resource`/`releaseResource` delegate wholly to the engine. New e2e
+`ScriptExtensibilityTest.openResourceSurvivesLiveEditMigration` (fixture
+`script-resource-migration-test.yaml` + test-only `ReadResourceStep`). Spec §5/§6 and
+`ServerLogicController` kdoc updated.
+
+*Deviation — Manual hand-up on owner settle.* The old `ScriptRunResources` value map was run-global,
+so the open → use → close split across **sibling** sub-scripts worked (FormulaError selfTest fixture:
+`manual` browser opened in one sub-script, driven and closed by later siblings); the ancestor-chain
+walk alone broke that, because `disposeResources` dropped Manual registrations at their owner's
+settle (pre-existing leak, previously masked on the value side). Fix in the engine, matching §6
+("only an explicit closing action disposes it"): at a node's settle, an undisposed **Manual**
+registration hands up to the parent node (cascading toward the root; `putIfAbsent` so a parent's own
+live registration wins), staying readable/releasable on the ancestor chain; at the root it leaves the
+registry alive (the "forgotten close", unchanged). KeepOnFailure retained-on-failure still drops out
+alive for inspection (hand-up would let a later successful ancestor settle dispose it). Spec §6
+updated; `RunEngineTest.manualResourceSurvivesOwnerSettleViaParentHandUp` covers it.
+
+Verified: `RunEngineTest` (5 new cases: the three specified + hosted-child `resourceValue` read +
+Manual hand-up) + full `:kzen-auto-jvm:test` + kzen-auto JS compile green; selfTest green (both
+smoke tests, including the FormulaError negative control that caught the deviation).
 
 ---
 

@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | in progress (E1–E2 ✓ 2026-07-12) |
 | G | `2026-07-05_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G1–G7 | in progress (G1 ✓ 2026-07-12, G2 ✓ 2026-07-13) |
-| S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | in progress (S1 ✓ 2026-07-11, S6 ✓ 2026-07-12 then reverted 2026-07-13) |
+| S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | in progress (S1 ✓ 2026-07-11, S2 ✓ 2026-07-13, S6 ✓ 2026-07-12 then reverted 2026-07-13) |
 | J | `2026-07-06_job-improvements.md` | Job flavour + Report subsumption | J1–J9 | planned |
 | FL | `2026-07-06_flow-improvements.md` | Flow flavour, all layers | FL1–FL6 | planned (FL6 = gate) |
 | FE | `2026-07-06_target-improvements.md` | Target (element targeting) + vision | FE1–FE7 | in progress (FE1 ✓; restructured + renamed 2026-07-12; FE7 = gate) |
@@ -176,8 +176,9 @@ Exit: positions on the wire; breakpoints usable (run-to = breakpoint + Run + rem
 
 The pause → edit → resume story. Order: **S2 → S3 → S5**; S4 anywhere in the stage.
 
-- S2 — resources survive migrate (fixes "edit quits the browser"; kzen-lib migrate change —
-  hot-seam rule 2 pairs it with XC1 in the next stage).
+- ~~S2~~ ✓ 2026-07-13 — resources survive migrate (fixed "edit quits the browser"; engine lifts
+  registrations at the barrier + stores the handle value; `ScriptRunResources` deleted — hot-seam
+  rule 2 pairs the migrate-barrier region with XC1 in the next stage).
 - S3 — linked-document live edit (digest-domain per the G2 note; also fixes Job `RunWorker` and
   Flow `RunLogic` callees generically).
 - S4 — validation once per notation version (reuses G2's `transitiveDigest`).
