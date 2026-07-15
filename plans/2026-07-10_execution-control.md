@@ -29,7 +29,7 @@
 > **Progress tracker** (update as phases land; execution order **4 → 5 → 1 → 2 → 3** — control
 > flow first, user decision 2026-07-14):
 > - [x] Phase 1 ✓ 2026-07-14 — engine carry: one-shot move target through the migration barrier (kzen-lib only)
-> - [ ] Phase 2 — Script jump semantics + controller + wire (auto-common + auto-jvm + client transport)
+> - [x] Phase 2 ✓ 2026-07-14 — Script jump semantics + controller + wire (auto-common + auto-jvm + client transport)
 > - [ ] Phase 3 — client affordance: draggable next-to-run arrow + "Set next step here" fallback + skipped-step display (auto-js)
 > - [x] Phase 4 ✓ 2026-07-14 — control flow, server: completion signals + ControlStep + ResultStep End Script (auto-common + auto-jvm)
 > - [x] Phase 5 ✓ 2026-07-14 — control flow, client: ControlStep / ResultStep editors + step displays (auto-js)
@@ -466,6 +466,47 @@ frontier → `Submitted`, no rebuild (engine sequence unchanged); (6) **edit + j
 notation command then moveTo → both take (edited literal visible after resume); (7) moveTo while
 running → rejected; after terminal → `NotFound`; while error-parked → works (jump past the
 failing step).
+
+### As built (2026-07-14)
+
+Landed as designed; anchors were re-verified against as-built code first (several line refs had drifted
+post XC4/XC1). Deltas worth recording:
+
+- **Only kzen-lib touch = `LogicRunResponse.Rejected`.** `moveTo` lives on the **concrete**
+  `ServerLogicController` (`RestHandler` holds the concrete type, not the `LogicController` interface), so
+  the interface was left untouched — the kzen-lib surface is the single enum value (published to mavenLocal;
+  `:kzen-lib-jvm:test` green).
+- **`ScriptNestingAnalysis.pathTo` → public `enclosingPath`** (a no-op rename; `enclosingLoops` already
+  consumed it). `ScriptJumpAnalysis` (kzen-auto-common) reads it for the descend `ancestors` and reuses
+  `enclosingLoops(...).isEmpty()` for the loop-body rejection; `ScriptTree.predecessors` supplies
+  `precedingOnPath`; the drop set is the document-ordered `orderedDescendantObjectPaths()` suffix ∪ ancestors.
+- **Binding rejection is by hosting attribute, not inheritance** (delta from the plan's "is: ScriptStep"
+  wording): `ForEachItemBinding` / parameters **are** `is: ScriptStep`, so the discriminator is the branch a
+  target lives in — a target under `item` / `parameters` (the two `ScriptConventions` binding branches) is
+  rejected; everything else in a non-`rerun` branch is jumpable.
+- **`ScriptRunContext.restore` gained a `moveTarget` param**; the surgery drops `dropSet` stable-ids from
+  the carried `completedOutcomes` **and** `stepCarry` (a dropped loop restarts clean), seeds `skippedSteps` /
+  `descendSteps`, keeps `result`, and idles the dropped steps' stale displays. `runSteps` grew two
+  short-circuits *beside* XC4's signal check: skip (value-less `Skipped` trace) before the replay check, and
+  a claim-once `descendSteps.remove` that suppresses the `checkpoint`. `ScriptLogic` implements
+  `Repositionable`. New `StepTrace.State.Skipped`.
+- **`moveTo` recompiles unconditionally** (mirrors `pendingMigration`'s digest block minus the
+  early-returns), updates `baselineClosureDigest` + clears `editDirty` (folds an edit-then-jump), gates on
+  `logic is Repositionable && canMoveTo` → `Rejected`, no-op guard on `snapshot.root.position == targetId`.
+  Wire: `CommonRestApi.logicMoveTo`, `KzenAutoMain` route, `RestHandler.logicMoveTo` (runId + path/object →
+  `ObjectLocation`), `ClientRestApi.logicMoveTo`, `ClientLogicGlobal.moveToAsync` (distinguishes `Rejected`);
+  **no UI call yet** (XC3).
+- **Tests**: `ScriptJumpAnalysisTest` (6 — root/loop-step/If-branch valid, loop-body/binding/unknown
+  invalid; the shared `script-nesting-test.yaml` fixture gained a root-level `If`) + `ScriptMoveToTest` (8,
+  controller-driven like `StepNavigationTest`, `CountingStep` for observable re-execution: backward re-run,
+  forward skip, backstop error-park, no-op, terminal-`NotFound`, loop-body-`Rejected`, loop-step restart,
+  If-branch descend). Full `:kzen-auto-jvm:test` + `:kzen-lib-jvm:test` + `:kzen-auto-js` bundle green.
+- **Deferred to XC3** (client): the plan's Verify cases about `Skipped` **trace rendering** and the
+  edit+jump UI smoke — no UI landed this phase (transport only). The **edit+jump** server path is exercised
+  implicitly (moveTo always recompiles); a dedicated controller edit+jump case can ride XC3.
+
+Docs: `kzen-auto/docs/architecture.md` §1 (Script move-to note) + §3 (`/logic/moveTo` row);
+`kzen-lib/docs/logic-spec.md` §5 self-migration bullet extended with the skip/descend surgery.
 
 ---
 
