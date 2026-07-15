@@ -30,7 +30,7 @@
 > flow first, user decision 2026-07-14):
 > - [x] Phase 1 ✓ 2026-07-14 — engine carry: one-shot move target through the migration barrier (kzen-lib only)
 > - [x] Phase 2 ✓ 2026-07-14 — Script jump semantics + controller + wire (auto-common + auto-jvm + client transport)
-> - [ ] Phase 3 — client affordance: draggable next-to-run arrow + "Set next step here" fallback + skipped-step display (auto-js)
+> - [x] Phase 3 ✓ 2026-07-15 — client affordance: draggable next-to-run arrow + "Set next step here" fallback + skipped-step display (auto-js)
 > - [x] Phase 4 ✓ 2026-07-14 — control flow, server: completion signals + ControlStep + ResultStep End Script (auto-common + auto-jvm)
 > - [x] Phase 5 ✓ 2026-07-14 — control flow, client: ControlStep / ResultStep editors + step displays (auto-js)
 
@@ -566,6 +566,53 @@ warning shows when a later step references one, error-park lands on the referenc
 resume), jump onto a ForEach (restarts), loop-body targets no-drop/disabled, jump while running
 not offered (arrow static), jump inside an If branch parks correctly, rename-while-paused then
 jump (stable-id keying must survive). selfTest (kill any stale tester JVM on port 18081 first).
+
+### As built (2026-07-15)
+
+Landed as designed, all in kzen-auto-js (no server/kzen-lib/notation change). Three user decisions this
+session (via AskUserQuestion): **arrow look = gutter-column strip** (hugs the card's left edge, overflow-safe),
+**advisory = trace-free approximation** (static dependency edges, no ScriptStore coupling), **fallback =
+leaf steps only**. Deltas worth recording:
+
+- **Arrow reads run state from `ClientState`, not the store.** `ScriptMoveToArrow`
+  (`display/ScriptMoveToArrow.kt`) is a new `RPureComponent` + `ClientStateGlobal.Observer` cloned from
+  `ScriptDependencyOverlay` (rootRef + `ResizeObserver` + `StepRowRefRegistry.observe` + rAF-deduped
+  remeasure). It gets paused gate / next-to-run position / graph / documentPath from the observed
+  `ClientState`; `clientLogicGlobal` is threaded through `ScriptController.Wrapper` **only** as the
+  `moveToAsync` sink. Mounted last in `renderMain`'s relative container so it paints in front of cards; an
+  absolute `inset:0; pointerEvents:none` sibling that never touches the flex-row layout the dependency
+  overlay's anchoring depends on. Next-to-run source = `LogicRunFrames.frameForDocument(active.frame,
+  documentPath)?.position` (identical to `ScriptProgressStore`). Glyph = `material-symbols:play-arrow` at
+  the row's vertical center, `left:0` (gutter-column). Draggable iff `isHaltPaused() && root-frame doc ==
+  this doc`.
+- **Drag = a transient fixed drop-surface, not `setPointerCapture` and not HTML5 DnD.** `onPointerDown` on
+  the glyph precomputes (once, structure is static while paused) the hit rows, valid-target set
+  (`ScriptJumpAnalysis.isValidTarget`), and warn-target set (trace-free: a `plan.dropSet` producer feeds a
+  kept consumer, from `ScriptDependencyAnalysis.edges`); while `dragging` a `position:fixed; inset:0;
+  pointerEvents:auto` surface captures move/up viewport-wide (robust across re-renders, no capture-API
+  uncertainty). `onPointerMove` → `nearestStepRow(clientY)` → candidate highlight band over the row rect
+  (blue valid / grey invalid / orange valid+warn). `onPointerUp` → `moveToAsync(candidate)` iff valid and
+  not the current position. `remeasure` skips while dragging.
+- **`successful()` used for `ScriptTree.read`, matching `ScriptStore`** — it does not throw (it wraps the
+  defined objects), so the plan's "use `transitiveSuccessful` (successful throws)" note was a false alarm;
+  followed the established `ScriptStore` call shape.
+- **Skipped display**: `StepTrace.State.Skipped` arm added to `ScriptStepDisplayDefault.activeStatusColor`
+  (grey `#9e9e9e`, after `Error`, before `nextToRun`) → grey border on leaf cards *and*, via
+  `statusBorderColor`, on If/ForEach slabs and DoWhile. A "Skipped" `Chip` was added to
+  `StepHeader.renderRightCluster` (before the type chip), passed from `ScriptStepDisplayDefault` and
+  `BranchHeaderSlab` (both have the trace state). `backgroundColor()` confirmed dead — untouched.
+- **Fallback "Set next step here"** (leaf steps): new `StepHeader.renderSetNextStepAction()` modeled on
+  `renderBreakpointDot` (hover-revealed via a `data-set-next-step` marker + a new card `:hover` rule at
+  opacity 0.7; `material-symbols:play-arrow`). Host-gated on a new `onSetNextStep` prop; disabled with the
+  `ScriptJumpAnalysis` `invalidReason` in a tooltip for loop-body targets. `ScriptStepDisplayDefault`
+  computes `showSetNext`/`canSetNext`/`setNextReason` in `onClientState` (only while halt-paused, so the
+  `ScriptTree.read` + plan walk never run during normal editing) and calls `moveToAsync` on click.
+  Container-header fallback deferred (arrow covers container targets); keyboard-only users can't set-next on
+  a container step in v1.
+- **Verify**: `:kzen-auto-js:compileKotlinJs` + `:kzen-auto-js:build` green (bundle + `jsBrowserTest` pass).
+  Interactive browser smoke (drag through a live paused run, skipped chip, orange warning) **not run
+  headlessly — left for a live pass** (same as XC5's client phase). With XC3 done, the whole XC arc
+  (XC4/XC5/XC1/XC2/XC3) and stage 3 of the master plan are complete.
 
 ---
 

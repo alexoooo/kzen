@@ -24,7 +24,7 @@
 | SH | `2026-07-06_shell-launcher-project-improvements.md` | Shell/launcher/project trio | SH1–SH5 | pruned 2026-07-10 |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | S1–S10 + D1–D7 | **analysis — needs ratification** |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (one arc) | proposed |
-| XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) + structured control flow (continue/break/return) | XC1–XC5 | in progress (revised 2026-07-14: +XC4/XC5 control flow, executed first; XC4 ✓, XC5 ✓, XC1 ✓, XC2 ✓ 2026-07-14; XC3 remains) |
+| XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) + structured control flow (continue/break/return) | XC1–XC5 | ✓ complete (XC4/XC5/XC1/XC2 ✓ 2026-07-14, XC3 ✓ 2026-07-15) |
 | SER | `2026-07-13_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER1–SER5 | in progress (SER1 ✓ 2026-07-13; SER3 = gate) |
 | AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js attribute-editor consolidation (Old-fork removal, commit primitive, Default/PathValue merge, select-reference base) | AE1–AE6 | planned (AE6 optional) |
 
@@ -233,11 +233,11 @@ continue/break + ResultStep End Script — pure Script semantics, zero engine ch
 **first**, then the VB "Set Next Statement" arc. Prereqs all met by stage 1 (E2 hard, E3 soft;
 S6 reverted 2026-07-13, so the checkpoint call site is the simpler E2 shape).
 
-**~~XC4~~ ✓ → ~~XC5~~ ✓ → ~~XC1~~ ✓ → ~~XC2~~ ✓ 2026-07-14 → XC3.** XC4 landed the shared `ScriptNestingAnalysis` +
+**~~XC4~~ ✓ → ~~XC5~~ ✓ → ~~XC1~~ ✓ → ~~XC2~~ ✓ 2026-07-14 → ~~XC3~~ ✓ 2026-07-15.** XC4 landed the shared `ScriptNestingAnalysis` +
 `rerun` metadata + spine early-exit that XC2 merges over (hot-seam rules 3 and 6). (The original "land
 XC1 adjacent to S2's migrate work" note is moot — S2 landed 2026-07-13; the migrate-barrier
-region is stable.) XC3 joins the affordance home E3's UI created, with the user-ratified
-draggable next-to-run arrow as the primary affordance.
+region is stable.) XC3 joined the affordance home E3's UI created, with the user-ratified
+draggable next-to-run arrow as the primary affordance. **Stage 3 complete.**
 
 Exit: continue/break/return work end-to-end (skip/finish against a selected enclosing loop,
 End Script returns from the current document); move-to-step works end-to-end — backward re-run,
@@ -344,7 +344,7 @@ may resolve as a docs-only session.
 Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first)
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
-Stage 3  XC4✓ → XC5✓ → XC1✓ → XC2✓ → XC3          (control flow + move-to-step)
+Stage 3  XC4✓ → XC5✓ → XC1✓ → XC2✓ → XC3✓ (done)  (control flow + move-to-step)
 Stage 4  E4 → S7 → E5 → E6   ·  E7                 (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  AE1 → AE2 · AE3 → AE4 → AE5 (→ AE6?) · S8 → FL3 → FL4 → FL5      ├─ interleave freely
