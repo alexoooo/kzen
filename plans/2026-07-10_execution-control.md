@@ -583,8 +583,11 @@ leaf steps only**. Deltas worth recording:
   absolute `inset:0; pointerEvents:none` sibling that never touches the flex-row layout the dependency
   overlay's anchoring depends on. Next-to-run source = `LogicRunFrames.frameForDocument(active.frame,
   documentPath)?.position` (identical to `ScriptProgressStore`). Glyph = `material-symbols:play-arrow` at
-  the row's vertical center, `left:0` (gutter-column). Draggable iff `isHaltPaused() && root-frame doc ==
-  this doc`.
+  the row's vertical center, `left:0` (gutter-column). Draggable iff the run is **settled**
+  (`isActive() && !isExecuting()` — matches the server's `!running && !stepping` moveTo guard) **and**
+  root-frame doc == this doc. (First cut used `isHaltPaused()`, which excludes a plain stepped `Paused`
+  boundary — fixed after the first live smoke: at a manual-step settle the arrow was visible but neither
+  it nor the fallback action was enabled. The same settled gate drives the fallback's `showSetNext`.)
 - **Drag = a transient fixed drop-surface, not `setPointerCapture` and not HTML5 DnD.** `onPointerDown` on
   the glyph precomputes (once, structure is static while paused) the hit rows, valid-target set
   (`ScriptJumpAnalysis.isValidTarget`), and warn-target set (trace-free: a `plan.dropSet` producer feeds a
