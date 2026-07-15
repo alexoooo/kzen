@@ -52,7 +52,8 @@ Hard edges (do not start the right side before the left is checked):
   SER4 and SER5's kzen-auto items). SER1 is prerequisite-free; SER5's launcher/shell items
   need only SER1.
 - E4 ships the `Execution.emit(retain:)` flag (added 2026-07-10); S7's transient emits and
-  J1/J7's non-retained progress markers adopt it *after* E4.
+  J1/J7's non-retained progress markers adopt it *after* E4. (E4 ✓ 2026-07-15; **S7 ✓ 2026-07-15** —
+  Script was the flag's first consumer, and took it for *all* its emits; J1/J7 remain.)
 - XC1–XC5 and S8 (client conventions) before **E6** (multi-run re-keys `ClientLogicState` per
   document — the widest client audit; everything client-global should exist by then so the audit
   covers it once).
@@ -251,7 +252,11 @@ default, or use it as a filler session anytime).
 
 - ~~E4~~ ✓ 2026-07-15 — trace unification (retired the `LogicTraceStore` bridge; trace served by
   projecting the retained engine via `RunEngineLogicTrace`; ships `emit(retain:)` + `shutdown`/`dispose`).
-- S7 — trace bounding + adopt transient emits (J-side adoption rides J7 or a micro-session).
+- ~~S7~~ ✓ 2026-07-15 — trace bounding: display truncation + referenced-aware loop collection + transient
+  emits. Adoption went **wider than planned** (user-ratified): E4 lifted the retain gate for *every* emit,
+  not just Running/markers, so **all** Script `StepTrace` emits are `retain = false` — a Script now appends
+  nothing to run history (the film strip / `execution.log` is untouched), and screenshots are stored once
+  instead of 2–3×. J-side adoption still rides J7 or a micro-session (Job/Flow emits unchanged).
 - E5 — SSE push + incremental fetch + step budget.
 - E6 — multiple concurrent runs (the client-global audit; last per hot-seam rule 1).
 - E7 — `blocking { }`, typed capture, structured failure.
@@ -346,7 +351,7 @@ Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC4✓ → XC5✓ → XC1✓ → XC2✓ → XC3✓ (done)  (control flow + move-to-step)
-Stage 4  E4✓ → S7 → E5 → E6   ·  E7                (trace & transport; E6 last)
+Stage 4  E4✓ → S7✓ → E5 → E6   ·  E7               (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  AE1 → AE2 · AE3 → AE4 → AE5 (→ AE6?) · S8 → FL3 → FL4 → FL5      ├─ interleave freely
          · FE2 → FE3 → FE4 → FE5 → FE6         (AE3+AE5 before S8b, J8.4) │ against 2–4 and

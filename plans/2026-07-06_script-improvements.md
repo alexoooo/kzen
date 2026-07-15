@@ -26,7 +26,8 @@
 >   REVERTED 2026-07-13 (user decision after live use: auto-step-over blasted a whole ForEach in one
 >   tick; step-out exited the branch instead of the document — step-over/out are frame-only again;
 >   the ForEach iteration-counter trace detail stays; see the Phase 6 as-built note)
-> - [ ] Phase 7 — trace bounding: display truncation + referenced-aware loop collection
+> - [x] Phase 7 — trace bounding: display truncation + referenced-aware loop collection — landed 2026-07-15
+>   (all Script emits went transient, not just Running — E4 lifted the gate for every emit; see the as-built)
 > - [ ] Phase 8 — client sweep: hot paths, display dedup, notation-driven branch discovery
 
 ## Context — what the review found
@@ -766,6 +767,75 @@ step-into still descends; step-over a RunStep still runs the sub-script to compl
 history event count stays O(iterations) with bounded event sizes (no megabyte display strings) and
 the loop's outcome is not a 10k-element list; a referenced loop still yields its list. Manual: big
 loop in the UI stays responsive; step display shows the truncation ellipsis.
+
+**As-built (landed 2026-07-15).** All three items landed; **no kzen-lib change** (E4 had already
+shipped every primitive needed), so no `logic-spec.md` change either — this phase only *adopts* §7's
+`retain:`. Deviations, all deliberate:
+
+1. **Transient emits went to ALL Script emits, not just Running/marker (user-ratified).** The plan
+   gated this on engine-4 "serving live values from the engine's `Node.live` directly" — E4 did
+   exactly that for *every* value, so the gate lifted for Done/Error too, not only the transient
+   pair. Two facts settled it: `RunEngineLogicTrace.lookupRunHistory` filters `it.address == null`,
+   i.e. it discards precisely the emit-style events `retain=true` writes (**no production code in
+   either repo reads a retained Script emit** — only `FlowNotationTest.tracedMessages`, which is
+   Flow); and `retain=false` had shipped with **zero call sites** anywhere in kzen-auto. Keeping
+   Done retained would also have left the loop growth asymptotically unchanged. One line in the
+   `emitStepTrace` funnel. **Bonus win the plan didn't anticipate:** `traceDetail` emits a `Running`
+   trace *containing* the binary and calls `execution.log(detail)`, and `markDone` re-emits the same
+   binary in the Done trace — so every screenshot was retained 2–3× with only the `log` copy ever
+   read. Now stored once.
+2. **`ScriptDependencyAnalysis` needed a correctness fix before it could drive semantics.** Its
+   `locationByIdentifierContent` used `associate`, so two steps whose names escape to one identifier
+   (legal — an `ObjectPath` is name + nesting, so `main.steps/Foo` and `main.steps/If.then/Foo`
+   coexist) kept only the **last**, a limitation documented at its line 70. For the client's overlay
+   a dropped edge is a missing arrow; for *execution semantics* it would silently elide a value that
+   IS read. Changed to group + classify **all** colliding candidates (over-reporting is the safe
+   direction; it also fixes the client's missing-arrow bug). `ScriptDependencyAnalysisTest.
+   namesCollidingOnOneIdentifierAllBecomeSources` (new fixture `script-name-collision-test.yaml`)
+   pins it — **verified to fail** on the single-winner behaviour.
+3. **`analyze` now takes `GraphDefinition`, not `GraphDefinitionAttempt`** — it only ever read
+   `graphStructure.graphNotation` + `objectDefinitions`, and the server compiles from a
+   `GraphDefinition` and never holds an attempt. The 4 JS call sites pass `attempt.successful()`,
+   whose `objectDefinitions` are the attempt's own → identical behaviour.
+4. **Branch terminals + the completeness bail-out came from `nestedStepLists()`, not `ScriptTree`**
+   (the plan sketched a ScriptTree walk). New `ScriptValueReferences` (kzen-auto-jvm, next to the
+   compiler) unions the analysis's edge sources with each *nested* branch's terminal, walking
+   `ScriptStep.nestedStepLists()` — the same authoritative, per-type, no-`when` enumeration the
+   spine's `nestedStableIds` uses. This avoids re-guessing branch attribute names (the very
+   `branchAttributeNames` weakness 8c exists to fix) **and** yields a free completeness check: any
+   step the walk reaches that `branchOfStep` never classified ⇒ the analysis is incomplete for this
+   document ⇒ every step reports referenced. So a future third-party step branching under an unknown
+   attribute name degrades safely instead of silently eliding a live value. The ROOT list's terminal
+   is deliberately excluded — `ScriptLogic.run` **discards** `runSteps(rootStepLocations)`'s value
+   ("no last-step fallback") — which is exactly what makes the common "trailing top-level ForEach"
+   shape optimizable. Conservative approximation kept (documented): a nested loop terminating an
+   *unreferenced* outer loop's body still collects.
+5. **Truncation helper is shared, not private to `ScriptRunContext` (user-ratified).** A private
+   const couldn't reach `ForEachStep`, which builds its own per-iteration `"$item ($counter)"`
+   detail and needed the same cap. New `TraceDisplay` (kzen-auto-common `util/`) holds
+   `truncatedToString(value, maxChars)` + both caps; `FlowMessageInspector.truncatedToString`
+   delegates (its 1024 cap preserved; its suffix gains the elided-char count — no test asserted it).
+6. **`ForEachStep`'s O(n²) cursor copy fixed (user-ratified, adjacent).** `LoopCursor(..., output
+   .toList(), ...)` snapshotted the collected outputs **every iteration** — O(n) per iteration,
+   ~5×10⁹ element copies at 100k. Now carries the live `output` (O(1)), matching the S5 follow-up's
+   ratified "cursor carries the LIVE iterator" rule. Sound because a migrate barrier only lands on a
+   `checkpoint`, never between `output.add` and the next `recordCarry`; restore still copies once.
+   The referenced-aware change only removed this for *un*referenced loops, so it was worth fixing.
+7. **The "Done display says 'n iterations'" idea was dropped** — `ForEachStepDisplay` renders only
+   the trace `detail` (`renderCurrentItem`), never `note` or `displayValue`, so a `traceNote` would
+   have been invisible and the `[]` display never reaches that card at all. The existing per-iteration
+   detail (`"item (100 of 100)"`) already carries the count. No client change in this phase.
+
+Tests: new `ScriptTraceBoundingTest` ×5 on a raw `RunEngine` (so it asserts what is *actually*
+retained, not a projection) — unreferenced loop collects nothing / referenced loop still collects /
+branch-terminal collects while root-terminal doesn't (one run, both rules) / a 10k-iteration loop
+appends **zero** events to history while its live trace still works / a 10k-char value's display is
+capped while `Result` reads `Big.length` == 10000. Fixtures `script-loop-collection[-nested]-test`,
+`script-loop-history-test`, `script-display-truncation-test`, `script-name-collision-test`. The three
+behaviour tests were **verified to fail** with the gate/flag reverted. Full `:kzen-auto-jvm:test` +
+`:kzen-auto-js:compileKotlinJs` green (`ServerLogicControllerLoopTraceResetTest` and
+`ServerLogicControllerLoopMigrationTest` are the load-bearing regression guards — film strip survives
+the transient switch, and loop resume survives the live-list cursor).
 
 ---
 
