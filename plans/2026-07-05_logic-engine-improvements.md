@@ -10,7 +10,7 @@
 > - [x] Phase 1 — engine correctness + hot path (kzen-lib only) ✓ 2026-07-12
 > - [x] Phase 2 — boundary identity (`checkpoint(at:)`, engine-owned position) ✓ 2026-07-12
 > - [x] Phase 3 — breakpoints (run-to dropped — breakpoints subsume it) ✓ 2026-07-13
-> - [ ] Phase 4 — trace unification (retire `LogicTraceStore` bridge)
+> - [x] Phase 4 — trace unification (retire `LogicTraceStore` bridge) ✓ 2026-07-15
 > - [ ] Phase 5 — push transport (SSE) + incremental fetch + slow-motion step budget
 > - [ ] Phase 6 — multiple concurrent runs + per-run trace retention
 > - [ ] Phase 7 — hardening (`Execution.blocking`, typed capture, structured failure)
@@ -369,6 +369,39 @@ and lean on the survey step before touching anything.**
 attribution via `callerStableId`), Flow vertex displays, Job worker progress + Preview pull path,
 post-run review after terminal, rename-while-paused, "Clear all traces". selfTest. Watch heap on a
 long streaming Job (should be ~half of pre-phase).
+
+**As-built (2026-07-15):** landed as designed (see `kzen/plans/2026-07-10_master-plan.md` executor
+notes → the E4 plan file). Key realizations:
+- **Value projection source = `Node.live`, not a history fold.** `resetEmitted` clears `live` but keeps
+  history, so folding history would ghost reset values. Added a **parallel** `Node.liveSequence:
+  Map<Address, Long>` (trailing defaulted; `Node.live` type unchanged so its ~20 `RunEngineTest` + 3
+  kzen-auto readers stayed untouched), maintained beside `live` in `emit`/`resetEmitted`/
+  `clearLiveSubtree`/`buildNode`. Wire `LogicTraceEntry.sequence` comes from it; `time` is **synthesized
+  at query time** (`Clock.System.now()`) — the client orders by sequence, never time, and the engine hot
+  path stays clock-free (Phase-1 intent). `TraceEvent.time` deferred as a trivial follow-up if ever needed.
+- **`emit(retain: Boolean = true)`** added (transient live-only emit; `retain=false` skips `history.add`).
+  Ships the flag + one `RunEngineTest` case only; flavours flip specific emits in S7/J7.
+- **`RunEngine.shutdown()` (pools only) / `dispose()` (`sweepOrphans` + pools)** split; `close()` →
+  `dispose()`. A settled engine's `snapshot`/`history` are pure locked reads, so the controller **retains**
+  the settled run (a new `LogicState.settled` flag; `settleAfterDrive` calls `shutdown()` and keeps
+  `stateOrNull`; `start()` disposes a retained-terminal state, refuses only an active one). `status()`
+  reports a `settled` run as no-active-run (load-bearing: `KzenAutoContext.anyRunActive` storage-eviction
+  gate + ~13 `awaitDone` test loops). Control methods guard via `stateOrNull?.takeIf { !it.settled }`.
+- **The whole observer bridge retired** (`mirrorTrace` + `onTraceReset` + `onFrameClosed` +
+  `handleForNode`/`nodeHandles`/`bridgeLock`/`bridgedSequence` + the 3 bridge fields). Trace queries are
+  served by a new **`RunEngineLogicTrace : LogicTrace`** (kzen-auto `server/exec/`) that projects the
+  controller's retained engine — `tracePathOf` + `retainStoredPath` ported verbatim; `lookupRun` keeps
+  **only the latest node per stable id** (the generic reproduction of the store's re-entry clearing —
+  necessary for non-loop sequential re-invocation, redundant-but-harmless for loops where `dropReplay`
+  already cleared). `LogicTraceEndpoint` changed only its `@Service` type (`LogicTraceStore` → `LogicTrace`).
+- **`LogicTraceHandle` STAYS** (Report's `ExecutionLogicTraceHandle` write adapter). Deleted:
+  `LogicTraceStore` + `LogicTraceStoreResetTest` (kzen-lib), `LogicTraceStoreExecutionTreeTest` (kzen-auto,
+  pure store unit test); rewrote `LogicTraceStoreRenameTest` → `RunEngineLogicTraceTest` (hand-driven
+  engine + fake `RunTraceAccess`); redirected 8 integration tests' `context.logicTraceStore` →
+  `context.logicTrace`. `:kzen-lib-jvm:test`, `:kzen-auto-jvm:test`, and `:kzen-auto-test:selfTest` green.
+- **Deferred to S7/Phase 5** (noted, not a regression): the engine keeps `log` events of compacted
+  `retainTrace=false` frames in `history`, so `lookupRunHistory` includes them (the store evicted them).
+  Low impact today (Job workers emit progress via `emit`, not `log`); history bounding is S7.
 
 ---
 

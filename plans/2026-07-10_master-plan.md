@@ -15,7 +15,7 @@
 
 | ID | Document | Scope | Phases | Status |
 |---|---|---|---|---|
-| E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | in progress (E1–E2 ✓ 2026-07-12) |
+| E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | in progress (E1–E2 ✓ 2026-07-12, E3 ✓ 2026-07-13, E4 ✓ 2026-07-15) |
 | G | `2026-07-05_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G1–G7 | in progress (G1 ✓ 2026-07-12, G2 ✓ 2026-07-13) |
 | S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | in progress (S1 ✓ 2026-07-11, S2 ✓ 2026-07-13, S3 ✓ 2026-07-13, S4 ✓ 2026-07-13, S5 ✓ 2026-07-13, S6 ✓ 2026-07-12 then reverted 2026-07-13) |
 | J | `2026-07-06_job-improvements.md` | Job flavour + Report subsumption | J1–J9 | planned |
@@ -249,7 +249,8 @@ arrow drag + fallback action.
 The engine back half. Order: **E4 → S7 → E5 → E6**; E7 anywhere after E1 (slot it here by
 default, or use it as a filler session anytime).
 
-- E4 — trace unification (riskiest engine phase; survey-first; now ships `emit(retain:)`).
+- ~~E4~~ ✓ 2026-07-15 — trace unification (retired the `LogicTraceStore` bridge; trace served by
+  projecting the retained engine via `RunEngineLogicTrace`; ships `emit(retain:)` + `shutdown`/`dispose`).
 - S7 — trace bounding + adopt transient emits (J-side adoption rides J7 or a micro-session).
 - E5 — SSE push + incremental fetch + step budget.
 - E6 — multiple concurrent runs (the client-global audit; last per hot-seam rule 1).
@@ -345,7 +346,7 @@ Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC4✓ → XC5✓ → XC1✓ → XC2✓ → XC3✓ (done)  (control flow + move-to-step)
-Stage 4  E4 → S7 → E5 → E6   ·  E7                 (trace & transport; E6 last)
+Stage 4  E4✓ → S7 → E5 → E6   ·  E7                (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  AE1 → AE2 · AE3 → AE4 → AE5 (→ AE6?) · S8 → FL3 → FL4 → FL5      ├─ interleave freely
          · FE2 → FE3 → FE4 → FE5 → FE6         (AE3+AE5 before S8b, J8.4) │ against 2–4 and
