@@ -32,7 +32,7 @@
 > - [ ] Phase 2 — Script jump semantics + controller + wire (auto-common + auto-jvm + client transport)
 > - [ ] Phase 3 — client affordance: draggable next-to-run arrow + "Set next step here" fallback + skipped-step display (auto-js)
 > - [x] Phase 4 ✓ 2026-07-14 — control flow, server: completion signals + ControlStep + ResultStep End Script (auto-common + auto-jvm)
-> - [ ] Phase 5 — control flow, client: ControlStep / ResultStep editors + step displays (auto-js)
+> - [x] Phase 5 ✓ 2026-07-14 — control flow, client: ControlStep / ResultStep editors + step displays (auto-js)
 
 ## Context
 
@@ -633,6 +633,38 @@ inside nested loops (dropdown lists both, innermost pre-selected), Skip/Finish l
 per phase 4, ResultStep End Script ends the run from the UI, mistargeted ControlStep shows the
 validation error and blocks Run, rename the target loop (reference follows — `by: Nominal`).
 selfTest (kill any stale tester JVM on port 18081 first).
+
+### As built (2026-07-14)
+
+Landed as designed. Four new kzen-auto-js components under
+`.../objects/document/script/display/` + notation wiring, no display component (both steps inherit
+`ScriptStepDisplayDefault`), no server/kzen-lib change. Deltas worth recording:
+
+- **Enum editor is generic, not bespoke** (user decision this session). A single
+  `SelectValuesEditor` (`edit/`) reads its options+labels from `meta.<attr>.values` (a
+  `MapAttributeNotation`, via the same `graphMetadata → attributeMetadataNotation.get(nesting)` idiom
+  `AttributeEditorManager` uses for `editor:`) and delegates the render/write to the
+  `SelectClosePolicyEditor` shape. `ControlStep.action` and `ResultStep.then` both point at it and
+  declare their `values:` maps in `script-jvm.yaml` — labels live in YAML, and any future/third-party
+  enum String attribute reuses it declaratively.
+- **Loop dropdown** `SelectEnclosingLoopEditor` (`edit/`) is `SelectStepEditor` with the candidate
+  source swapped to `ScriptNestingAnalysis.enclosingLoops(...)` (identical to server validation).
+  It needs graphNotation (ClientState) + scriptTree (ScriptStore), cached as plain fields and
+  recomputed when both present. **Pre-fill innermost on insert**: when `loop` is empty and ≥1
+  candidate, it writes the innermost once (run-once flag, via the existing `componentDidUpdate` write
+  path) so a freshly inserted+expanded ControlStep is valid by default. `meta.loop.editor` repointed
+  from `SelectStepEditor`.
+- **Summary views** (`view/`, user chose polished): `ControlSummaryAttributeView` (tagged `summary:`
+  on `meta.action`) resolves the loop step's *name* (not document name) and renders
+  "Skip iteration → *LoopName*" / "Finish loop → *LoopName*"; `ResultThenAttributeView` (on
+  `meta.then`) renders an "End script" chip only for `endScript` (nothing for `keepRunning`, so the
+  default ResultStep card is unchanged).
+- **Ribbon**: `ControlTool` added under `ScriptGroup_LogicControl` (delegate `ControlStep`).
+- **Verification**: `:kzen-auto-js:compileKotlinJs` + `kspKotlinJs` green (4 new `@Reflect`
+  Wrappers registered); `jsEsbuildBundle` green; `:kzen-auto-jvm:test` (ScriptControlFlowTest +
+  ScriptNestingAnalysisTest) green, confirming the `script-jvm.yaml` metadata additions still load.
+  Interactive browser smoke (dropdowns list the loops, chip renders) not run headlessly — leave for
+  a live pass.
 
 ---
 
