@@ -11,8 +11,10 @@
 > (sequence after 4 — same files), and parts marked "gated" have hard prerequisites.
 >
 > Companion plans: `2026-07-05_logic-engine-improvements.md` (the engine below Job),
-> `2026-07-05_graph-improvements.md` (the graph layers), and `2026-07-06_script-improvements.md`
-> (the sibling flavour; its phases 2 and 3 fix engine/closure issues Job inherits identically).
+> `2026-07-05_graph-improvements.md` (the graph layers), `2026-07-06_script-improvements.md`
+> (the sibling flavour; its phases 2 and 3 fix engine/closure issues Job inherits identically),
+> and `2026-07-14_attribute-editor-improvements.md` (shared editor plumbing — commit primitive,
+> select-reference base; phase 8 item 4 builds on it, see the note there).
 > This plan deliberately does **not** duplicate their items — see "Covered elsewhere" below.
 >
 > The original build plan (`2026-06-23_job-paradigm.md`, the P4*/M* milestones referenced from
@@ -553,7 +555,12 @@ boilerplate, and clear the documentation debt.
    single source.
 4. **Dedupe editor boilerplate**: shared `formatCount`/`abbreviate` utils; one add-column form
    widget (FormulaMapAdd generalized) consumed by Sort/ValueSetFilter/Pivot editors; one
-   `LocalGraphStore.Observer` guard base for the seven editors.
+   `LocalGraphStore.Observer` guard base for the seven editors. *Coordinate with
+   `2026-07-14_attribute-editor-improvements.md` (2026-07-14):* its phase 3 gives
+   `JobChannelNumberField`/`FormulaMapRow` the shared debounce/commit primitive and its phase 5
+   migrates `SelectChannelEditor` onto `SelectReferenceEditorBase` — the guard base here covers
+   only the six spec editors that base doesn't, and should extend/reuse those primitives rather
+   than introduce a parallel set (prefer running this item after AE3+AE5).
 5. **`WorkerDisplayManager` degrades instead of throwing** on an unknown `display:` name
    (WorkerDisplayManager.kt:73-74): warn + fall back to `WorkerDisplayDefault` (a typo'd
    3rd-party marker shouldn't kill the document view).

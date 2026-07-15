@@ -27,7 +27,7 @@
 > - [x] Phase 2 — server run loop: graph instance per run (not per vertex execution), non-fatal + throttleable tracing, inspection cost bounds — landed 2026-07-11 (as-built note at the end of Phase 2)
 > - [ ] Phase 3 — vertex SPI generalization: capability interfaces replace concrete-class special cases, message inspection on the vertex, channel contracts, multi-parameter RunLogic
 > - [ ] Phase 4 — client render performance + error visibility: compute-once routing, consumed-subset state, Error phase rendered, refetch scoping, display hygiene
-> - [ ] Phase 5 — editing UX: move commands, auto-pipe routing tool, row/column shifting, legacy `flow/edit` cleanup
+> - [ ] Phase 5 — editing UX: move commands, auto-pipe routing tool, row/column shifting (legacy `flow/edit` cleanup superseded 2026-07-14 → attribute-editor plan phase 1)
 > - [ ] Phase 6 — decision gate: expressiveness (multi-output, pipe crossing, nested-loop semantics) — decide, then build or document
 
 ## Context — what the review found
@@ -129,7 +129,8 @@ engine-adjacent gaps:
    (VertexController.kt:651-665) — nothing can be moved; repositioning means delete + recreate,
    losing configuration. Pipes are hand-placed from 13 orientation glyphs (flow-edge.yaml) with
    no routing assistance. The `flow/edit/*Old.kt` legacy cluster (5 files) survives only because
-   `PluginController.kt:212` still uses `AttributePathValueEditorOld`.
+   `PluginController.kt:212` still uses `AttributePathValueEditorOld` (its removal is owned by
+   `2026-07-14_attribute-editor-improvements.md` phase 1, no longer by this plan's phase 5).
 
 **Covered elsewhere — do not re-do here:** engine stepping semantics and step(mode, count)
 (logic-engine plan phase 5 — Flow's step boundary stays `execution.checkpoint()`, nothing more);
@@ -546,7 +547,7 @@ change is covered by the 1a suite's new error-phase case).
 
 ---
 
-## Phase 5 — Editing UX: move, auto-pipe, shifting, legacy cleanup
+## Phase 5 — Editing UX: move, auto-pipe, shifting
 
 **Goal:** a Flow can be rearranged without destroying it — move replaces delete-and-recreate,
 and pipe placement gets routing assistance — all within the existing geometry model and notation
@@ -572,10 +573,13 @@ shape. kzen-auto-js (+ possibly a common helper for path routing).
   "insert column left/right" / "delete empty row/column" that batch-update every affected
   vertex/edge coordinate (client-side computation over the matrix; one command list). Refuse to
   delete a non-empty row/column.
-- **Legacy cleanup**: port `PluginController.kt:212` to the current attribute-editor machinery
-  (`AttributePathValueEditor` — same shape the modern editors use), then delete
-  `objects/document/flow/edit/` entirely (5 `*Old.kt` files; `AttributePathValueEditorOld` was
-  their only live consumer). Confirms the js-architecture doc's long-standing deletion note.
+- ~~**Legacy cleanup**: port `PluginController.kt:212` … then delete
+  `objects/document/flow/edit/` entirely~~ — **superseded 2026-07-14** by
+  `2026-07-14_attribute-editor-improvements.md` **phase 1** (which owns the whole arc: the
+  `PluginController` port — to `TextAttributeEditor`, not `AttributePathValueEditor`, which that
+  plan's phase 4 deletes — the 5-file `*Old.kt` deletion, and the `common-js.yaml` registration
+  removal). If AE1 has not landed by the time this phase runs, execute AE1 first as its own
+  session rather than folding it in here.
 - Insert-mode polish riding along: the invisible insertion `IconButton`s
   (opacity 0 when not inserting, FlowController.kt:452-473) become non-interactive when hidden
   (`pointerEvents = none`) so they can't swallow clicks.
@@ -583,8 +587,7 @@ shape. kzen-auto-js (+ possibly a common helper for path routing).
 **Verify:** manual smoke is the substance here — build a 3-layer flow from scratch using only
 ribbon inserts + Connect; move a mid-flow vertex right and watch the lint flag the severed pipe,
 then auto-pipe reconnects it; insert a row above the middle layer, everything shifts intact,
-run still green. commonTest routing cases green; `:kzen-auto-js:build`; plugin document editor
-still edits its path attribute (PluginController port).
+run still green. commonTest routing cases green; `:kzen-auto-js:build`.
 
 ---
 

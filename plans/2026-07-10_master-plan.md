@@ -26,10 +26,11 @@
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (one arc) | proposed |
 | XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) + structured control flow (continue/break/return) | XC1–XC5 | in progress (revised 2026-07-14: +XC4/XC5 control flow, executed first; XC4 ✓, XC5 ✓ 2026-07-14) |
 | SER | `2026-07-13_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER1–SER5 | in progress (SER1 ✓ 2026-07-13; SER3 = gate) |
+| AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js attribute-editor consolidation (Old-fork removal, commit primitive, Default/PathValue merge, select-reference base) | AE1–AE6 | planned (AE6 optional) |
 
-~65 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:5, Y:~2,
-SER:5, EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided once,
-here.
+~71 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:5, Y:~2,
+SER:5, AE:6, EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided
+once, here.
 
 ## Cross-plan dependency map (the real edges)
 
@@ -61,8 +62,14 @@ kotlinx trace/status DTOs; if E5 runs first it lands on the map codecs and SER4 
 E3 before XC3 (shared per-step affordance home);
 S8 before FL4 (S8 defines the render-scoping conventions FL4 applies); S2 before FE4's stretch
 goal (live-browser capture); E3+E5 before J7's gated parts; J1 before J8 (constants), J3 before
-J8 (editor fallback); FL1 before FL2 (tests as net); EXT-S7 coordinates with FL5 (whoever runs
-first ports `PluginController` off the legacy editor).
+J8 (editor fallback); FL1 before FL2 (tests as net).
+AE edges (added 2026-07-14): within AE, 1→2→3→4→5→6 (its own plan's order; AE1/AE2 are
+prerequisite-free filler); **AE1 before FL5** (FL5's legacy-cleanup bullet and EXT-S7 are
+superseded by AE1 — pointers updated in both); **AE3+AE5 before S8b's editor-dedupe remainder
+and before J8.4's guard base** (both now build on AE's primitives; supersession/coordination
+notes added in S8b/S8d and J8.4); AE2's `SelectValuesEditor` dependency is already met
+(landed with XC5). If J6 (SelectChannelEditor list ports) runs before AE5, AE5 migrates the
+extended editor — either order works.
 
 ## Hot seams — one rule each
 
@@ -90,6 +97,12 @@ Files/concepts touched by 3+ plans; the sequencing rules that prevent re-churn:
    (already noted in both plans; with XC4 first, XC4a builds it).
 7. **`logic-spec.md` §4/§5** — E2/E3/E5, S2/S6, XC1/XC2 all amend it. No ordering beyond the
    code ordering above; every plan already requires same-session spec updates.
+8. **Client attribute-editor plumbing** (`common/edit/`, `common/attribute/`,
+   `script/display/edit/`, `job/edit/`) — touched by AE3/AE4/AE5, S8b/S8d, J6a, J8.4 (added
+   2026-07-14). Rule: **AE owns the shared primitives** (`AttributeCommitter`,
+   `SelectReferenceEditorBase`, the Default/PathValue merge); S8b's and J8.4's dedupe items are
+   scoped to what AE doesn't cover and prefer landing after AE3+AE5 (notes in those plans); J6's
+   SelectChannelEditor list-port feature composes with AE5 in either order.
 
 ## Review findings (2026-07-10)
 
@@ -112,6 +125,14 @@ duplicated work was found between any two plans. Cross-document, these gaps were
    `ClientLogicState`). *Resolved here: XC before E6 (hot-seam rule 1).*
 7. **EXT ratification (D1–D7) was not scheduled anywhere.** *Resolved here: stage 9 opens with a
    decision session.*
+
+Reconciliation addendum (2026-07-14, on adding the AE plan): the one pre-existing duplicate —
+the `PluginController` port + `flow/edit/*Old.kt` deletion, carried by both EXT-S7 and an FL5
+bullet with a "whoever runs first" note — is now owned by **AE1**; both carriers are struck with
+pointers. Script 8b's "rename-echo dance" mixin and 8d's `SelectLogicEditor` RPureComponent TODO
+are superseded by **AE5**; J8.4's editor-boilerplate item was rescoped to build on AE3/AE5. FE3
+(TargetSpecEditor polish) and XC5 (SelectValuesEditor/SelectEnclosingLoopEditor) had already
+landed before AE was written — AE builds on their as-built state, no conflict.
 
 Push-backs / judgement calls (recorded here, not edited into the plans):
 
@@ -254,13 +275,18 @@ Independent of stages 2–4 except where marked; interleave at will. The strateg
 Exit: composed A/B gate green (same dataset through Report and Job — identical bytes); Report
 frozen; a headless run is "the same Job minus observability".
 
-### Stage 6 — client convergence + Flow/Target capability (9 sessions; FE3 can ride with FE2)
+### Stage 6 — client convergence + Flow/Target capability (~15 sessions; FE3 can ride with FE2; AE6 optional)
 
-- S8 — Script client sweep **first** (defines the render-scoping conventions; also delivers 8c's
+- **AE1 → AE2** — Old-fork removal + declarative close-policy select (prerequisite-free; safe
+  filler any time earlier, and AE1 unblocks FL5's cleaned-up scope).
+- **AE3 → AE4 → AE5** — commit primitive → Default/PathValue merge → select-reference base.
+  Prefer **before S8** (S8b's editor-dedupe remainder and 8d's TODO list shrink once AE5 is in)
+  and before J8.4 in stage 5 (hot-seam rule 8); AE6 (hygiene) optional, last.
+- S8 — Script client sweep (defines the render-scoping conventions; also delivers 8c's
   notation-driven branch discovery that XC2a shares).
 - FL3 — vertex SPI capabilities (after FL2 from stage 0).
 - FL4 — Flow client perf + error visibility (applies S8's conventions).
-- FL5 — Flow editing UX (move/auto-pipe/shift; coordinate EXT-S7's `PluginController` port).
+- FL5 — Flow editing UX (move/auto-pipe/shift; its legacy-cleanup bullet is superseded by AE1).
 - FE2 — correct-clicking bug (live regression in the user's working Script — **pull forward out
   of stage order as needed**); FE3 — step-editor polish (small; can ride with FE2).
 - FE4 → FE5 → FE6 — View/Add split + capture sources (the stretch goal benefits from S2 having
@@ -299,8 +325,8 @@ out-of-box; project upgrade path; 304s through the proxy.
 1. **Decision session**: ratify D1–D7 (recommendations are in the analysis; D1 —
    plugin-shipped `ModuleReflection` registration — is the strategic one and reshapes D2–D4).
    Promote the analysis to `2026-07-XX_extensibility-improvements.md` in house plan format.
-2. Hygiene phase (EXT S1–S10) — plan-ready **now**; may run any time earlier as an opportunistic
-   session (coordinate S7-item with FL5).
+2. Hygiene phase (EXT S1–S10 minus S7, which AE1 superseded 2026-07-14) — plan-ready **now**;
+   may run any time earlier as an opportunistic session.
 3. D1 implementation + plugin UX + Custom power + registry disposition per the promoted plan.
 
 Exit: `../kzen-sample-plugin` contributes a working `@Reflect` step/prototype with zero
@@ -321,9 +347,10 @@ Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC4✓ → XC5✓ → XC1 → XC2 → XC3            (control flow + move-to-step)
 Stage 4  E4 → S7 → E5 → E6   ·  E7                 (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
-Stage 6  S8 → FL3 → FL4 → FL5 · FE2 → FE3 → FE4 → FE5 → FE6              ├─ interleave freely
-Stage 7  G3 · G5 · G6 · Y → G7 · (G4 if measured) · SER2 → SER3 → SER4 → SER5 │ against 2–4 and
-Stage 8  SH2 → SH3 → SH4 → SH5                                            ─┘  each other
+Stage 6  AE1 → AE2 · AE3 → AE4 → AE5 (→ AE6?) · S8 → FL3 → FL4 → FL5      ├─ interleave freely
+         · FE2 → FE3 → FE4 → FE5 → FE6         (AE3+AE5 before S8b, J8.4) │ against 2–4 and
+Stage 7  G3 · G5 · G6 · Y → G7 · (G4 if measured) · SER2 → SER3 → SER4 → SER5 │ each other
+Stage 8  SH2 → SH3 → SH4 → SH5                                            ─┘
 Stage 9  EXT ratify → hygiene → D1 arc
 Stage 10 FL6 · FE7 gates
 ```
@@ -337,7 +364,7 @@ There is one executor, so "parallel" means *interleavable without re-churn*, not
   FL4←S8, FE4-stretch←S2, G3←G2, and SER4 soft-before E5. Use them as alternate tracks when an
   engine phase needs to settle or a mavenLocal publish round-trip makes a same-repo follow-up
   awkward.
-- Anything in stage 0 and the EXT hygiene session are safe filler at any point.
+- Anything in stage 0, the EXT hygiene session, and AE1/AE2 are safe filler at any point.
 - The spine that must stay ordered is: **E1 → E2 → {S6, E3, G2} → {S2/S3, XC4–5, XC1–3} → E4 → E5 → E6**
   (within stage 3: XC4 → XC5 → XC1 → XC2 → XC3).
 

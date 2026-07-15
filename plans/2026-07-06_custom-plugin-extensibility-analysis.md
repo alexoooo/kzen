@@ -16,9 +16,10 @@
 > the end.
 >
 > Companion plans (do not duplicate their work):
-> - `2026-07-06_flow-improvements.md` **phase 5** deletes `objects/document/flow/edit/*Old.kt`
->   after porting `PluginController`'s `AttributePathValueEditorOld` use — whichever plan executes
->   first does the port (see S7 below).
+> - `2026-07-14_attribute-editor-improvements.md` **phase 1** owns the `PluginController` port
+>   (to `TextAttributeEditor`, incl. the `long`-type fix) and the
+>   `objects/document/flow/edit/*Old.kt` deletion — **S7 below is superseded** (2026-07-14;
+>   previously coordinated with the Flow plan's phase 5, whose bullet is likewise superseded).
 > - `2026-07-06_shell-launcher-project-improvements.md` owns the localhost trust / CSRF hardening
 >   stance; plugin-JAR arbitrary-code-execution is accepted under that same single-tenant-localhost
 >   posture and only needs documenting here, not solving.
@@ -190,9 +191,9 @@ Design tensions to settle *in the decision*, not discover during execution:
   `java.util.ServiceLoader`: either is fine — keep the explicit yaml, but write the format down
   in `kzen-auto-plugin` docs once D1 extends it to module classes.
 - **P7 — last consumer of the legacy editor.** `PluginController.kt:13,212` is the only live use
-  of `objects/document/flow/edit/AttributePathValueEditorOld` — the Flow plan (phase 5) wants
-  that directory deleted. Whichever plan executes first ports this to the modern
-  `AttributePathValueEditor` (and fixes the `long` type while touching it).
+  of `objects/document/flow/edit/AttributePathValueEditorOld`. *Ownership moved 2026-07-14:*
+  `2026-07-14_attribute-editor-improvements.md` phase 1 does the port (to `TextAttributeEditor`,
+  fixing the `long` type) and deletes the directory.
 
 ### ObjectRegistry — real but misnamed, and it doesn't compose
 
@@ -253,8 +254,10 @@ session, can execute them directly:
 - **S5** Cache `ObjectRegistryDocument.scan` by notation digest (R3).
 - **S6** Stop the orphan task poll after unmount; guard `pollLoop` on runner observers or an
   explicit cancel (C5, the leak half only — persistence is D6).
-- **S7** Port `PluginController` off `AttributePathValueEditorOld`; `valueType` → string
-  (P6/P7 — coordinate with Flow plan phase 5).
+- ~~**S7** Port `PluginController` off `AttributePathValueEditorOld`~~ — **superseded
+  2026-07-14** by `2026-07-14_attribute-editor-improvements.md` phase 1 (P6/P7; the S-item count
+  in headers stays for stable numbering). The other P6 bits (the "Name found" message,
+  whole-`ClientState` storage) remain here.
 - **S8** Docs refresh (C8, R1's doc half, P2's doc half).
 - **S9** First tests for the cluster (list above).
 - **S10** Replace the bundled `Custom.yaml` scratch content with a clean sample (C2 — content of

@@ -9,9 +9,12 @@
 > steps with file anchors, and verification. Phases are ordered by priority; only 5 and 6 have hard
 > prerequisites.
 >
-> Companion plans: `2026-07-05_logic-engine-improvements.md` (the engine below Script) and
-> `2026-07-05_graph-improvements.md` (the graph layers below both). This plan deliberately does
-> **not** duplicate their items — see "Covered elsewhere" below. Coordinate where marked.
+> Companion plans: `2026-07-05_logic-engine-improvements.md` (the engine below Script),
+> `2026-07-05_graph-improvements.md` (the graph layers below both), and
+> `2026-07-14_attribute-editor-improvements.md` (shared editor plumbing — owns the select-editor
+> rename-echo base and the debounce/commit primitive that 8b/8d formerly carried; see the
+> supersession notes there). This plan deliberately does **not** duplicate their items — see
+> "Covered elsewhere" below. Coordinate where marked.
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — expression engine: loaded-class caching + real type inference (kzen-auto-jvm) — landed 2026-07-11
@@ -794,9 +797,14 @@ collapses; the SwitchStep blocker dissolves. kzen-auto-js only.
   `ScriptStepObserverHelpers`) — this also *enforces* the js-architecture.md render-scoping
   discipline instead of relying on hand-copied guards.
 - Dedupe: predecessor/binding scope computation (SelectStepEditor.kt:152-166 ≈
-  RunStepArgumentsEditor.kt:255-269 → one helper next to `ScriptTree`); the rename-echo dance
-  (4 editors — SelectStepEditor.kt:170-185 etc. → a small shared mixin/helper); the screenshot
-  `buildGroups` grouping (RunStepDisplay vs PageScreenshots — both marked "Mirrors").
+  RunStepArgumentsEditor.kt:255-269 → one helper next to `ScriptTree` — this Script-specific
+  candidate computation stays here and feeds the `selectOptions()` hook of the shared select
+  base, see below); the screenshot `buildGroups` grouping (RunStepDisplay vs PageScreenshots —
+  both marked "Mirrors"). ~~The rename-echo dance (4 editors → a small shared mixin/helper)~~ —
+  **superseded 2026-07-14** by `2026-07-14_attribute-editor-improvements.md` **phase 5**
+  (`SelectReferenceEditorBase`: hydrate / renaming-flag / echo-suppressed commit skeleton shared
+  by SelectObject/Step/EnclosingLoop/Logic/Channel; candidate sources and crop policy stay
+  per-editor). If AE5 has landed, this bullet's remainder is only the scope helper + buildGroups.
 
 ### 8c. Notation-driven branch discovery
 
@@ -817,9 +825,11 @@ collapses; the SwitchStep blocker dissolves. kzen-auto-js only.
 
 - `StepRowRefRegistry` process-global singleton (StepRowRefRegistry.kt:10-11 "only one Script
   document open at a time") → scope through the existing per-document `DocumentBridge` context.
-- Resolve the three open TODOs: `ScriptStore.kt:203` (stateOrNull YAGNI), `SelectLogicEditor.kt:59`
-  (→ RPureComponent), `SelectLogicEditor.kt:118` (exclude self/descendant documents from callee
-  suggestions — cheap DAG guard). Delete the commented debug line StepDisplayManager.kt:114.
+- Resolve the open TODOs: `ScriptStore.kt:203` (stateOrNull YAGNI) and `SelectLogicEditor.kt:118`
+  (exclude self/descendant documents from callee suggestions — cheap DAG guard).
+  `SelectLogicEditor.kt:59` (→ RPureComponent) is resolved by the attribute-editor plan's phase 5
+  base migration — skip if AE5 has landed. Delete the commented debug line
+  StepDisplayManager.kt:114.
 - Grep-check the deprecated `ArgumentStep`/`ForEachItemStep` archetypes for user-notation
   references; retire them (+ their yaml) only if unreferenced, else leave with a dated comment.
 
