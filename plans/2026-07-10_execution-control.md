@@ -28,7 +28,7 @@
 >
 > **Progress tracker** (update as phases land; execution order **4 → 5 → 1 → 2 → 3** — control
 > flow first, user decision 2026-07-14):
-> - [ ] Phase 1 — engine carry: one-shot move target through the migration barrier (kzen-lib only)
+> - [x] Phase 1 ✓ 2026-07-14 — engine carry: one-shot move target through the migration barrier (kzen-lib only)
 > - [ ] Phase 2 — Script jump semantics + controller + wire (auto-common + auto-jvm + client transport)
 > - [ ] Phase 3 — client affordance: draggable next-to-run arrow + "Set next step here" fallback + skipped-step display (auto-js)
 > - [x] Phase 4 ✓ 2026-07-14 — control flow, server: completion signals + ControlStep + ResultStep End Script (auto-common + auto-jvm)
@@ -334,6 +334,32 @@ target)` → rebuilt root's `execution.moveTarget == target`; a second plain `mi
 (2) a root Logic that ignores `moveTarget` rebuilds and parks exactly as an ordinary paused
 migrate (no-op contract); (3) `moveTarget` readable from a hosted child's `Execution` too
 (documented — the child ignores unresolvable ids). `publishToMavenLocal` when green.
+
+### As built (2026-07-14)
+
+Landed as designed; anchors were re-verified first (all had drifted only slightly post engine-plan-2).
+Deltas worth recording:
+
+- **Field shape = a tree-wide scalar, not a keyed register.** `migrationMoveTarget: ObjectStableId?`
+  (RunEngine.kt, after `migrationResources`) is neither the `migrationCaptured` lazy-claim map nor the
+  `migrationResources` remove-is-claim map — the move target is the *same* for every node in the rebuilt tree
+  and read **without claiming**, so a plain `var` read under `synchronized(lock)` in `ExecutionImpl.moveTarget`
+  is correct. Set in migrate step 3 (from the new `moveTarget` param), cleared in `sweepOrphans` (so `close()`
+  leaves nothing behind); every migrate overwrites it → one-shot by construction.
+- **`migrate` signature**: `migrate(newRoot, paused = true, moveTarget: ObjectStableId? = null)` — defaulted,
+  so every existing call site and flavour is untouched (the no-op contract). `ExecutionImpl` is the **only**
+  `Execution` implementor in either repo (grep-confirmed), so the new abstract `Execution.moveTarget` broke
+  nothing else.
+- **`Repositionable`** is a standalone capability interface next to `Logic`
+  (`canMoveTo(target: ObjectStableId): Boolean`), unimplemented in kzen-lib — Script implements it in phase 2.
+- **Spec**: `logic-spec.md` §4 gained a "Repositioning (move-to)" run-control bullet (grouped with
+  Breakpoints), §5 a "move-to is a self-migration" sub-bullet under State migration, plus two appendix
+  type-map rows. `kzen-auto/docs` untouched (that lands with phase 2's consuming code).
+- **Verify**: 3 new `RunEngineTest` cases (carry+one-shot-clear, ignore=ordinary-migrate,
+  readable-from-hosted-child) green; `RunEngineTest` = 42 tests / full `:kzen-lib-jvm:test` suite green;
+  `publishToMavenLocal` done (JVM **and** JS targets compiled); `:kzen-auto-jvm:compileKotlin
+  --refresh-dependencies` clean against the fresh artifact with **zero** kzen-auto changes
+  (additive-compat confirmed).
 
 ---
 
