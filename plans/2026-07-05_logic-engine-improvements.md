@@ -15,7 +15,7 @@
 >   consumer; live-view delta fetch descoped to sequence-gating — both user decisions, see as-built)
 > - [~] Phase 6 — multiple concurrent runs + per-run trace retention — **DEFERRED 2026-07-16**
 >   (feature not needed this release; groundwork readiness verified — see the Phase 6 deferral note)
-> - [ ] Phase 7 — hardening (`Execution.blocking`, typed capture, structured failure)
+> - [x] Phase 7 — hardening (`Execution.blocking`, typed capture, structured failure) ✓ 2026-07-16
 
 ## Context
 
@@ -723,6 +723,41 @@ display gap noted in `JobRun.kt:71`) become possible and may be done here if tim
 cancel interrupts a parked-in-blocking spine; `Failed.at` propagates through `host`. Manual: pause
 during a Selenium wait converges once the blocking call returns; cancel during one converges
 immediately.
+
+> **As-built (2026-07-16).** All four items landed.
+> - **7a** — `Execution.blocking { }` added to the contract; `RunEngine` owns a per-engine elastic
+>   `newCachedThreadPool` (`asCoroutineDispatcher`), and `blocking` runs `runInterruptible(elastic) { block }`
+>   wrapped in `CountingDispatcher.enterBlocking()`/`exitBlocking()` (reusing the delay path's exactly-once
+>   `release` CAS) so quiescence stays truthful. **Cancel reaching a blocking spine required extending
+>   `cancel()`**: after draining parks it now cancels the scope's `Job` (OUTSIDE the lock — cancelling
+>   synchronously resumes continuations that re-enter `settleNode`'s lock), which `runInterruptible` turns
+>   into a thread interrupt → `CancellationException` → settles Cancelled (a raw `Thread.interrupt` would
+>   mis-settle as Failed). `migrate` needed no change (quiescence-gated; `cancelAndJoin` already interrupts).
+>   A side effect: cancel is now promptly-preemptive at any cancellable suspension (`delay`/`await`), an
+>   improvement. Adopted in the Selenium driver lifecycle (`BrowserOpenStep`, screenshots in
+>   `BrowserTargetStep`/`BrowserGetStep`, quit in `BrowserCloseStep`), `ReportRun`'s poll loop, and
+>   `EngineJobControl.runBlockingIo` (now delegates to `execution.blocking`, upgrading every Worker's I/O from
+>   inline to offloaded, no per-worker change). Selenium `locateElement`/`act` stayed inline — they're
+>   `suspend`, so wrapping them would need a `TargetLocator` SPI change (deferred; survey-not-exhaustive).
+>   `StepExecution` grew a `blocking` delegate (impl in `ScriptRunContext`). logic-spec §2 names the mechanism.
+> - **7b** — `inline fun <reified T> Execution.restoredAs(): T?` beside the contract; adopted at
+>   `ScriptLogic`/`FlowRun`/`JobRun` restore seams (removed the raw-`Map` `@Suppress`). `onCapture` kdoc notes
+>   self-contained value types.
+> - **7c** — `Outcome.Failed(message, at: ObjectStableId? = null)` + `LogicFailure(message, at)`; `runNode`
+>   stamps a fresh failure with its node id and preserves a hosted child's `at` through `host`'s re-throw. The
+>   plan assumed surfacing via `LogicRunFrameInfo` — **found wrong**: the frame tree early-returns to
+>   no-active-run the instant the root settles, and chips are reviewed *post-run*. Surfaced instead on the
+>   **trace store** (survives via the retained engine): new `LogicTracePath.nodeOutcome` (`$outcome` marker,
+>   drops on delete via `outcomeStableId()`) + shared `OutcomeTrace{kind,message,at}` serializer;
+>   `RunEngineLogicTrace.nodeEntries` synthesizes a per-terminal-node outcome entry (root's carries the
+>   whole-run outcome). Job UI reads it into `JobWorkerProgress.outcome` (`WorkerOutcome`) and renders a chip
+>   in `WorkerDisplayDefault.cardHeader` — a general per-node fact, zero worker-type branching. No
+>   `LogicStatus`/`LogicRunFrameInfo`/`ServerLogicController` change.
+> - **7d** — retired the stale `JobExecution` doc-links/prose (→ `JobRun` / `WorkerLogic` / "the engine");
+>   `JobRun.route` documented as a known bounded seam (off-monitor move stays deferred with E6).
+> - **Tests**: `RunEngineTest` (blocking-busy, cancel-interrupts-blocking, cancel-during-delay,
+>   fresh-`at`, `at`-through-host); `RunEngineLogicTraceTest` (outcome projection Success/Failed-with-`at`,
+>   delete-drop). Manual Selenium/Job-chip verification left to the user (needs a live browser + UI).
 
 ---
 

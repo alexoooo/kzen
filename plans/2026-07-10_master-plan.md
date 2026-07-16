@@ -15,7 +15,7 @@
 
 | ID | Document | Scope | Phases | Status |
 |---|---|---|---|---|
-| E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | in progress (E1–E2 ✓ 2026-07-12, E3 ✓ 2026-07-13, E4–E5 ✓ 2026-07-15; **E6 deferred 2026-07-16** — groundwork verified, see E-plan Phase 6 deferral note) |
+| E | `2026-07-05_logic-engine-improvements.md` | RunEngine core (kzen-lib) + controller/transport | E1–E7 | **all phases complete except deferred E6** (E1–E2 ✓ 2026-07-12, E3 ✓ 2026-07-13, E4–E5 ✓ 2026-07-15, **E7 ✓ 2026-07-16**; **E6 deferred 2026-07-16** — groundwork verified, see E-plan Phase 6 deferral note) |
 | G | `2026-07-05_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G1–G7 | in progress (G1 ✓ 2026-07-12, G2 ✓ 2026-07-13) |
 | S | `2026-07-06_script-improvements.md` | Script flavour, all layers | S1–S8 | in progress (S1 ✓ 2026-07-11, S2 ✓ 2026-07-13, S3 ✓ 2026-07-13, S4 ✓ 2026-07-13, S5 ✓ 2026-07-13, S6 ✓ 2026-07-12 then reverted 2026-07-13) |
 | J | `2026-07-06_job-improvements.md` | Job flavour + Report subsumption | J1–J9 | planned |
@@ -295,7 +295,7 @@ independent; TP4 after E5.
   hot-seam rule 1). Feature not needed yet; groundwork readiness verified — see the E-plan Phase 6
   deferral note (nothing precludes it; the migration surface is concentrated as hot-seam rule 1
   intended, plus a handful of friction items catalogued there).
-- E7 — `blocking { }`, typed capture, structured failure.
+- ~~E7~~ ✓ 2026-07-16 — `blocking { }`, typed capture, structured failure (`Failed.at` surfaced on the trace store as the Job outcome chip, not the frame tree).
 - TP1 — HTTP response compression (Ktor `Compression`, exclude SSE + octet-stream); ~25-40 % off JSON transfer.
 - TP2 — thin post-settle trace fetch (drop the ~10 MB `lookup-run` binary re-download); stopgap, superseded by TP3.
 - TP3 — trace binaries by content-addressed handle (blob endpoint + immutable cache); removes the base64 tax on history.
@@ -391,7 +391,7 @@ Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC4✓ → XC5✓ → XC1✓ → XC2✓ → XC3✓ (done)  (control flow + move-to-step)
-Stage 4  E4✓ → S7✓ → E5✓ → E6(deferred) · E7 · TP1 · TP2 · TP3 · TP4   (trace & transport; E6 last)
+Stage 4  E4✓ → S7✓ → E5✓ → E6(deferred) · E7✓ · TP1 · TP2 · TP3 · TP4   (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  AE1 → AE2 · AE3 → AE4 → AE5 (→ AE6?) · S8 → FL3 → FL4 → FL5      ├─ interleave freely
          · FE2 → FE3 → FE4 → FE5 → FE6         (AE3+AE5 before S8b, J8.4) │ against 2–4 and
