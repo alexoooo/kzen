@@ -32,7 +32,24 @@
 >   proxy-through-browser render, `selfTest`, and the FizzBuzz HAR ~25–40% delta.
 > - [ ] Phase 2 — thin post-settle trace fetch — **optional stopgap, default: skip** (superseded
 >   by Phase 3; execute only if Phase 3 slips a release and the 10 MB settle fetch hurts now)
-> - [ ] Phase 3 — trace binaries by content-addressed handle (blob endpoint + immutable cache)
+> - [x] Phase 3 — trace binaries by content-addressed handle (blob endpoint + immutable cache) —
+>   **DONE 2026-07-16.** kzen-lib: new `BinaryHandleExecutionValue(run, hash, size, mime)` under a sealed
+>   `BinaryValue` parent (chosen over nullable-bytes for compile-time byte-consumer safety), with a
+>   `binary-handle` JSON branch + round-trip test. Server: `RunEngineLogicTrace.toWireValue` maps each
+>   `BinaryExecutionValue` → handle at BOTH projection seams (`nodeEntries` live + `lookupRunHistory`),
+>   hashed by `Digest.ofBytes(bytes).asString()`; new `lookupBinary(run, hash)` resolves bytes from the
+>   union of live map + film-strip history; new first-class `/logic/trace-binary` route (octet-stream,
+>   `Cache-Control: public, immutable`, 404 when non-retained/unknown — NOT via the JSON-only
+>   `LogicTraceEndpoint`), wired through `RestHandler` (new `RunEngineLogicTrace` ctor dep). Client: the
+>   single choke point `StepImage.pngUrl` accepts `BinaryValue` and builds the blob URL for a handle; ~20
+>   `is BinaryExecutionValue` image gates widened to `BinaryValue`; the one byte-consumer the plan missed
+>   (`TargetController` locate-from-trace) fetches the blob via `ClientRestApi.logicTraceBinaryBytes`.
+>   Verified headless: kzen-lib publishToMavenLocal → kzen-auto `--refresh-dependencies`;
+>   `:kzen-auto-jvm:test` + `:kzen-auto-js:compileKotlinJs` green; booted jar, blob route 404s cleanly
+>   (our handler, not Ktor default) for a non-retained run + missing params. Deferred to a dev-loop smoke
+>   pass (needs the browser): a FizzBuzz run showing no `iVBOR` base64 in `lookup-run*` JSON, each image
+>   fetched once + browser-cached, film strip/thumbnails/fullscreen + TargetController locate render, proxy
+>   relay, `selfTest`, HAR delta.
 > - [ ] Phase 4 — server-side structural version on `LogicStatus` (exact structural re-fetch)
 
 ## Context — what the HAR showed

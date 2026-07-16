@@ -45,7 +45,7 @@ interleave freely; the chains inside each track are ordered.
 | Order | Phase | Why |
 |---|---|---|
 | ~~T1~~ | ~~**TP1** response compression~~ ✅ **DONE 2026-07-16** | ~~25–40 % off all JSON transfer~~ — landed; runtime-verified (gzip engages, SSE excluded); proxy relays unchanged. Dev-loop smoke debt: proxy-through-browser, `selfTest`, HAR delta |
-| T2 | **TP3** trace binaries by handle | kills the base64 tax on the ~11 MB incremental history + the ~10 MB settle re-download (TP2 skipped — TP3 subsumes it) |
+| ~~T2~~ | ~~**TP3** trace binaries by handle~~ ✅ **DONE 2026-07-16** | ~~kills the base64 tax on the ~11 MB incremental history + the ~10 MB settle re-download (TP2 skipped — TP3 subsumes it)~~ — landed; `BinaryHandleExecutionValue` wire type + `/logic/trace-binary` blob endpoint (both-store resolver), single `pngUrl` choke point; headless-verified (compile/test green, blob 404s cleanly). Dev-loop smoke debt: FizzBuzz no-base64 + one-fetch render, proxy relay, `selfTest`, HAR delta |
 | T3 | **TP4** structural version on `LogicStatus` | exact structural re-fetch; restores per-emit frame animation E5 traded away; coordinate with SER4 (whichever second adapts) |
 
 ### Track W — wire serialization (4 sessions)
@@ -127,8 +127,10 @@ kzen-source edits.
    object-segment preservation (cross-refs in both plans).
 2. **SER2 → SER3 → SER4 → SER5** — strict chain; SER3 gate semantics as above.
 3. **SER4 ↔ TP4** — both touch `LogicStatus`; whichever lands second adapts (one field / one
-   key). **SER2d ↔ TP3** — the `ExecutionValue` serializer must round-trip TP3's binary-handle
-   envelope shape if TP3 landed first.
+   key). **SER2d ↔ TP3** — TP3 **landed first (2026-07-16)**, so the migrated `ExecutionValue`
+   serializer MUST round-trip the new `binary-handle` envelope `{type: binary-handle, run, hash,
+   size, mime}` (kzen-lib `BinaryHandleExecutionValue`, a sibling of `binary` under the sealed
+   `BinaryValue`) in addition to the existing `binary` (base64) shape.
 4. **AE3+AE5 before S8b and before J8.4** — the shared editor primitives land once, in AE;
    the dedupe remainders build on them (hot-seam rule; notes in all three plans).
 5. **AE1 before FL5's cleanup scope** — AE1 owns the `flow/edit/*Old.kt` arc; if FL5 arrives
