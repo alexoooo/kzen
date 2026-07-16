@@ -257,7 +257,15 @@ default, or use it as a filler session anytime).
   not just Running/markers, so **all** Script `StepTrace` emits are `retain = false` — a Script now appends
   nothing to run history (the film strip / `execution.log` is untouched), and screenshots are stored once
   instead of 2–3×. J-side adoption still rides J7 or a micro-session (Job/Flow emits unchanged).
-- E5 — SSE push + incremental fetch + step budget.
+- ~~E5~~ ✓ 2026-07-15 — SSE push (`/logic/events`) + sequence-gated fetch. Reshaped by exploration: the
+  cost driver was not the 1.5 s poll but `LogicStatus.time`, a wall clock stamped per call that **8**
+  client sites keyed trace re-fetch on (so every poll re-pulled full snapshots) — retired for a
+  controller `epoch` + `LogicRunInfo.sequence`, which had to land *before* push (push onto a
+  wall-clock key amplifies traffic). **Step budget deferred** (no consumer: 750 ms dwell hardcoded, no
+  speed UI) and **live-view delta fetch descoped** to sequence-gating (user decisions). Carried a
+  cross-repo fix the plan didn't anticipate: kzen-shell's proxy CIO client had no `HttpTimeout`, so its
+  15 s default truncated *any* proxied stream — SSE would have worked in the dev loop and died in the
+  packaged product (see SH note below).
 - E6 — multiple concurrent runs (the client-global audit; last per hot-seam rule 1).
 - E7 — `blocking { }`, typed capture, structured failure.
 
@@ -351,7 +359,7 @@ Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC4✓ → XC5✓ → XC1✓ → XC2✓ → XC3✓ (done)  (control flow + move-to-step)
-Stage 4  E4✓ → S7✓ → E5 → E6   ·  E7               (trace & transport; E6 last)
+Stage 4  E4✓ → S7✓ → E5✓ → E6   ·  E7              (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  AE1 → AE2 · AE3 → AE4 → AE5 (→ AE6?) · S8 → FL3 → FL4 → FL5      ├─ interleave freely
          · FE2 → FE3 → FE4 → FE5 → FE6         (AE3+AE5 before S8b, J8.4) │ against 2–4 and

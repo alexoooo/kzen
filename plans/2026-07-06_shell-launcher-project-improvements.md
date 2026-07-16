@@ -35,9 +35,23 @@
 
 ## Out of scope (decided — don't re-litigate)
 
-- **WebSocket / SSE pass-through**: every current consumer is poll-based by design and works.
-  Revisit only when a consumer actually needs push; the proxy's Ktor-client implementation makes
-  it a small follow-on (`ProxyHandler` + a Ktor `webSocket("{...}")` route), not a rewrite.
+- **WebSocket pass-through**: no consumer needs it. Still a small follow-on if one ever does
+  (`ProxyHandler` + a Ktor `webSocket("{...}")` route, plus dropping `Upgrade` from the stripped
+  hop-by-hop set), not a rewrite.
+- ~~**SSE pass-through**~~ — **resolved 2026-07-15: the consumer arrived** (logic-engine plan E5 —
+  kzen-auto's `/logic/events` run-status push stream). The forecast above was half right. The body relay
+  needed **no change**: `ProxyHandler.handle` already streams (`respondBytesWriter` +
+  `bodyAsChannel().copyTo`, flushing per chunk), forwards `text/event-stream` and `Cache-Control`
+  intact, re-frames chunked, and `SecurityGate` passes a same-origin `EventSource`. What it missed:
+  **the shared CIO client had no `HttpTimeout`, so CIO's default `requestTimeout = 15000` truncated
+  every proxied response at 15 s** — a wall-clock cap on the whole call context, not a headers deadline,
+  and CIO's SSE/upgrade exemptions all miss because the proxy forwards via a plain `prepareRequest`.
+  Fixed in `KzenShellContext` (`INFINITE_TIMEOUT_MS` + a finite 60 s **socket** timeout as the real
+  liveness check), pinned by `ProxyHttpClientTimeoutTest`. **This was never SSE-specific**: the same cap
+  must already have truncated any proxied download slower than 15 s — silently, since the proxy has
+  committed status + headers by then and can only log, leaving the browser a truncated 200. It was
+  invisible in the dev loop, where the browser reaches kzen-auto directly and never traverses this
+  client.
 - **Merging the launcher into the shell**: rejected — the shell stays a tiny, stable kernel that
   ~never needs re-releasing while the launcher UI evolves and updates by artifact download. The
   split *is* the update mechanism.

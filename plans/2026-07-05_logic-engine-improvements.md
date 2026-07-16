@@ -11,7 +11,8 @@
 > - [x] Phase 2 — boundary identity (`checkpoint(at:)`, engine-owned position) ✓ 2026-07-12
 > - [x] Phase 3 — breakpoints (run-to dropped — breakpoints subsume it) ✓ 2026-07-13
 > - [x] Phase 4 — trace unification (retire `LogicTraceStore` bridge) ✓ 2026-07-15
-> - [ ] Phase 5 — push transport (SSE) + incremental fetch + slow-motion step budget
+> - [x] Phase 5 — push transport (SSE) + sequence-gated fetch ✓ 2026-07-15 (step budget deferred — no
+>   consumer; live-view delta fetch descoped to sequence-gating — both user decisions, see as-built)
 > - [ ] Phase 6 — multiple concurrent runs + per-run trace retention
 > - [ ] Phase 7 — hardening (`Execution.blocking`, typed capture, structured failure)
 
@@ -443,6 +444,63 @@ Flow/Job trace fetches incremental, and let slow motion run at engine pace.
 connection (devtools) and confirm fallback polling keeps the UI alive; slow motion at max speed
 visibly outpaces the old 2-RTT-per-step ceiling; Job worker progress stays smooth (server-side
 200 ms/worker throttle in `EngineJobControl` unchanged). selfTest.
+
+**As-built (2026-07-15).** Transport decision (SSE) held; the phase's *shape* changed after exploration.
+
+- **The 1.5 s poll was not the cost driver — a wall clock was.** `status()` stamped
+  `time = Clock.System.now()` per call and **eight** client sites (not the two this plan named) keyed
+  trace/progress re-fetch on it, so every poll re-pulled full trace snapshots regardless of whether
+  anything happened, and each 50 ms `awaitStepSettled` poll did too (~`1 + N + 4N` requests per
+  slow-motion boundary). **Ordering consequence: this had to land before push**, or push would have
+  *amplified* traffic (a full re-fetch per pushed event). It is also the bigger win alone — an idle or
+  paused run went from ~5–9 requests/1.5 s to **zero**.
+- **`time` → `epoch` + `LogicRunInfo.sequence`, and a plain delete would have regressed.** Two of the
+  eight sites (`HeaderRunController` Clear-button enablement, `ProjectController` sidebar markers) plus
+  the clear-trace repaint *depend* on the timestamp bumping: `status()` reports `active == null` both
+  before and after a clear, so a `(runId, sequence, state)` key alone is identical across it and nothing
+  repaints to empty. Hence the controller **epoch**, which bumps with no active run. One shared client
+  rule, `ClientLogicState.traceVersion()`. Both `Long`s serialize as strings (the existing
+  `LogicTraceEvent.sequence` convention, which dodges JS `Long` round-tripping).
+- **Observe the CONTROLLER, not an engine** (this plan said "the phase-1 `observe` callback feeds a
+  conflating channel per SSE connection"): an engine-scoped subscription cannot see run replacement /
+  clear / no-run-yet, and `shutdown()`/`dispose()` never clear observer lists, so per-connection engine
+  subscriptions would miss their run *and* leak. The controller holds one subscription per run and fans
+  out via `observeStatus`.
+- **The settle needs its own announcement.** The engine publishes its park *before* `settleAfterDrive`
+  runs, while `stepping` is still set — so the engine signal reports Stepping, never Paused, and the
+  `Stepping → Paused` edge (what the slow-motion loop waits on) would never be pushed. Every accepted
+  control verb also announces, via a uniform `submitted()` helper; over-announcing is free because the
+  route re-sends only when the serialized status differs.
+- **Payload = the full `LogicStatus`, not "signals only"** — a bare signal costs a status RTT per event,
+  reintroducing exactly the round trip this phase removes. It reuses the existing codec, so SER4 still
+  migrates it once.
+- **Fallback is delivery-proven, never connection-proven** — a buffering intermediary opens the stream
+  and delivers nothing, indistinguishable from healthy-idle. Health is set only by an arriving message
+  (the server's on-connect status is the probe); 3 s probe, 45 s `ping` watchdog, and the degraded floor
+  is exactly the pre-push 1.5 s. Heartbeat hand-rolled at 15 s (Ktor's *default* 30 s would race a 30 s
+  socket timeout). Subscription is **visibility-gated** — the ~6-per-origin HTTP/1.1 cap is shared across
+  every tab of the origin (the shell serves the launcher and every project from one).
+- **Cross-repo: kzen-shell needed a fix this plan did not know about.** Its shared CIO client had no
+  `HttpTimeout`, so CIO's default `requestTimeout = 15000` truncated *any* proxied response at 15 s
+  (its SSE/upgrade exemptions all miss a plain `prepareRequest`). SSE would have worked perfectly in the
+  dev loop and died every 15 s in the packaged product. Now `INFINITE_TIMEOUT_MS` + a finite 60 s socket
+  timeout; also fixes proxied downloads >15 s. Pinned by `ProxyHttpClientTimeoutTest` (mutation-checked:
+  it fails with `HttpRequestTimeoutException` without the fix).
+- **HTTP/2 is permanently unavailable** (would have dissolved the connection cap): no browser speaks
+  cleartext h2c, and the shell plan's loopback-only contract rules out HTTPS. Long-polling was considered
+  and rejected — it pays the *identical* one-connection-per-tab cost, so it buys nothing on the cap.
+- **New tests**: `ServerLogicControllerStatusObserverTest` (start/settle announcement — mutation-checked;
+  unsubscribe; epoch/sequence monotonicity), kzen-shell `ProxyHttpClientTimeoutTest`.
+- **Deferred**: the step budget (`Run.step(mode, count)`) — no consumer, since `slowPacingMillis = 750`
+  is hardcoded with no speed UI and one call per boundary is already free at that dwell; revisit only if
+  a speed control appears. **Descoped**: incremental live views — `lookup`/`lookupRun` stay full
+  snapshots, now sequence-*gated*; a delta fetch would need engine reset tombstones (`resetEmitted`
+  clears live values a delta pass would miss and ghost). `ScriptProgressStore`'s history watermark, the
+  only pre-existing one, is untouched.
+- **Not verified in-session** (needs a human at a browser): the packaged through-proxy leg and the
+  in-browser `EventSource`. The server stream itself was verified with curl (headers, on-connect status,
+  15 s heartbeats, survives past 15 s), and `selfTest` passes — but selfTest would also pass if the
+  browser's EventSource silently failed and the fallback carried it, which is the design's whole point.
 
 ---
 
