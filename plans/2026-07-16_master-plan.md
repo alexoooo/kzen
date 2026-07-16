@@ -44,7 +44,7 @@ interleave freely; the chains inside each track are ordered.
 
 | Order | Phase | Why |
 |---|---|---|
-| T1 | **TP1** response compression | ~25–40 % off all JSON transfer; independent; cross-repo proxy test required |
+| ~~T1~~ | ~~**TP1** response compression~~ ✅ **DONE 2026-07-16** | ~~25–40 % off all JSON transfer~~ — landed; runtime-verified (gzip engages, SSE excluded); proxy relays unchanged. Dev-loop smoke debt: proxy-through-browser, `selfTest`, HAR delta |
 | T2 | **TP3** trace binaries by handle | kills the base64 tax on the ~11 MB incremental history + the ~10 MB settle re-download (TP2 skipped — TP3 subsumes it) |
 | T3 | **TP4** structural version on `LogicStatus` | exact structural re-fetch; restores per-emit frame animation E5 traded away; coordinate with SER4 (whichever second adapts) |
 

@@ -21,7 +21,15 @@
 > soft-coordinate with TP3/TP4). See "Covered elsewhere" below; do not duplicate their items.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — HTTP response compression (Ktor `Compression`; exclude SSE + octet-stream)
+> - [x] Phase 1 — HTTP response compression (Ktor `Compression`; exclude SSE + octet-stream) —
+>   **DONE 2026-07-16.** `install(Compression)` in `KzenAutoMain.ktorMain` (gzip/deflate,
+>   `minimumSize(1024)`, exclude `text/event-stream` + `application/octet-stream`) +
+>   `ktor-server-compression` dep. Runtime-verified on the booted server: a real response gzips
+>   (2.45 MB → 646 KB, ~74%); `/logic/events` carries no `Content-Encoding` and its status frame
+>   still flushes immediately. kzen-shell proxy relays it end-to-end unchanged (code-verified: its
+>   CIO client installs no `ContentEncoding` plugin, forwards `Accept-Encoding` up and
+>   `Content-Encoding` back, byte-copies the body). Deferred to a dev-loop smoke pass:
+>   proxy-through-browser render, `selfTest`, and the FizzBuzz HAR ~25–40% delta.
 > - [ ] Phase 2 — thin post-settle trace fetch — **optional stopgap, default: skip** (superseded
 >   by Phase 3; execute only if Phase 3 slips a release and the 10 MB settle fetch hurts now)
 > - [ ] Phase 3 — trace binaries by content-addressed handle (blob endpoint + immutable cache)
