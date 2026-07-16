@@ -153,6 +153,17 @@ Push-backs / judgement calls (recorded here, not edited into the plans):
   a ~2-session arc; add a tracker only if it splits across sessions.
 - **EXT-D5 (DataFormat)**: endorse the analysis's own recommendation — park/retire until a
   consumer exists; do not let stage 9 turn into a schema-document redesign.
+- **Trace binaries are served inline, and it is already a ~10 MB response** (measured 2026-07-15,
+  E5 post-landing HAR: `lookup-run` returned 10.25 MB in one call; `lookup-run-history` moved
+  10.75 MB over a 46 s run — together ~98 % of all traffic). None of this is over-fetch: history
+  is correctly incremental, and it is simply the run's real screenshot volume. It is **pre-existing
+  and not E5's doing** — the wall-clock bug masked it by making everything expensive, and E5's
+  measurement is what surfaced it. Recorded here because it belongs to no plan: it is a latency and
+  memory cliff that grows with script length, it crosses the shell proxy, and the fix is a *design*
+  question (should trace values carry screenshots inline, or a handle fetched per-thumbnail?) rather
+  than a phase. **Do not fold it into E5's successor silently** — it wants a decision first, and the
+  natural home once decided is the Script plan's trace-retention work (S7's neighbourhood), not the
+  engine plan. See E5's as-built § "Still open" item 2.
 
 ## The stages
 
@@ -265,7 +276,17 @@ default, or use it as a filler session anytime).
   speed UI) and **live-view delta fetch descoped** to sequence-gating (user decisions). Carried a
   cross-repo fix the plan didn't anticipate: kzen-shell's proxy CIO client had no `HttpTimeout`, so its
   15 s default truncated *any* proxied stream — SSE would have worked in the dev loop and died in the
-  packaged product (see SH note below).
+  packaged product (see SH note below). **Measured after landing** (HAR, 46 s run): idle/paused delivered
+  (~200 requests → 0 across a 60 s parked step), but an actively *running* script cost ~3× more than pre-E5
+  — not from a wrong key but from **fan-out cadence**: the engine bumps the sequence per emit, so statuses
+  arrive ~3.4/s and each publish costs ~4 REST calls. Push didn't create that, it uncapped what the wall clock
+  was already doing at 1.5 s. Fixed by throttling the **publish** (`ClientLogicGlobal.publishStatus`: immediate
+  on a structure change — every step boundary is one — else 1 s `throttle`), which bounds all four downstream
+  queries from one place; ~433 → ~200. **Two items carried forward, see E5's as-built § "Still open"**: (a) a
+  server-side structural version on `LogicStatus` — makes the structural queries exact instead of
+  cadence-bound and restores per-emit frame animation, wants its own micro-phase; (b) `lookup-run`'s ~10 MB
+  single response (pre-existing, screenshot volume, not E5's doing) — needs a decision on inline-vs-referenced
+  trace binaries.
 - E6 — multiple concurrent runs (the client-global audit; last per hot-seam rule 1).
 - E7 — `blocking { }`, typed capture, structured failure.
 

@@ -502,6 +502,70 @@ visibly outpaces the old 2-RTT-per-step ceiling; Job worker progress stays smoot
   15 s heartbeats, survives past 15 s), and `selfTest` passes — but selfTest would also pass if the
   browser's EventSource silently failed and the fallback carried it, which is the design's whole point.
 
+**Post-landing measurement (2026-07-15, HAR capture of a 46.6 s FizzBuzz run + a 60 s stepped WaitStep).**
+This is the measurement decision 4 above deferred ("Measure after; revisit only if it still hurts"). The
+transport verified clean in-browser: the stream held open 45.6 s across the whole run, only 5 `logic/status`
+GETs fired (the 10 s relaxed net — i.e. `sseHealthy` stayed true), and the stepped WaitStep produced **5
+byte-identical statuses and zero trace re-fetches across 60 s** where pre-E5 would have issued ~200 requests.
+`settleAfterDrive`'s explicit announcement beat the armed fallback poll by ~820 ms. **The idle/paused axis
+delivered as designed.**
+
+But the same capture showed the **run** axis regressed ~3× (≈186 → ≈577 requests over 46 s), and the cause is
+worth recording because it is not what it looks like:
+
+| query | calls | distinct responses | reading |
+|---|---|---|---|
+| `lookup` | 142 | **142** | every response differs — but see below, that is not the same as *needed* |
+| `lookup-run-history` | 143 | 75 | correct — watermark advances 0→347; the 68 repeats return nothing |
+| `traced` | 143 | **15** | 90 % redundant |
+| `lookup-run-executions` | 143 | **17** | 88 % redundant |
+
+**Push did not create this waste — it uncapped it.** Pre-E5 the wall clock re-fetched all four on every poll
+too; the 1.5 s cadence merely capped it at ~31 rounds, and push runs at ~3.4/s. Version-gating cannot help:
+the version legitimately changes that fast.
+
+**First attempt, and why it was wrong** (recorded because the reasoning error is the reusable part): a
+`LogicStructureGate` rate-limited only `traced` + `lookupRunExecutions`, on the argument that `lookup`
+"earns" its calls since 142/142 responses differ. That argument is bogus — it measures whether a response
+*differs*, not whether the UI has any use for it. Nobody reads three trace repaints a second. Cut 433 → ~383;
+user pushed back correctly.
+
+**Landed instead — throttle the PUBLISH, not the queries** (kzen-auto-js only, no wire change).
+`ClientLogicGlobal.publishStatus`: a status arriving from the transport (pushed or polled, one rule) publishes
+immediately if `ClientLogicState.structureVersion()` changed (`traceVersion` minus the sequence — run started
+/ settled / state changed / cleared; **every step boundary is one**), else through a 1 s `lodash.throttle`.
+All four queries are publish-driven, so one decision replaces four clocks; ~433 → ~200. Points worth keeping:
+
+- **`throttle`, not `debounce`** — a run is a *continuous* stream, so trailing-only debounce fires nothing
+  until the run stops. Needed a new `lodash.throttle` binding; the trailing edge is what makes deferral safe
+  (a run going quiet mid-flight can't strand its last value unshown).
+- **Per-query gating was the wrong layer**: N queries ⇒ N clocks that drift apart, and two callers asking the
+  same question then miss the shared `tracedDocuments` memo. The gate was deleted; the memo (which only ever
+  existed to dedupe those two callers) stayed.
+- **`structureVersion` deliberately excludes the frame.** A Script's frame position changes nearly every step,
+  so including it would mark a plain run structure-changing throughout and defeat the throttle. Cost:
+  intra-step intermediate frames (a stepped-over RunStep descending) repaint on the throttle's cadence, not
+  per emit — still animated, since the boundary resets the clock and the first intermediate lands at once.
+- `awaitStepSettled` reads `clientLogicState` directly, not the published state, so no throttle can delay a
+  settle; its degraded 50 ms poll now routes through the same rule (was publishing 20/s ⇒ ~80 REST calls/s).
+
+**Still open — do not lose these:**
+
+1. **Server-side structural version on `LogicStatus`** (the principled version of the client throttle). A
+   counter the controller bumps only when the execution tree actually changes would let `traced` /
+   `lookupRunExecutions` re-fetch *exactly* when their answer changed (~15–17× per run) instead of riding the
+   1 s publish cadence (~48×), and would let `structureVersion` include frame changes without defeating the
+   throttle — recovering per-emit intra-step frame animation. Deferred: it is a kzen-lib wire change and wants
+   its own small phase. The remaining floor after it would be `lookup` + `lookupRunHistory` alone.
+2. **`lookup-run` returns a ~10 MB single response** on post-run review (measured: 10.25 MB, one call), and
+   `lookup-run-history` moved 10.75 MB across the run — ~98 % of all traffic, and both are the run's real
+   screenshot volume rather than over-fetch (history is correctly incremental). **This is pre-existing and
+   independent of E5** — the wall-clock bug masked it by making everything expensive. Nothing here is *waste*,
+   but a single 10 MB response is a latency and memory cliff that will get worse as scripts get longer, and it
+   is served through a proxy. Wants a decision on whether trace values should carry screenshots inline at all,
+   or be referenced by handle and fetched per-thumbnail. Not scheduled; likely belongs with the Script plan's
+   trace-retention work rather than here.
+
 ---
 
 ## Phase 6 — Multiple concurrent runs + per-run trace retention
