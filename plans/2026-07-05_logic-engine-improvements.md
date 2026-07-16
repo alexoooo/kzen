@@ -557,14 +557,16 @@ All four queries are publish-driven, so one decision replaces four clocks; ~433 
    1 s publish cadence (~48×), and would let `structureVersion` include frame changes without defeating the
    throttle — recovering per-emit intra-step frame animation. Deferred: it is a kzen-lib wire change and wants
    its own small phase. The remaining floor after it would be `lookup` + `lookupRunHistory` alone.
+   → **Scheduled as TP4** in `2026-07-16_trace-payload-improvements.md` (pulled in 2026-07-16).
 2. **`lookup-run` returns a ~10 MB single response** on post-run review (measured: 10.25 MB, one call), and
    `lookup-run-history` moved 10.75 MB across the run — ~98 % of all traffic, and both are the run's real
    screenshot volume rather than over-fetch (history is correctly incremental). **This is pre-existing and
    independent of E5** — the wall-clock bug masked it by making everything expensive. Nothing here is *waste*,
    but a single 10 MB response is a latency and memory cliff that will get worse as scripts get longer, and it
-   is served through a proxy. Wants a decision on whether trace values should carry screenshots inline at all,
-   or be referenced by handle and fetched per-thumbnail. Not scheduled; likely belongs with the Script plan's
-   trace-retention work rather than here.
+   is served through a proxy. Wanted a decision on whether trace values should carry screenshots inline at all,
+   or be referenced by handle and fetched per-thumbnail. → **Decision taken 2026-07-16** (referenced-by-handle);
+   scheduled as **TP3** (+ **TP1** compression, **TP2** interim thin fetch) in
+   `2026-07-16_trace-payload-improvements.md`.
 
 ---
 

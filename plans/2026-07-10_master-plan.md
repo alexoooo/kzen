@@ -27,9 +27,10 @@
 | XC | `2026-07-10_execution-control.md` | Move-to-step (Set Next Statement) + structured control flow (continue/break/return) | XC1–XC5 | ✓ complete (XC4/XC5/XC1/XC2 ✓ 2026-07-14, XC3 ✓ 2026-07-15) |
 | SER | `2026-07-13_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER1–SER5 | in progress (SER1 ✓ 2026-07-13; SER3 = gate) |
 | AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js attribute-editor consolidation (Old-fork removal, commit primitive, Default/PathValue merge, select-reference base) | AE1–AE6 | planned (AE6 optional) |
+| TP | `2026-07-16_trace-payload-improvements.md` | Trace payload + transport efficiency (compression, binary-by-handle, structural status version) | TP1–TP4 | planned |
 
-~71 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:5, Y:~2,
-SER:5, AE:6, EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided
+~75 sessions total at one phase per session (E:7, G:7, S:8, J:9, FL:6, FE:7, SH:5, XC:5, Y:~2,
+SER:5, AE:6, TP:4, EXT: 1 decision + ~5, gates: 0–2). Stages below group them so the order is decided
 once, here.
 
 ## Cross-plan dependency map (the real edges)
@@ -63,7 +64,8 @@ kotlinx trace/status DTOs; if E5 runs first it lands on the map codecs and SER4 
 E3 before XC3 (shared per-step affordance home);
 S8 before FL4 (S8 defines the render-scoping conventions FL4 applies); S2 before FE4's stretch
 goal (live-browser capture); E3+E5 before J7's gated parts; J1 before J8 (constants), J3 before
-J8 (editor fallback); FL1 before FL2 (tests as net).
+J8 (editor fallback); FL1 before FL2 (tests as net); **SER4 before TP3/TP4** (both touch the
+trace/status wire DTOs SER4 migrates — coordinate like E5's payload).
 AE edges (added 2026-07-14): within AE, 1→2→3→4→5→6 (its own plan's order; AE1/AE2 are
 prerequisite-free filler); **AE1 before FL5** (FL5's legacy-cleanup bullet and EXT-S7 are
 superseded by AE1 — pointers updated in both); **AE3+AE5 before S8b's editor-dedupe remainder
@@ -158,12 +160,12 @@ Push-backs / judgement calls (recorded here, not edited into the plans):
   10.75 MB over a 46 s run — together ~98 % of all traffic). None of this is over-fetch: history
   is correctly incremental, and it is simply the run's real screenshot volume. It is **pre-existing
   and not E5's doing** — the wall-clock bug masked it by making everything expensive, and E5's
-  measurement is what surfaced it. Recorded here because it belongs to no plan: it is a latency and
-  memory cliff that grows with script length, it crosses the shell proxy, and the fix is a *design*
-  question (should trace values carry screenshots inline, or a handle fetched per-thumbnail?) rather
-  than a phase. **Do not fold it into E5's successor silently** — it wants a decision first, and the
-  natural home once decided is the Script plan's trace-retention work (S7's neighbourhood), not the
-  engine plan. See E5's as-built § "Still open" item 2.
+  measurement is what surfaced it. Recorded here because it belonged to no plan: it is a latency and
+  memory cliff that grows with script length, and it crosses the shell proxy. **Decision taken
+  2026-07-16 — reference trace binaries by handle** (fetched per-thumbnail, immutable-cached),
+  resolving the inline-vs-handle question. Now owned by `2026-07-16_trace-payload-improvements.md`:
+  **TP3** (the handle model), with **TP1** (response compression) and **TP2** (an interim thin
+  post-settle fetch). See E5's as-built § "Still open" item 2.
 
 ## The stages
 
@@ -256,10 +258,12 @@ End Script returns from the current document); move-to-step works end-to-end —
 forward skip with `Skipped` display and the `referencedValue` backstop, error-park escape,
 arrow drag + fallback action.
 
-### Stage 4 — trace & transport (5 sessions)
+### Stage 4 — trace & transport (9 sessions)
 
 The engine back half. Order: **E4 → S7 → E5 → E6**; E7 anywhere after E1 (slot it here by
-default, or use it as a filler session anytime).
+default, or use it as a filler session anytime). The **TP** trace-payload / transport-efficiency
+phases (TP1–TP4, `2026-07-16_trace-payload-improvements.md`) also live in this stage — all largely
+independent; TP4 after E5.
 
 - ~~E4~~ ✓ 2026-07-15 — trace unification (retired the `LogicTraceStore` bridge; trace served by
   projecting the retained engine via `RunEngineLogicTrace`; ships `emit(retain:)` + `shutdown`/`dispose`).
@@ -282,13 +286,17 @@ default, or use it as a filler session anytime).
   arrive ~3.4/s and each publish costs ~4 REST calls. Push didn't create that, it uncapped what the wall clock
   was already doing at 1.5 s. Fixed by throttling the **publish** (`ClientLogicGlobal.publishStatus`: immediate
   on a structure change — every step boundary is one — else 1 s `throttle`), which bounds all four downstream
-  queries from one place; ~433 → ~200. **Two items carried forward, see E5's as-built § "Still open"**: (a) a
-  server-side structural version on `LogicStatus` — makes the structural queries exact instead of
-  cadence-bound and restores per-emit frame animation, wants its own micro-phase; (b) `lookup-run`'s ~10 MB
-  single response (pre-existing, screenshot volume, not E5's doing) — needs a decision on inline-vs-referenced
-  trace binaries.
+  queries from one place; ~433 → ~200. **Two items carried forward, see E5's as-built § "Still open"** —
+  both now scheduled in `2026-07-16_trace-payload-improvements.md`: (a) a server-side structural version
+  on `LogicStatus` (exact structural queries + restored per-emit frame animation) → **TP4**; (b)
+  `lookup-run`'s ~10 MB single response and inline trace binaries → **TP3** (decision taken 2026-07-16:
+  reference-by-handle; + **TP1** compression, **TP2** interim thin fetch).
 - E6 — multiple concurrent runs (the client-global audit; last per hot-seam rule 1).
 - E7 — `blocking { }`, typed capture, structured failure.
+- TP1 — HTTP response compression (Ktor `Compression`, exclude SSE + octet-stream); ~25-40 % off JSON transfer.
+- TP2 — thin post-settle trace fetch (drop the ~10 MB `lookup-run` binary re-download); stopgap, superseded by TP3.
+- TP3 — trace binaries by content-addressed handle (blob endpoint + immutable cache); removes the base64 tax on history.
+- TP4 — server-side structural version on `LogicStatus` (exact `traced`/`lookupRunExecutions` re-fetch; E5's pulled-in item).
 
 Exit: one trace store; sub-1.5 s UI updates; N concurrent runs; blocking third-party calls don't
 starve the engine.
@@ -380,7 +388,7 @@ Stage 0  SH1 · J1 · FL1 · FL2 · S1 · FE1 · SER1    (independent; SH1 first
 Stage 1  E1 → E2 → S6 → E3   ∥   G1 → G2          (kzen-lib foundations)
 Stage 2  S2 → S3 → S5   ·  S4                      (live-edit correctness)
 Stage 3  XC4✓ → XC5✓ → XC1✓ → XC2✓ → XC3✓ (done)  (control flow + move-to-step)
-Stage 4  E4✓ → S7✓ → E5✓ → E6   ·  E7              (trace & transport; E6 last)
+Stage 4  E4✓ → S7✓ → E5✓ → E6 · E7 · TP1 · TP2 · TP3 · TP4   (trace & transport; E6 last)
 Stage 5  J2 → J3 → J4 → J9   ·  J5 · J6 · J7 · J8  (Report subsumption)   ─┐
 Stage 6  AE1 → AE2 · AE3 → AE4 → AE5 (→ AE6?) · S8 → FL3 → FL4 → FL5      ├─ interleave freely
          · FE2 → FE3 → FE4 → FE5 → FE6         (AE3+AE5 before S8b, J8.4) │ against 2–4 and
@@ -400,6 +408,8 @@ There is one executor, so "parallel" means *interleavable without re-churn*, not
   engine phase needs to settle or a mavenLocal publish round-trip makes a same-repo follow-up
   awkward.
 - Anything in stage 0, the EXT hygiene session, and AE1/AE2 are safe filler at any point.
+- **TP1–TP3** (trace-payload / transport efficiency) are independent Stage-4 filler at any point;
+  **TP4** follows E5 (met) with a soft SER4 edge.
 - The spine that must stay ordered is: **E1 → E2 → {S6, E3, G2} → {S2/S3, XC4–5, XC1–3} → E4 → E5 → E6**
   (within stage 3: XC4 → XC5 → XC1 → XC2 → XC3).
 
