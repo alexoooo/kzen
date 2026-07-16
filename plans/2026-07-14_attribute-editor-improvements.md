@@ -11,18 +11,20 @@
 > concrete steps with file anchors, verification) and independently landable; execute one phase
 > per session, in order 1 → 2 → 3 → 4 → 5 → 6 (6 is optional).
 >
-> Companion seams (reconciled with the other plans 2026-07-14):
+> Companion seams (reconciled with the other plans 2026-07-14; file names updated 2026-07-16
+> for the Sprint-1 consolidation):
 > - **This plan now owns** (supersession notes added in each): the `PluginController` port +
 >   `*Old.kt` deletion (was EXT-S7 in `2026-07-06_custom-plugin-extensibility-analysis.md` and a
->   Flow plan phase-5 bullet → phase 1 here); the select-editor "rename-echo dance" shared
->   mixin (was Script plan 8b → phase 5 here) and the `SelectLogicEditor` `RPureComponent` TODO
->   (was Script plan 8d → phase 5 here).
+>   Flow plan FL5 bullet, now `2026-07-16_flow-improvements.md` → phase 1 here); the
+>   select-editor "rename-echo dance" shared mixin (was Script plan 8b → phase 5 here) and the
+>   `SelectLogicEditor` `RPureComponent` TODO (was Script plan 8d → phase 5 here) — the Script
+>   client sweep now lives in `2026-07-16_script-client-sweep.md`.
 > - **Stays elsewhere**: the Job↔Report spec-editor duplication (`FormulaMapEditor` ↔
 >   `FormulaItemController`, `ValueSetFilterEditor` ↔ `FilterItemController`, Pivot/Export
->   pairs) — `2026-07-06_job-improvements.md`'s Report-subsumption arc (J2–J4/J9); the
+>   pairs) — `2026-07-16_job-improvements.md`'s Report-subsumption arc (J2–J4/J9); the
 >   add-affordance widget generalization + the spec editors' observer-guard base — Job plan
 >   phase 8 item 4 (which builds on phases 3/5 here — prefer AE3+AE5 first); the Script-specific
->   predecessor/binding scope helper — Script plan 8b (it feeds phase 5's `selectOptions()`
+>   predecessor/binding scope helper — script-sweep 8b (it feeds phase 5's `selectOptions()`
 >   hook). Phase 3 deliberately stops at these seams (see its `FormulaMapRow` note).
 >
 > **Progress tracker** (update as phases land; add ✓ + date + as-built notes):
@@ -408,7 +410,7 @@ summary-view selection unchanged across Script/Job/Flow/Custom.
 ## Explicitly out of scope
 
 - **Job↔Report spec-editor duplication** (FormulaMap/ValueSetFilter/Pivot/Export pairs) —
-  reserved for `2026-07-06_job-improvements.md` Report subsumption (J2–J4/J9). The duplicated
+  reserved for `2026-07-16_job-improvements.md` Report subsumption (J2–J4/J9). The duplicated
   add-affordance UI in SortSpec/ValueSetFilter/PivotSpec/FormulaMapAdd and the spec editors'
   observer-guard base are Job plan phase 8 item 4 (coordinated: it builds on phases 3/5 here).
   Phase 3 leaves `FormulaMapRow` on the kernel-only diet and Report controllers untouched for

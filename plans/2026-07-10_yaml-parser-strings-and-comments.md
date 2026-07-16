@@ -1,7 +1,24 @@
 # YamlParser: relaxed bare strings, first-class comments, `|-` block scalars
 
-Status: proposed
-Scope: `kzen-lib-common` — `util/yaml/YamlParser.kt`, `util/yaml/YamlNode.kt`, minor `service/parse/YamlNotationParser.kt`; tests
+> **Status: proposed.** Written 2026-07-10; header brought to house style 2026-07-16 during the
+> Sprint-1 consolidation (content unchanged). Executor: **Opus 4.8 xhigh** — sized as one arc of
+> ~2 sessions (split W1–W5 / W6–W8 if a session runs long; note the split in the tracker).
+> Work items are ordered; design decisions are pre-made (see "Resolved design decisions") — do
+> not re-litigate.
+>
+> Scope: `kzen-lib-common` — `util/yaml/YamlParser.kt`, `util/yaml/YamlNode.kt`, minor
+> `service/parse/YamlNotationParser.kt`; tests.
+>
+> **Progress tracker** (update as items land):
+> - [ ] W1 — YamlNode `comments` field
+> - [ ] W2 — Cursor indexes comment lines
+> - [ ] W3 — escape/unescape split + YAML alignment (`\f` fix, `''` doubling)
+> - [ ] W4 — map-entry shape fix + rest-of-line bare values (**the core**)
+> - [ ] W5 — block scalar parse (`|`, `|-`)
+> - [ ] W6 — comment collection/attachment
+> - [ ] W7 — unparse (mode precedence, `unparseKey`, regex-free)
+> - [ ] W8 — tests
+> - [ ] Legacy on-disk compatibility audit (required before landing — see section below)
 
 ## Goals
 
@@ -12,7 +29,7 @@ Scope: `kzen-lib-common` — `util/yaml/YamlParser.kt`, `util/yaml/YamlNode.kt`,
 
 Non-goals: flow collections (`[a, b]`), anchors/tags, `>` folded scalars, end-of-line comment modeling, comments in AttributeNotation/DocumentNotation (a later project — `NotationReducer`/`unparseDocument` regenerate documents from the notation tree, so comments only survive once they reach that tree).
 
-Companion: `2026-07-05_graph-improvements.md` phase 7b (template-respecting deparse) touches the same `YamlNotationParser.unparseDocument` — land this plan **first**, so the one-time unparse churn precedes 7b's byte-identical object-segment preservation (and 7b's segment-equality check then operates on the new stable format).
+Companion: `2026-07-16_graph-improvements.md` phase 7b (template-respecting deparse) touches the same `YamlNotationParser.unparseDocument` — land this plan **first**, so the one-time unparse churn precedes 7b's byte-identical object-segment preservation (and 7b's segment-equality check then operates on the new stable format).
 
 ## Current state (why these changes)
 

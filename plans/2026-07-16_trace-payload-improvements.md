@@ -11,16 +11,19 @@
 > (already made — do not re-litigate), concrete steps with file anchors, and verification. Phases
 > are ordered by value; all are largely independent (see the supersession/prereq notes).
 >
-> Companion plans: `2026-07-05_logic-engine-improvements.md` (E — the engine/transport below;
+> Companion plans (file names updated 2026-07-16 for the Sprint-1 consolidation):
+> `sprint-1/2026-07-05_logic-engine-improvements.md` (E — the engine/transport below, complete;
 > Phase 5's as-built "Still open" list is where findings #1/#3 and the pulled-in structural-version
-> item were first parked), `2026-07-06_script-improvements.md` (S — Phase 7 trace bounding + Phase
-> 8a `ScriptProgressStore` hot paths sit next to this work), and
-> `2026-07-13_serialization-improvements.md` (SER — SER4 migrates the trace/status wire DTOs;
+> item were first parked — both now live HERE, as TP3/TP4; nothing in this plan depends on the
+> sprint-1 copy), `2026-07-16_script-client-sweep.md` (S — 8a `ScriptProgressStore` hot paths sit
+> next to this work; Script's S7 trace bounding landed in Sprint 1), and
+> `2026-07-16_serialization-improvements.md` (SER — SER4 migrates the trace/status wire DTOs;
 > soft-coordinate with TP3/TP4). See "Covered elsewhere" below; do not duplicate their items.
 >
 > **Progress tracker** (update as phases land):
 > - [ ] Phase 1 — HTTP response compression (Ktor `Compression`; exclude SSE + octet-stream)
-> - [ ] Phase 2 — thin post-settle trace fetch (stop re-downloading whole-run binaries) — stopgap, superseded by Phase 3
+> - [ ] Phase 2 — thin post-settle trace fetch — **optional stopgap, default: skip** (superseded
+>   by Phase 3; execute only if Phase 3 slips a release and the 10 MB settle fetch hurts now)
 > - [ ] Phase 3 — trace binaries by content-addressed handle (blob endpoint + immutable cache)
 > - [ ] Phase 4 — server-side structural version on `LogicStatus` (exact structural re-fetch)
 
@@ -61,8 +64,9 @@ whole trace-network cleanup is planned in one place.
   publish/poll/SSE machinery except where Phase 4 refines the throttle's *signal*. The floor E5 left
   (`lookup` + `lookupRunHistory` genuinely fresh per publish) is what Phase 4 makes exact.
 - **`ScriptProgressStore` hot paths** (memoize `analyze`, stop re-sorting the timeline, incremental
-  RunStep representatives) are **Script plan Phase 8a** (`2026-07-06_script-improvements.md:847-859`).
-  Phases 2/3 touch the same file — an executor should skim 8a first to avoid colliding.
+  RunStep representatives) are **script-sweep 8a** (`2026-07-16_script-client-sweep.md`).
+  Phases 2/3 touch the same file — whichever of 8a and TP2/TP3 runs second skims the other's
+  as-built first.
 - **Generic binary `ExecutionValue` serialization** stays base64 — Phase 3 is deliberately scoped to
   the LogicTrace projection only (see its decisions). The Target-doc `ScreenshotTaker` detached
   result keeps rendering inline.

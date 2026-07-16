@@ -20,11 +20,14 @@
 >   (to `TextAttributeEditor`, incl. the `long`-type fix) and the
 >   `objects/document/flow/edit/*Old.kt` deletion — **S7 below is superseded** (2026-07-14;
 >   previously coordinated with the Flow plan's phase 5, whose bullet is likewise superseded).
-> - `2026-07-06_shell-launcher-project-improvements.md` owns the localhost trust / CSRF hardening
->   stance; plugin-JAR arbitrary-code-execution is accepted under that same single-tenant-localhost
+> - `2026-07-16_shell-launcher-improvements.md` owns the localhost trust / CSRF hardening
+>   stance (SH1, the hardening itself, landed 2026-07-10 — see its "Landed context");
+>   plugin-JAR arbitrary-code-execution is accepted under that same single-tenant-localhost
 >   posture and only needs documenting here, not solving.
-> - `2026-07-06_script-improvements.md` owns the expression-engine / `FormulaStep` inference
->   internals; this analysis only touches the `ObjectRegistryScan` input to it.
+> - The expression-engine / `FormulaStep` inference internals landed with Script plan S1
+>   (Sprint 1, 2026-07-11 — loaded-class caching + real reflective type inference; see
+>   `sprint-1/2026-07-06_script-improvements.md`); this analysis only touches the
+>   `ObjectRegistryScan` input to it, which S4 made a component of the validation-cache key.
 > - Any change to `kzen-auto-plugin` requires `./gradlew :kzen-auto-plugin:publishToMavenLocal`
 >   before non-composite consumers (`../kzen-sample-plugin`, standalone `../kzen-project`) see it.
 
