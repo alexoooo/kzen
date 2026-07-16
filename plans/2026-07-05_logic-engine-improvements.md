@@ -13,7 +13,8 @@
 > - [x] Phase 4 — trace unification (retire `LogicTraceStore` bridge) ✓ 2026-07-15
 > - [x] Phase 5 — push transport (SSE) + sequence-gated fetch ✓ 2026-07-15 (step budget deferred — no
 >   consumer; live-view delta fetch descoped to sequence-gating — both user decisions, see as-built)
-> - [ ] Phase 6 — multiple concurrent runs + per-run trace retention
+> - [~] Phase 6 — multiple concurrent runs + per-run trace retention — **DEFERRED 2026-07-16**
+>   (feature not needed this release; groundwork readiness verified — see the Phase 6 deferral note)
 > - [ ] Phase 7 — hardening (`Execution.blocking`, typed capture, structured failure)
 
 ## Context
@@ -571,6 +572,59 @@ All four queries are publish-driven, so one decision replaces four clocks; ~433 
 ---
 
 ## Phase 6 — Multiple concurrent runs + per-run trace retention
+
+> **DEFERRED 2026-07-16 — groundwork readiness verified; feature implementation deferred to a later
+> release.** Multi-run is not needed yet. A review this date confirmed **nothing precludes it** and
+> the migration surface is deliberately concentrated (master-plan hot-seam rule 1: everything else
+> was written single-run so E6's audit migrates it once). This note captures what is already ready
+> and the friction a future E6 session must handle, so the deferral costs nothing later.
+>
+> **Already multi-run-ready (no action):**
+> - Engine core — `RunEngine` owns one run + all its state, *no process-global singletons*; N
+>   engines coexist by construction.
+> - `runId` (`LogicRunId`) is a first-class key on **every** control verb and per-run trace query;
+>   the server already validates it (`RunIdMismatch` guard — dead today, present). Guards become map
+>   lookups.
+> - Per-run flags (`running`/`paused`/`stepping`/`settled`/`engineSubscription`…) already live on
+>   `ServerLogicController.LogicState` (105–154), not process-global — cleanly relocatable when
+>   `stateOrNull` becomes a `Map<LogicRunId, LogicState>`.
+> - `LogicRunInfo` payload is already fully `runId`-addressed — only the *container*
+>   `LogicStatus.active`'s cardinality is single.
+> - Browser/WebDriver is a per-run engine resource (`WebDriverSupport`); `ObjectStableMapper` is
+>   shared *identity* infra (correct to keep singleton); Job scratch dirs are keyed by `runId`
+>   (`JobWorkPool.runDir`); one controller per process is the correct shape (it becomes the run
+>   registry); the client already resolves per-document views via `frameForDocument` +
+>   `LogicRunExecutionId`-keyed lookups.
+>
+> **Friction a future E6 must handle (NOT covered by the design bullet below):**
+> 1. **`anyRunActive` eviction gate** — `KzenAutoContext.kt:255`
+>    (`{ serverLogicController.status().active != null }`, fed to `FilterIndexStorageArea` /
+>    `JobOutputStorageArea`) — derived from the single active run; must become "no run active *at
+>    all*". Conservative today (blocks eviction), so not a correctness hazard, but a single-run
+>    coupling that needs the status model to expose all runs.
+> 2. **Content-addressed work dirs — a design decision, not a mechanical migration.**
+>    `JobWorkPool.workerOutputDir(workerLocation)` (notation-keyed, last-run-wins) and
+>    `ReportWorkPool.resolveRunDir(reportRunSignature.digest())` (content-keyed, resume/reuse) are
+>    **not** partitioned by `runId`; two concurrent runs of the *same* document/config collide.
+>    Cross-document runs are already safe. Decide: partition by `runId`, or keep content-addressing
+>    and forbid concurrent same-document runs.
+> 3. **This design bullet predates E5.** "`LogicStatus` currently carries one optional
+>    `LogicRunInfo`" is pre-E5 wording — E5 (2026-07-15) already reshaped the wire (controller
+>    `epoch` + `LogicRunInfo.sequence`; SSE ships the full `LogicStatus`). The single→list change now
+>    builds on E5's as-built shape; only `LogicStatus.active`'s cardinality + its codec change
+>    (`LogicRunInfo` is already `runId`-addressed). Client `traceVersion()`/`structureVersion()`
+>    already fold in `active.id.value`, so they disambiguate runs the moment there is more than one.
+> 4. **`logic-spec.md` §2 residual note is stale** — it still names the retired `LogicTraceStore`
+>    (E4 retired it 2026-07-15). The residual is now `ServerLogicController.stateOrNull` (single run)
+>    + `RunEngineLogicTrace` projecting a single retained run via `activeRun()`. (Refreshed
+>    2026-07-16 with a deferral pointer; the residual itself stays until E6 lands.)
+> 5. **Thread-budget config hook does not exist yet** — the per-run `threads` lowering the design
+>    bullet calls for must be added by E6; `RunEngine.migrate`'s `runBlocking`-not-on-a-dispatcher-
+>    thread invariant is preserved by per-run executors — assert it.
+> 6. **The `CachedKotlinCompiler` race the Script plan earmarked for E6 is already fixed** — a
+>    per-signature `Striped.lock` + Caffeine cache landed 2026-07-11 (commit `09120a1e`), after that
+>    plan was written. The report pipeline already compiles concurrently within one run through this
+>    shared cache, so multi-run adds no new race there. Nothing to carry into E6.
 
 **Goal:** close the last spec §2 residual: N independent runs per JVM, independently controllable,
 with bounded retention of settled runs.

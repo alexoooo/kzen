@@ -59,10 +59,12 @@ The weaknesses live in four clusters:
    check. `FormulaStep.definition()` compiles each formula **up to 3 times** per validation pass
    (probe `Any?`, `Any`, `String`) and recovers the inferred type by **parsing Kotlin compiler
    diagnostic text** (~10 wording-coupled string fragments, a reachable
-   `TODO("Unexpected literal")` at FormulaStep.kt:81). `CachedKotlinCompiler`'s file cache has a
-   check-then-act race (CachedKotlinCompiler.kt:101-123) that becomes real under engine-plan
-   phase 6 (multi-run). DoWhile duplicates the scope/Unit/defer plumbing
-   (DoWhileStep.kt:106-128 vs StepExpressionSupport.kt:25-56).
+   `TODO("Unexpected literal")` at FormulaStep.kt:81). `CachedKotlinCompiler`'s file cache had a
+   check-then-act race that would become real under engine-plan phase 6 (multi-run) —
+   **closed 2026-07-11** by a per-signature `Striped.lock` + Caffeine cache
+   (commit `09120a1e`, `CachedKotlinCompiler.kt:78`); no longer a phase-6 concern. DoWhile
+   duplicates the scope/Unit/defer plumbing (DoWhileStep.kt:106-128 vs
+   StepExpressionSupport.kt:25-56).
 2. **Live edit is incomplete in three specific ways.**
    (a) **A live edit kills open resources**: `RunEngine.migrate` teardown disposes non-detached
    node resources (RunEngine.kt:326-334, comment at :564), Script's capture carries only
