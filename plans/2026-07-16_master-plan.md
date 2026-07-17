@@ -50,8 +50,10 @@ interleave freely; the chains inside each track are ordered.
 
 ### Track W — wire serialization (4 sessions)
 
-**SER2 → SER3 (gate) → SER4 → SER5** — strict chain. SER3's payoff gate can stop the chain
-(then SER5 shrinks to its shell micro-session and SER4 is struck). SER4 now also migrates the
+~~**SER2**~~ ✅ **DONE 2026-07-16** (kotlinx foundation: build plumbing both repos, value-object +
+`ExecutionValue`/`Result`/`Request` serializers, 2a classification survey — no wire change; as-built
+in the SER plan) → **SER3 (gate)** → SER4 → SER5 — strict chain. SER3's payoff gate can stop the
+chain (then SER5 shrinks to its shell micro-session and SER4 is struck). SER4 now also migrates the
 already-shipped SSE payload (the E5 soft edge inverted — see the SER plan's timeline note).
 
 ### Track N — notation format + graph ergonomics (~7 sessions)
@@ -223,7 +225,7 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 
 ```
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
-           Track W:  SER2 → SER3(gate) → SER4 → SER5       ├─ interleave freely
+           Track W:  ~~SER2~~ → SER3(gate) → SER4 → SER5   ├─ interleave freely
            Track N:  Y → G7 · G5 · G6 · G3 · (G4 if measured) ─┘
            Fillers:  AE1 · AE2 · EXT-hygiene · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)

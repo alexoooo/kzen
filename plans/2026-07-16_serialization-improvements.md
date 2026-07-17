@@ -16,7 +16,7 @@
 > `2026-07-16_master-plan.md` (sequencing).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 2 — wire-codec classification + kotlinx.serialization foundation (kzen-lib/kzen-auto)
+> - [x] Phase 2 — wire-codec classification + kotlinx.serialization foundation (kzen-lib/kzen-auto) ✓ 2026-07-16 (as-built note at end)
 > - [ ] Phase 3 — first endpoint-family migration (storage/file-listing/output) + **payoff gate**
 > - [ ] Phase 4 — logic/task/trace/detached family (gated on phase 3's verdict)
 > - [ ] Phase 5 — ContentNegotiation flip + Jackson slimming + hygiene sweep
@@ -381,3 +381,90 @@ kzen-auto migration), and the kzen-auto items are dropped.
 Registered in `2026-07-16_master-plan.md` as Sprint 2's **Track W** (wire serialization).
 Coordination edges: **SER4 ↔ TP4** on `LogicStatus` (whichever lands second adapts) and
 **SER2d ↔ TP3** on the binary-handle envelope shape.
+
+---
+
+## Phase 2 as-built (2026-07-16)
+
+Landed exactly as planned; **no wire behaviour changed** (kzen-auto-jvm ContentNegotiation stays on
+`jackson()` — the flip is SER5). The added serializers are inert until a DTO becomes `@Serializable`
+in SER3/SER4. Verified end-to-end: `:kzen-lib-common:jvmTest` + `:kzen-lib-common:compileKotlinJs` +
+`:kzen-lib-jvm:test` green; `publishToMavenLocal` → kzen-auto `--refresh-dependencies` build with
+`:kzen-auto-common:compileKotlin{Jvm,Js}` + `:kzen-auto-jvm:test` + `:kzen-auto-js:compileKotlinJs`
++ JS bundle all green (the only warnings are pre-existing, in generated `KzenAutoJvmModule.kt` and an
+unrelated test). KSP and the serialization compiler plugin coexist with no build wiring change.
+
+### Decisions
+
+- **`ExecutionValue.kt:11` TODO — DECLINED** (comment updated in place). The kotlinx codec wraps the
+  existing `toJsonCollection()`/`fromJsonCollection()` lowering rather than re-expressing the tree on
+  `JsonElement`, so the envelope is byte-identical and `ExecutionValue` stays a plain `Digestible`
+  runtime tree. That lowering remains the single source of truth.
+- **Plumbing added to BOTH repos** (2b). All SER2 serializers live in kzen-lib-common; kzen-auto-common
+  got the plugin+dep purely as forward-provisioning for SER3's DTO family (no serializer written there
+  yet). Pin `kotlinxSerializationVersion = "1.9.0"` (launcher's), root `plugins { kotlin("plugin.serialization")
+  version kotlinVersion apply false }`, `-common` plugin (no version) + `api(kotlinx-serialization-json)`.
+  Umbrella `AGENTS.md` toolchain-pin list updated (new kotlinx-serialization bullet, also records the
+  launcher's SER1 adoption which was previously unlisted).
+- **Binding = per-class `@Serializable(with = …Serializer::class)`**, serializer object beside each class
+  (no `SerializersModule`), so SER3/SER4 DTOs reference these types with zero per-field annotation.
+- **2c gotchas honoured**: value objects serialize through `asString()`/`parse()` (AttributeName escapes
+  `.`; Digest is the 4-part radix-32 string), NOT raw fields. `LogicRunId`/`LogicExecutionId` have no
+  `asString()`/`parse()` → delegate through `.value`. `RequestParams` added (member of `ExecutionRequest`);
+  its `parse("")` throws (pre-existing), so empty is untested and never round-trips.
+- **2d non-finite edge**: the `Any→JsonElement` bridge emits non-finite doubles (`Infinity`/`NaN`) as JSON
+  *strings*, which the existing `fromJsonCollection` number branch already accepts ("// NB: handle
+  Infinity"). This is valid JSON (a strict improvement over Jackson's non-standard `NaN`/`Infinity`
+  tokens), reachable only in the untested non-finite case. All JSON numbers decode to `Double` (what
+  `fromJsonCollection` and the `json` fast-path expect; `size` reads via `as Number`, so Double is safe).
+
+### 2a classification survey (the authoritative table)
+
+Two serialization planes: **wire** (`RestHandler` returns a raw Map/List that `ClientRestApi` parses via
+`X.ofCollection`) and **value-tree** (server wraps the codec map in `ExecutionValue.of(x.toCollection())`,
+carried through the trace/task/detached result, parsed client-side from the extracted `ExecutionValue`
+in a *store/controller*, never `ClientRestApi`).
+
+**Bucket A — wire-only** (kzen-lib-common unless noted): `LogicStatus`, `LogicRunInfo`,
+`LogicRunFrameInfo` (recursive), `TaskModel`, `ExecutionRequest`, `ExecutionResult`
+(+`ExecutionSuccess`/`ExecutionFailure`); `StorageAreaInfo`, `StorageBundleInfo` (kzen-auto-common).
+Plus **`ObjectStableMapper`** snapshot — serialized *inline* in `RestHandler.objectStableMapperSnapshot()`;
+**no `toCollection` method** on the class (SER4 must add one or serialize the map directly).
+
+**Bucket B — value-tree-feeding**:
+- kzen-lib: `LogicTraceEvent`, `LogicTraceEntry`, `LogicTraceSnapshot`, `LogicRunExecutionInfo`,
+  `TaskProgress`, `OutcomeTrace` (one-way `toMap`, no parser); string codecs `LogicTracePath`,
+  `LogicTraceQuery`.
+- kzen-auto: `OutputInfo`, `OutputTableInfo`, `OutputExportInfo`, `OutputPreview`, `TableSummary`,
+  `ColumnSummary`, `NominalValueSummary`, `OpaqueValueSummary`, `StatisticValueSummary`, `HeaderListing`,
+  `FilteredHeaderListing`, `AnalysisColumnInfo`, `InputBrowserInfo`, `InputSelectedInfo`, `InputDataInfo`,
+  `InputDataSpec`, `ReportDefinerDetail`, `ReportFileProgress`, `HeaderLabel` (string codec),
+  `VisualVertexModel`, `VisualFlowModel`, `VisualVertexTransition`, `TargetLocateResult`
+  (+`TargetCropMatches`, `TargetMatchRect`).
+  *(The Phase-3/4 named lists undercounted; these extra classes are real — do not miss them.)*
+
+**Bucket C — both**: `DataLocationInfo` (wire via `fileListing`; value-tree via
+`InputBrowserInfo`/`InputDataInfo`); **`ExecutionValue`** — the keystone (wire content of every
+`ExecutionResult` *and* the value-tree primitive nearly every Bucket-B class embeds).
+
+**Bucket D — persisted**: **empty for the JSON-map codec family** — every call site is `RestHandler`
+(wire) or `ExecutionValue.of(...)` (value-tree); the task store is in-memory; `NotationMedia` persists
+YAML notation, not these DTOs. **Adjacent finding (record for SER3/SER4):** `NominalValueSummary`,
+`OpaqueValueSummary`, `StatisticValueSummary` have a *separate* `toCsv`/`fromCsv` (`asCsv`/`ofCsv`) codec
+that **is** the on-disk format (`ReportSummary.saveNominal/…` → `Files.writeString`). That CSV pair is
+persisted-forever and must survive any later deletion of their JSON-map codec — distinct format (CSV),
+not JSON map.
+
+### Files changed
+
+- **Build**: `{kzen-lib,kzen-auto}/buildSrc/.../Dependencies.kt`, `{kzen-lib,kzen-auto}/build.gradle.kts`,
+  `{kzen-lib,kzen-auto}/{kzen-lib-common,kzen-auto-common}/build.gradle.kts`, umbrella `kzen/AGENTS.md`.
+- **2c serializers + `@Serializable(with)`** (all kzen-lib-common `commonMain`): `DocumentPath`,
+  `ObjectLocation`, `ObjectPath`, `AttributePath`, `AttributeName`, `AttributeNesting`, `Digest`,
+  `RequestParams`, `LogicRunId`, `LogicExecutionId`.
+- **2d**: new `exec/ExecutionValueSerialization.kt` (`ExecutionValue`/`Result`/`Request` serializers +
+  `Any↔JsonElement` bridge); `@Serializable(with)` on `ExecutionValue`, `ExecutionResult`,
+  `ExecutionRequest`.
+- **Tests** (kzen-lib-common `commonTest`): `serialization/ValueObjectSerializerTest.kt`,
+  `exec/ExecutionValueSerializerTest.kt` (full variant fixture incl. non-finite, long, binary,
+  binary-handle, json fast-path, deep mix).
