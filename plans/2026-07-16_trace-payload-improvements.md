@@ -50,7 +50,22 @@
 >   pass (needs the browser): a FizzBuzz run showing no `iVBOR` base64 in `lookup-run*` JSON, each image
 >   fetched once + browser-cached, film strip/thumbnails/fullscreen + TargetController locate render, proxy
 >   relay, `selfTest`, HAR delta.
-> - [ ] Phase 4 — server-side structural version on `LogicStatus` (exact structural re-fetch)
+> - [x] Phase 4 — server-side structural version on `LogicStatus` (exact structural re-fetch) —
+>   **DONE 2026-07-16.** kzen-lib: new `LogicStatus.structureVersion: Long` (top-level sibling of `epoch`,
+>   string-encoded round-trip). kzen-auto-jvm: `ServerLogicController` computes it **lazily in
+>   `@Synchronized status()`** by diffing a `StructureSignature(epoch, runId?, runState?, unfiltered
+>   snapshot.root node-id set)` — no reactive bump sites (epoch rides in); threaded into all three `status()`
+>   returns; `ServerLogicControllerStatusObserverTest` extended for monotonicity + **stability** (two reads of
+>   an unchanged run are identical). kzen-auto-js: `structureVersion()` reads the server value verbatim,
+>   `traceVersion()` = `structureVersion\|sequence`; `tracedDocuments()` memo + `ScriptProgressStore`'s
+>   `lookupRunExecutions` fetch (cached) now gate on `structureVersion`. Descent-into-child (execution created)
+>   bumps it → immediate publish → the E5 intra-step animation returns for free; the within-child raw-position
+>   refinement was **deferred** (re-opens the throttle cost). Verified headless: kzen-lib `publishToMavenLocal`
+>   → kzen-auto `--refresh-dependencies`; `:kzen-auto-jvm:test` (full suite) + `:kzen-auto-js:compileKotlinJs`
+>   green. Deferred to a dev-loop smoke pass (needs the browser): re-capture the FizzBuzz HAR to confirm
+>   `traced`/`lookup-run-executions` drop ~46→~15-17 and the descent repaints immediately (a plain Script still
+>   throttled), + `selfTest`. **SER4 ↔ TP4:** TP4 landed first; SER4 adds this string-`Long` to the migrated
+>   kotlinx DTO.
 
 ## Context — what the HAR showed
 
