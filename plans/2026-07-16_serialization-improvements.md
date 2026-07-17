@@ -17,8 +17,8 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 2 — wire-codec classification + kotlinx.serialization foundation (kzen-lib/kzen-auto) ✓ 2026-07-16 (as-built note at end)
-> - [ ] Phase 3 — first endpoint-family migration (storage/file-listing/output) + **payoff gate**
-> - [ ] Phase 4 — logic/task/trace/detached family (gated on phase 3's verdict)
+> - [x] Phase 3 — first endpoint-family migration (storage/file-listing) + **payoff gate** ✓ 2026-07-17 — **GATE VERDICT: PROCEED** (as-built + verdict at end)
+> - [ ] Phase 4 — logic/task/trace/detached family (gated on phase 3's verdict — **gate says go**)
 > - [ ] Phase 5 — ContentNegotiation flip + Jackson slimming + hygiene sweep
 
 ## Landed context (Sprint 1)
@@ -184,10 +184,16 @@ Adopt **kotlinx.serialization as the single structured-wire codec**, phased and 
   `cd kzen-lib && ./gradlew publishToMavenLocal`, then build kzen-auto with
   `--refresh-dependencies`. Open siblings standalone in IntelliJ, not via the umbrella.
 - **Verification baseline** (every phase): the affected sibling's full test suite
-  (`kzen-lib`: `:kzen-lib-common:jvmTest :kzen-lib-jvm:test`; `kzen-auto`:
-  `:kzen-auto-jvm:test`), plus a manual dev-loop smoke of the migrated endpoints. UI-facing
+  (`kzen-lib`: `:kzen-lib-common:jvmTest :kzen-lib-common:jsTest :kzen-lib-jvm:test`; `kzen-auto`:
+  `:kzen-auto-common:jvmTest :kzen-auto-common:jsTest :kzen-auto-jvm:test`), plus a manual dev-loop
+  smoke of the migrated endpoints. UI-facing
   phases: `./gradlew :kzen-auto-test:selfTest` (opt-in). Launcher items: boot
   `FrontendDevelopmentKt` headless and curl the migrated routes.
+  > ⚠️ **`jsTest`, not just `compileKotlinJs`.** These phases write *shared* codec code whose
+  > behaviour — not just its compilability — diverges across platforms. SER2 verified with
+  > `jvmTest` + `compileKotlinJs` and shipped a JS-only NaN bug (see the Phase 2 as-built);
+  > SER3 caught two more (`Url.equals`, JS/JVM URL normalization) only by running `jsTest`.
+  > Compiling the JS side proves nothing about the JS side.
 - Mark the phase checkbox in this file's tracker when done, and append a short "as-built" note
   if the implementation deviated.
 
@@ -394,6 +400,45 @@ in SER3/SER4. Verified end-to-end: `:kzen-lib-common:jvmTest` + `:kzen-lib-commo
 + JS bundle all green (the only warnings are pre-existing, in generated `KzenAutoJvmModule.kt` and an
 unrelated test). KSP and the serialization compiler plugin coexist with no build wiring change.
 
+### Follow-up fix (2026-07-17): JS-only NaN encoding bug — and the verification gap that shipped it
+
+`ExecutionValueSerializerTest.everyVariantRoundTrips` + `nonFiniteNumberEncodesAsString` failed **on JS
+only** with `JsonEncodingException: Unexpected special floating-point value NaN`, output
+`{"type":"number","value":NaN}`. `anyToJsonElement` (`ExecutionValueSerialization.kt`) ordered its number
+branches `is Int` → `is Long` → `is Double`, and only the `is Double` branch carried the non-finite →
+string guard.
+
+**Root cause — a Kotlin/JS type-check divergence, measured with a throwaway probe (since deleted):**
+
+| value | JVM `is` match | JS `is` match |
+|---|---|---|
+| `NaN` / `±Infinity` / `3.14` / `0.0` | `Double` | **`Int`** |
+| `42` | `Int` | `Int` |
+| `5L` | `Long` | `Long` |
+
+On Kotlin/JS every `Double` **is** a JS `number`, so `is Int` matches *all* of them — `is Int` above
+`is Double` makes the `is Double` branch **unreachable on JS**. NaN therefore skipped the guard, reached
+`JsonPrimitive(Int)`, and produced a bare `NaN` token — invalid JSON. On JVM the boxed `java.lang.Double`
+matched `is Double` correctly, so the guard worked and the bug was invisible.
+
+**Fix:** dispatch on the *value*, not the static number type — `is Long` (the one numeric check that means
+the same thing on both platforms, since JS `Long` is a real class) above `is Number` + `toDouble()` +
+`isFinite()`. This mirrors `ExecutionValue.ofArbitrary`'s long-standing shape in the same file. **Wire-neutral
+for finite numbers on both platforms**, so no other test moved: 158/158 green on `jvmTest` *and*
+`jsBrowserTest`. The two pre-existing tests were already the right regression tests — nothing ran them.
+
+**Audited the same hazard elsewhere:** `YamlNode.ofObject` has the same `is Int`-before-`is Double`
+ordering but every numeric branch has an identical body (`YamlString(value.toString())`), so the shadowing
+is harmless there — left alone. `fromJsonCollection` / `fromJsonPrimitiveCollection`'s `is Double` branches
+are fed only by `jsonElementToAny`, which always yields `Double` — also fine.
+
+**Process lesson (baseline updated above):** SER2's verification was `jvmTest` + `compileKotlinJs`. A KMP
+codec phase's *whole risk* is behavioural divergence between platforms, and compiling the JS side proves
+nothing about it. `jsTest` is now in the standing baseline. Note the pattern: **every cross-platform defect
+this track has found — this NaN bug, SER3's `Url.equals`, SER3's URL normalization — was invisible to
+`jvmTest` and surfaced by `jsTest`.** SER4 migrates `LogicStatus` / `TaskModel` / recursive
+`LogicRunFrameInfo` in shared code; run both.
+
 ### Decisions
 
 - **`ExecutionValue.kt:11` TODO — DECLINED** (comment updated in place). The kotlinx codec wraps the
@@ -468,3 +513,276 @@ not JSON map.
 - **Tests** (kzen-lib-common `commonTest`): `serialization/ValueObjectSerializerTest.kt`,
   `exec/ExecutionValueSerializerTest.kt` (full variant fixture incl. non-finite, long, binary,
   binary-handle, json fast-path, deep mix).
+
+---
+
+## Phase 3 as-built (2026-07-17) — **GATE VERDICT: PROCEED to SER4**
+
+Landed. Migrated family, verification, and the gate verdict below. **kzen-lib production code unchanged**
+(the 3 DTOs are kzen-auto-common; `Instant` is a kotlinx built-in) — so **no `publishToMavenLocal` and no
+`--refresh-dependencies` were needed**. Only a test-only spike file was added to kzen-lib.
+
+### Scope correction — the family is 3 classes, not the ~11 the phase-3 text names
+
+The 2a table wins, as phase 3's own "(adjust per the 2a table)" anticipated. Re-derived from the server
+rather than the prose — the **complete** structured-wire inventory of `RestHandler`:
+
+| Line | Return | Phase |
+|---|---|---|
+| :935, :1061, :1226 | `ExecutionResult` | SER4 (kzen-lib; 2d serializer exists) |
+| **:984** | `DataLocationInfo` | **SER3** |
+| **:1000** | `StorageAreaInfo` | **SER3** |
+| **:1015** | `StorageBundleInfo` | **SER3** |
+| :1074, :1087 | `TaskModel` | SER4 |
+| :1110 | `LogicStatus` | SER4 |
+
+Everything else phase 3 named (`OutputInfo`, `TableSummary`, `HeaderListing`, …) is **Bucket B** — zero
+`RestHandler` call sites; it flows `ExecutionValue.of(x.toCollection())` → a client *store*, never
+`ClientRestApi`. **Bucket D re-confirmed empty** for these 3 (no store / `NotationMedia` / file write; the
+`toCsv` persisted-forever twin belongs to the summary classes, not this family). Generated-source trap
+(`HeaderListing.ofCollection` inside a Kotlin source string at `report/exec/calc/CalculatedColumnEval.kt:96`
+— note that path anchor is stale in phase 4's text) checked for these 3: **no hits**.
+
+### Decisions
+
+- **`kotlin.time.Instant` needs no serializer.** kotlinx 1.9.0 ships `InstantSerializer`
+  (`PrimitiveSerialDescriptor("kotlin.time.Instant", STRING)`, `toString()`/`Instant.parse`) — byte-identical
+  to the old codec's form — and the Kotlin 2.4.0 plugin auto-resolves it. Verified by compile + green tests
+  on both platforms. `DataLocationInfo.modified` is a bare `val modified: Instant`.
+- **Stock `Json` on both ends; `explicitNulls` NOT touched.** `encodeDefaults=false` means a nullable
+  property **with** a `= null` default is omitted (→ `StorageAreaInfo.budget` byte-identical to the legacy
+  wire) while one **without** a default encodes as an explicit JSON null. **That second half is exactly
+  SER4's `LogicStatus.active` sentinel-kill — setting `explicitNulls=false` globally would silently sabotage
+  it.** Pinned by `storageAreaInfoOmitsNullBudget` + the SER4 spike, and confirmed live (see verification).
+- **Long-on-the-wire → plain JSON numbers here** (user-ratified). The Long-as-string convention's *mechanism*
+  is an artifact of the hand codec (`JSON.parse` → JS `Number` → can't be a `Long`); kotlinx's
+  `AbstractJsonLexer.consumeNumericLiteral` accumulates digits straight into a `Long`, **on JS too** — proven
+  empirically, not just by reading: `WireDtoSerializerTest` passes under **ChromeHeadless** with an
+  epoch-millis fixture (1.75e12). These five Longs sit ~5000× below 2^53. SER4 keeps Long-as-string for the
+  genuinely unbounded `LogicStatus.epoch`/`sequence`/`structureVersion` + `LogicTraceEvent.sequence` — via
+  kotlinx's built-in **`LongAsStringSerializer`**, strictly better than a manual `.toString()`.
+  `kzen-auto/docs/architecture.md` § 3 now states the refined rule rather than the old blanket one.
+- **`respondJson` lives in `KzenAutoMain`, not `RestHandler`** (phase 3's step 2 is wrong about placement):
+  `RestHandler` is a plain class with no `ApplicationCall`; every `call.respond` is in the route lambdas.
+  SER4 reuses it there; SER5 deletes it.
+- **`clientJson` lives in `kzen-auto-js/.../client/util/ajaxUtil.kt`**, mirroring the launcher. Deliberate:
+  `ClientRestApi` imports `kotlin.js.Json` as the return type of its `getOrPutJson`/`postJson` helpers, so
+  importing `kotlinx.serialization.json.Json` there would clash. `ClientRestApi` already star-imports that
+  package, so it costs no new import.
+- **Build: the serialization plugin was added to `kzen-auto-js` AND `kzen-auto-jvm`** — SER2 provisioned only
+  the `-common` modules. Without it, `encodeToString`/`decodeFromString` fall back to runtime lookup and fail
+  at **runtime**, not compile. No dependency lines needed (`kzen-auto-common`'s `api(...)` propagates).
+
+### `DataLocationInfo` is dual-plane — codec RETAINED (the phase's main over-deletion trap)
+
+`toCollection()`/`ofCollection()` + all 5 key constants **stay**: live value-tree callers at
+`report/listing/InputBrowserInfo.kt:24,39` and `report/listing/InputDataInfo.kt:43,55`. It *looks* dead once
+`ClientRestApi`'s wire call site goes, and IntelliJ's unused-heuristics won't flag it. A banner comment on the
+class says so; test #7 (`dataLocationInfoWireFormMatchesLegacyForStableKeys`) pins `path`/`name`/`modified`
+against drift between the two encodings, and documents that `size`/`dir` intentionally *do* diverge
+(number/boolean on the wire, String in the map form — the planes never meet).
+
+Also load-bearing and easy to break: **`DataLocationInfo`'s `init { check(...) }` survives decoding only
+because no property has a default** — the plugin emits a synthetic bitmask constructor that bypasses `init`
+as soon as one does. Pinned by `dataLocationInfoInitCheckSurvivesDecoding`.
+
+### `Url.equals` — bug found during SER3, FIXED 2026-07-17 (follow-up session, same day)
+
+Surfaced by SER3's serializer round-trip; **pre-existing, not a SER3 regression** (the old `ofCollection`
+constructed `DataLocation` identically). Fixed on request as a scoped follow-up. One root cause, two symptoms:
+
+**Root cause:** `Url` is a `Digestible` value object whose identity is its canonical string, but **both**
+actuals delegated `equals`/`hashCode` to the wrapped platform type instead — unlike its sibling value object
+`FilePath` (in the same `DataLocation`), whose `equals`/`hashCode`/`digest`/`toString` all agree on `location`.
+
+| Platform | Wrapped | Symptom |
+|---|---|---|
+| `jsMain` | `org.w3c.dom.url.URL` (host object, **no** value equality) | `==` was reference identity → `Url.of(x) != Url.of(x)`; any JS `Set<Url>`/`Map<Url,_>` silently duplicated / always missed |
+| `jvmMain` | `java.net.URI` (value equality, but case-insensitive scheme/host, no normalization) | could report **equal while `digest()` differed** (`"http://a"` vs `"HTTP://a"`, verified) — equal-but-different-digest breaks digest-keyed caches and dedup in a content-addressed system |
+
+**Fix:** both actuals now compare `toString()` — the canonical string that `digest()` already hashes — so the
+invariant `a == b` ⟺ `a.digest() == b.digest()` holds on every platform, matching `FilePath`. The identity
+contract is stated on the `expect class` (commonMain) so a future actual can't re-introduce it.
+
+**`UrlTest` gained the identity tests it never had** (it only ever asserted `toString()`/`scheme`/`path`/`query`
+— which is precisely why both bugs survived): `equalsIsValueBased`, `equalsAgreesWithDigest`,
+`distinctUrlsAreNotEqual`, `deduplicatesInASet`. SER3's `dataLocationRoundTrip` was restored to a full
+value-equality `roundTrip()` for url-backed locations (it had been weakened to an `asString()` comparison).
+Verified: full `kzen-auto-common` suite **82/82 on JVM and 82/82 on JS (ChromeHeadless)**, `:kzen-auto-jvm:test`,
+`selfTest`.
+
+### Url normalization — third finding, ALSO FIXED 2026-07-17 (same follow-up, on request)
+
+**The problem:** JS's `org.w3c.dom.url.URL` implements WHATWG and **normalizes unconditionally on
+construction**; `java.net.URI` (RFC 2396) normalizes nothing. So the *same input string* yielded a different
+canonical form — and therefore a **different `Digest`** — on client vs server. Worse than the digest split:
+`java.net.URI` **rejects** a literal space that JS %-encodes, so some urls were **valid on the client and
+invalid on the server**. (Cache invalidation was explicitly waived by the user.)
+
+**Measured, not assumed.** A temporary probe dumped both platforms' canonical form over a 27-row fixture table;
+**9 rows diverged**. The divergence set was entirely "JS normalizes, JVM doesn't": scheme case (all schemes,
+incl. opaque `jdbc:`), host case, default port (`:80`/`:443`), empty path → `/`, dot-segment resolution
+(**special schemes only** — `jdbc:`'s opaque path is untouched by WHATWG, confirmed), Windows drive-letter
+uppercase (`file:///c:/` → `file:///C:/`), and space → `%20`. The probe was deleted once it had done its job;
+its fixture table lives on as `UrlCanonicalTest`.
+
+**The fix — `UrlCanonical.canonicalize(raw)` in commonMain** (`kzen-auto-common/.../platform/UrlCanonical.kt`),
+applied by **both** actuals in `of()`/`parse()` **before** the platform parser sees the string. Three properties
+make this the right shape:
+- **JVM converges toward JS, because JS's normalization can't be disabled** — that direction is forced.
+- **Canonicalizing the INPUT rather than the output also converges validity** (JVM never sees the space).
+- **One shared implementation ⇒ convergence is a property of the design, not a coincidence to maintain.**
+  Both actuals derive their canonical string from the same code rather than from two parsers that happen to
+  agree. It is idempotent over WHATWG's output, so applying it on JS too is a no-op that keeps the source
+  single. (It also fixed the JS actual's `networkFile` prefix probe, which is a raw string test — `FILE:////x`
+  only recognizes itself as a network file once the scheme is lowercased.)
+
+**Deliberately NOT a full WHATWG implementation**: no IDNA/punycode, no percent-encoding normalization beyond
+the space, no query/fragment rewriting — all measured to already agree, and re-encoding them would risk
+double-encoding urls that currently work. Anything unlisted passes through untouched.
+
+**`UrlCanonicalTest` (commonTest, 15 tests) is the contract** — it asserts exact canonical forms and runs on
+**both** platforms, so it is what proves and keeps convergence; extend it rather than the prose. It also pins
+the things that must NOT change (opaque `jdbc:` paths, the four-slash network-file form, query/fragment,
+existing %-encodings, userinfo case, IPv6-literal-vs-port) and asserts no two distinct urls collapse.
+`UrlTest.equalsAgreesWithDigest` asserts the equals⟺digest invariant as a **biconditional over pairs** rather
+than a fixed verdict — *which* pairs are distinct was platform-dependent before this fix, and an earlier draft
+that asserted "these two differ" duly failed on JS only.
+
+**Verified:** re-running the probe post-fix gave **27/27 rows converged, 0 diverging** (from 9). Full
+`kzen-auto-common` suite **97/97 on JVM and 97/97 on JS (ChromeHeadless)**; `:kzen-auto-jvm:test`; `selfTest`.
+Blast radius is contained: `DataLocation.parse` is the only production caller of `Url.parse`, and it tries
+`FilePath` first.
+
+### Url — SUPERSEDED 2026-07-17 (same day): the whole expect/actual, and `UrlCanonical`, DELETED
+
+The two fixes above were correct answers to the wrong question. The user pushed back on the ~200-line
+canonicalizer — *"is there a dramatically simpler way? why is a whole URL parser required?"* — and it isn't.
+`UrlCanonical` existed only to reconcile **two** platform url parsers we had chosen to wrap under one
+`expect class Url` (`java.net.URI` on jvm, `org.w3c.dom.url.URL` on js). The divergence was self-inflicted:
+one implementation has nothing to reconcile.
+
+A production-call-site audit made the case decisive — `Url.scheme` and `Url.query` have **zero** production
+callers; `Url.path` has one (`DataLocation.parent`, only `.isEmpty()`); `Url.parse` has one (the null gate in
+`DataLocation.parse`, which tries `FilePath.parse` **first**). ~646 lines of expect/actual + canonicalizer +
+both-platform contract test, to answer "is this a valid url?" and "is its path empty?".
+
+**`Url` is now a single ~145-line `commonMain` value class** keyed on the verbatim `location` string — the
+exact shape of its sibling `FilePath`, which never had a divergence problem because there has only ever been
+one of it. Deleted: `commonMain/platform/UrlCanonical.kt` (208), `jsMain/platform/Url.kt` (128),
+`jvmMain/platform/Url.kt` (76), `commonTest/platform/UrlCanonicalTest.kt` (182 — the "contract" existed only
+to keep two parsers reconciled; with one parser there is nothing to keep in sync). The equals⟺digest invariant
+now holds **by construction** (equals/hashCode/digest/toString all key on `location`), so the identity-contract
+comment the expect class needed — which both actuals had violated — is gone too. The JVM-only, opt-in
+`normalize()` survives as `jvmMain/platform/UrlJvm.kt`, mirroring `FilePathJvm.normalize()`; it is off the
+identity path and never runs on js, so `java.net.URI` is unproblematic there.
+
+What changed observably: **no normalization** (`http://X.com` ≠ `http://x.com`; matches `FilePath`, and matches
+what the jvm did *before* the canonicalizer briefly existed — DataLocations are produced jvm-side), and
+**validation is a scheme check, not a parse** (a bad url fails when opened, not when parsed). A one-char scheme
+is rejected so a Windows drive is never mistaken for a url. `UrlTest` rewritten to pin the new behaviour
+(verbatim location, space accepted not rejected, drive-is-not-a-url) and keep the equals⟺digest biconditional;
+**85/85 on JVM and JS**, `:kzen-auto-jvm:test`, JS bundle, `selfTest` all green.
+
+**Diffstat for the collapse: `+250 / −602` across the seven Url files** — i.e. the two "fixes" above plus the
+machinery they fixed were together a net **−352 lines** once the wrong question was dropped. The lesson for
+SER4/SER5 (recorded because it generalizes): when a shared abstraction needs a reconciliation layer between two
+platform backends, question the two backends before building the layer. **The verification lesson stands
+unchanged** — every defect here, including the ones that motivated the delete, was JS-visible only.
+
+### Files changed
+
+- **Build**: `kzen-auto-{js,jvm}/build.gradle.kts` (serialization plugin).
+- **DTOs** (kzen-auto-common `commonMain`): `util/storage/StorageAreaInfo.kt`, `util/storage/StorageBundleInfo.kt`
+  (full codec deletion), `util/data/DataLocationInfo.kt` (annotate; codec retained), `util/data/DataLocation.kt`
+  (+`DataLocationSerializer` — the first 2c-style value-object serializer in kzen-auto-common; hand-written
+  because the wire form is the canonical string, not the two-field structure).
+- **Server**: `KzenAutoMain.kt` (`serverJson` + `respondJson`; `routeStorage`/`routeFileListing`),
+  `api/RestHandler.kt` (typed returns; `.toCollection()` dropped).
+- **Client**: `service/rest/ClientRestApi.kt` (3 rewrites), `client/util/ajaxUtil.kt` (`clientJson`).
+- **Tests**: `kzen-auto-common/commonTest/.../serialization/WireDtoSerializerTest.kt` (12 tests);
+  `kzen-lib-common/commonTest/.../serialization/Ser4SpikeTest.kt` (2 tests, **test-only, delete after SER4**).
+- **Docs**: `kzen-auto/docs/architecture.md` § 3 (Long-on-the-wire rule).
+
+### Verification (all green)
+
+- `:kzen-auto-common:jvmTest` **and `:kzen-auto-common:jsTest`** (ChromeHeadless) — 12/12, 0 skipped.
+  Running the JS half was decisive: it is what actually proves the Long-as-number decision on the platform the
+  convention was about, and it is what surfaced the `Url.equals` asymmetry.
+- `:kzen-lib-common:jvmTest` (spikes 2/2); `:kzen-auto-jvm:test`; `:kzen-auto-js:compileKotlinJs` + bundle.
+- **Live headless boot + curl of all three migrated endpoints** (jar on temurin-26, port 18099):
+  - `/storage/summary` → `"size":9651424`, `"bundles":812`, `"deletable":true` as real numbers/booleans, and
+    `"budget":1073741824` **present on `code-cache` but absent on `report`/`index`** — the load-bearing
+    null-omission confirmed on real data, not just in a fixture.
+  - `/storage/bundles?area=report` → `"size":976`, `"modified":1783909526002` (epoch millis as a number),
+    `"active":false`.
+  - `/file-listing` → `path`/`name`/`modified` strings unchanged; `"size":992`, `"dir":true` now typed.
+  - **`Content-Encoding: gzip` still engages** on `respondText` (TP1 preserved), and the un-migrated
+    `/storage/delete` still answers `text/plain` under the same ContentNegotiation install — the two response
+    paths coexist as designed.
+- `:kzen-auto-test:selfTest` — run as a regression backstop; **honest caveat: it does not cover these
+  endpoints** (grep of `kzen-auto-test/src` for `storage`/`file-listing`: zero hits). It only proves the client
+  still boots with the new plugin wiring.
+- **Manual dev-loop smoke NOT yet done** (headless session) — adds to the master plan's smoke debt:
+  1. ribbon **storage manager** (`client/objects/ribbon/StorageManagerController.kt`, from `HeaderController.kt:282`)
+     — open panel (`storageSummary`), expand an area (`storageBundleList`), check sizes/counts/`modified`/`active`
+     and **the delete button's enablement** (that's `deletable`, the string→boolean flip); delete a bundle.
+  2. `/file-listing` → the **Job** document's `MultiFileInputEditor.kt:254` — the *only* caller of `listFiles`
+     (not the Report input browser, contra phase 3's verification note).
+  3. **Regression: the Report input browser** (`report/input/browse/…`) — it gets `DataLocationInfo` via the
+     **value-tree** plane and must be unchanged. Most likely victim of an over-deletion.
+
+### THE GATE — verdict: **PROCEED to SER4**, with a resized expectation
+
+**Measured** (`git diff --numstat`, per file; code-only aggregate strips comment/blank lines):
+
+| Bucket | File | Net LOC |
+|---|---|---|
+| **Wire-only DTO** | `StorageAreaInfo.kt` | **−27** |
+| **Wire-only DTO** | `StorageBundleInfo.kt` | **−22** |
+| **Bucket-C DTO** | `DataLocationInfo.kt` | **+17** |
+| **Bucket-C support** | `DataLocation.kt` (new serializer) | **+29** |
+| **Call site** | `ClientRestApi.kt` | **−20** |
+| | **Code-only aggregate** | **+60 / −103 = −43** |
+
+**Effort/robustness:** ~0 surprises on the two storage DTOs — annotate, delete codec, done. The whole family
+compiled and went green first try on JVM; the only red was the JS `Url.equals` find, which is a pre-existing
+bug in a platform class, not a migration cost. Robustness is *clearly* better where it applies: typed fields,
+no key constants, no `@Suppress("UNCHECKED_CAST")`, no hand-walk, and both ends generated from one declaration.
+
+**Why proceed:** the wire-only rate is a solid **≈ −25 LOC/class** with near-zero effort and a real robustness
+gain, and SER4's wire-only set (`LogicStatus`/`LogicRunInfo`/`LogicRunFrameInfo`, `TaskModel`,
+`ObjectStableMapper`) is precisely that shape. The two SER4-specific unknowns this thin sample couldn't reach
+were **de-risked directly** by `Ser4SpikeTest`: a recursive `@Serializable` round-trips in KMP commonMain, and
+a nullable-without-default encodes as explicit JSON `null` (the sentinel-kill works). SER5's Jackson-2 removal
+is unlocked only by finishing SER4.
+
+**Read the −43 honestly — do NOT extrapolate it.** The sample is 3 flat leaf DTOs; **one of the three nets
+positive**. The bucket-conditional rates are the real finding:
+- **wire-only ≈ −25/class** (what SER4's set mostly is), but
+- **Bucket-C ≈ +17/class, plus ~+29 for each new value-object serializer** — the codec is *retained* per
+  phase 4's own step text, so the class only *gains* annotations and a warning banner.
+
+SER4's list contains several Bucket-C classes (`TaskProgress`, `LogicTraceEvent`, `LogicTraceEntry`,
+`LogicRunExecutionInfo`), so **SER4's net LOC will be materially worse than −43 — plausibly near zero.**
+That is not a reason to stop: SER4's justification is the sentinel-kill, the type-checked contract, and
+unblocking SER5's Jackson-2 removal — **not** line count. Anyone scoring SER4 on LOC alone will conclude
+wrongly. Also carried: **`ObjectStableMapper` has no `toCollection` at all** — SER4 must invent one.
+
+### Why no value-tree pilot (the standing answer — re-read before re-opening)
+
+Considered and rejected; the premise that it would resize SER4/SER5 is **false**:
+1. **Neither SER4 nor SER5 migrates that plane.** Phase 4's own text keeps `toCollection` for value-tree
+   classes, and SER5 is untouched by it: Bucket-B maps **never reach Jackson** — they are lowered inside
+   `ExecutionValue` and encoded by SER2's `ExecutionValueSerializer`, one layer *below* ContentNegotiation.
+   Verified against the `RestHandler` return inventory above: `call.respond` only ever sees
+   `Execution*`/`TaskModel`/`LogicStatus` + SER3's 3. The ~25 Bucket-B classes are off the critical path —
+   a future **SER6**, not this gate.
+2. **The seam has a real defect — the standing blocker.** An `ExecutionValue.ofSerializable(value, serializer)`
+   needs `DTO → JsonElement → Any? → ExecutionValue`. The `Any?` step is SER2's `jsonElementToAny`, which by
+   design **collapses every JSON number to `Double`**. So `OutputInfo.size: Long` would go
+   `12345 → NumberExecutionValue(12345.0) → JsonPrimitive("12345.0") → decodeLong()` → **SerializationException**.
+   Solve this first or don't open the question.
+3. `ExecutionValue` is `Digestible` — changing how a DTO lowers into it changes **content-addressing digests**.
+4. Blast radius: the bridge functions are `private` file-scoped; decode sites are scattered across
+   stores/controllers, not one `ClientRestApi`; and the `CalculatedColumnEval` generated-source trap lives there.

@@ -21,7 +21,7 @@
 | ID | Document | Scope | Open phases | Notes |
 |---|---|---|---|---|
 | G | `2026-07-16_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G3–G7 | G4 measurement-gated; G7b after Y |
-| SER | `2026-07-16_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER2–SER5 | strict chain; SER3 = payoff gate |
+| SER | `2026-07-16_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER4–SER5 | strict chain; **SER3 gate = PROCEED** (2026-07-17) |
 | TP | `2026-07-16_trace-payload-improvements.md` | Trace payload + transport efficiency | TP1, TP3, TP4 (TP2 = optional stopgap, default skip) | realizes E5's two parked items |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (~2 sessions) | **before G7b** |
 | J | `2026-07-16_job-improvements.md` | Job flavour + Report subsumption | J2–J9 | J7 rescoped post-E7 |
@@ -52,9 +52,46 @@ interleave freely; the chains inside each track are ordered.
 
 ~~**SER2**~~ ✅ **DONE 2026-07-16** (kotlinx foundation: build plumbing both repos, value-object +
 `ExecutionValue`/`Result`/`Request` serializers, 2a classification survey — no wire change; as-built
-in the SER plan) → **SER3 (gate)** → SER4 → SER5 — strict chain. SER3's payoff gate can stop the
-chain (then SER5 shrinks to its shell micro-session and SER4 is struck). SER4 now also migrates the
-already-shipped SSE payload (the E5 soft edge inverted — see the SER plan's timeline note).
+in the SER plan) → ~~**SER3 (gate)**~~ ✅ **DONE 2026-07-17 — GATE VERDICT: PROCEED** → SER4 → SER5 —
+strict chain. SER4 now also migrates the already-shipped SSE payload (the E5 soft edge inverted — see
+the SER plan's timeline note).
+
+**SER3 as-built, what SER4 must carry** (full detail in the SER plan's phase-3 as-built):
+- The family was **3 wire DTOs, not the ~11 named** (`StorageAreaInfo`, `StorageBundleInfo`,
+  `DataLocationInfo`) — the 2a table won. Verified live end-to-end (typed wire, gzip preserved, null
+  `budget` omitted on real data); `:kzen-auto-common:jsTest` + `selfTest` green.
+- **Do not extrapolate SER3's −43 LOC.** Bucket-conditional: wire-only ≈ **−25/class**, but **Bucket-C
+  ≈ +17/class** (codec retained per phase 4's own text) plus ~+29 per new value-object serializer.
+  SER4's list has several Bucket-C classes, so **its net LOC will be near zero — that is expected, not a
+  failure.** SER4's justification is the sentinel-kill + typed contract + unblocking SER5's Jackson-2
+  removal, never line count.
+- **De-risked for SER4 by `Ser4SpikeTest`** (kzen-lib commonTest, test-only — *delete it when SER4 lands*):
+  recursive `@Serializable` round-trips in KMP commonMain, and nullable-without-default → explicit JSON
+  `null` (the `LogicStatus.active` sentinel-kill works). **Keep `Json` stock — `explicitNulls=false` would
+  silently sabotage that.** Use kotlinx's built-in `LongAsStringSerializer` for `epoch`/`sequence`/
+  `structureVersion`; plain numbers elsewhere (rule now in `kzen-auto/docs/architecture.md` § 3).
+- `respondJson`/`serverJson` already exist in `KzenAutoMain` (not `RestHandler` — the plan's placement was
+  wrong); `clientJson` in `kzen-auto-js/.../client/util/ajaxUtil.kt`. Serialization plugin now on
+  `kzen-auto-{js,jvm}` too. **`ObjectStableMapper` has no `toCollection` — SER4 must invent one.**
+- **Value-tree pilot rejected, with a standing blocker recorded** — the ~25 Bucket-B classes are off
+  SER4/SER5's path entirely (they never reach Jackson), and `jsonElementToAny` collapses JSON numbers to
+  `Double`, so a `Long` field would throw on decode. A future SER6, not a SER4 concern.
+- **`Url` collapsed to a single value class — the root cause of two SER3-surfaced bugs, RESOLVED 2026-07-17.**
+  SER3's serializer round-trip exposed `Url.equals` delegating to the wrapped platform type (JS reference
+  identity → `Url.of(x) != Url.of(x)`; JVM equal-while-`digest()`-differs → broken digest-keyed caches), then
+  a client/server **digest divergence** (JS's `org.w3c.dom.url.URL` normalizes unconditionally, `java.net.URI`
+  doesn't, and rejects a space JS %-encodes). The first fix compared `toString()`; the second added a ~200-line
+  `UrlCanonical` commonMain canonicalizer to reconcile the two parsers. On review the user questioned the whole
+  edifice — and rightly: `Url` was an `expect class` wrapping **two** url parsers, and the divergence was
+  self-inflicted. A call-site audit found `scheme`/`query` have **zero** production callers, `path`/`parse` one
+  each. So `Url` is now a single ~145-line commonMain value class keyed on the verbatim location string, exactly
+  like its sibling `FilePath` — `UrlCanonical` (208), both platform actuals (128 + 76), and `UrlCanonicalTest`
+  (182, the "contract" that only existed to keep two parsers reconciled) all **deleted**. equals⟺digest now
+  holds **by construction**. Net for the collapse **+250/−602 (−352)**; the two "fixes" plus the machinery they
+  fixed all fell out once the wrong question was dropped. Behaviour change: no normalization (matches `FilePath`
+  and pre-canonicalizer jvm), validation is a scheme check. **85/85 JVM + 85/85 JS**, `selfTest` green.
+  *Lesson for SER4/SER5: when a shared abstraction needs a reconciliation layer between two platform backends,
+  question the two backends before building the layer.*
 
 ### Track N — notation format + graph ergonomics (~7 sessions)
 
@@ -214,6 +251,12 @@ jump targets via S5's `LoopCursor` carry (v1 rejects targets inside `rerun` bran
 Interactive browser passes that headless sessions couldn't run: FE3/FE5/FE6 UI surfaces
 (step-editor polish, tolerance controls, target-type dropdown); XC3/XC5 (arrow drag, control
 step editors); FL1's dangling-pipe lint banner + FL2's step/free-run FizzBuzz Flow Loop smoke.
+**SER3 (2026-07-17)**: the ribbon **storage manager** (open panel → expand an area → check
+sizes/counts/`modified`/`active` and especially the **delete button's enablement**, which is the
+`deletable` string→boolean flip → delete a bundle); the **Job** document's `MultiFileInputEditor`
+(the only `listFiles` caller — browse a directory with a filter); and a **regression check on the
+Report input browser**, which reaches `DataLocationInfo` via the retained value-tree codec and must be
+unchanged (SER3's most likely over-deletion victim). Server side is already curl-verified end-to-end.
 Bundle into one dev-loop session with the user present.
 
 ### EXT-D5 (DataFormat) — parked
@@ -225,7 +268,7 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 
 ```
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
-           Track W:  ~~SER2~~ → SER3(gate) → SER4 → SER5   ├─ interleave freely
+           Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → SER4 → SER5   ├─ interleave freely
            Track N:  Y → G7 · G5 · G6 · G3 · (G4 if measured) ─┘
            Fillers:  AE1 · AE2 · EXT-hygiene · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
