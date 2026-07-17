@@ -52,9 +52,11 @@ interleave freely; the chains inside each track are ordered.
 
 ~~**SER2**~~ ✅ **DONE 2026-07-16** (kotlinx foundation: build plumbing both repos, value-object +
 `ExecutionValue`/`Result`/`Request` serializers, 2a classification survey — no wire change; as-built
-in the SER plan) → ~~**SER3 (gate)**~~ ✅ **DONE 2026-07-17 — GATE VERDICT: PROCEED** → SER4 → SER5 —
-strict chain. SER4 now also migrates the already-shipped SSE payload (the E5 soft edge inverted — see
-the SER plan's timeline note).
+in the SER plan) → ~~**SER3 (gate)**~~ ✅ **DONE 2026-07-17 — GATE VERDICT: PROCEED** →
+~~**SER4**~~ ✅ **DONE 2026-07-17** (run/task DTOs kotlinx + `LogicStatus.active` sentinel-kill;
+trace DTOs stay value-tree; RestHandler shed Jackson; `Ser4SpikeTest` deleted; selfTest + live boot
+green — as-built in the SER plan) → SER5 — strict chain. SER4 also migrated the already-shipped SSE
+payload (the E5 soft edge inverted — see the SER plan's timeline note).
 
 **SER3 as-built, what SER4 must carry** (full detail in the SER plan's phase-3 as-built):
 - The family was **3 wire DTOs, not the ~11 named** (`StorageAreaInfo`, `StorageBundleInfo`,

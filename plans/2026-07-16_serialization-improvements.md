@@ -18,7 +18,7 @@
 > **Progress tracker** (update as phases land):
 > - [x] Phase 2 — wire-codec classification + kotlinx.serialization foundation (kzen-lib/kzen-auto) ✓ 2026-07-16 (as-built note at end)
 > - [x] Phase 3 — first endpoint-family migration (storage/file-listing) + **payoff gate** ✓ 2026-07-17 — **GATE VERDICT: PROCEED** (as-built + verdict at end)
-> - [ ] Phase 4 — logic/task/trace/detached family (gated on phase 3's verdict — **gate says go**)
+> - [x] Phase 4 — logic/task/trace/detached family ✓ 2026-07-17 (as-built note at end)
 > - [ ] Phase 5 — ContentNegotiation flip + Jackson slimming + hygiene sweep
 
 ## Landed context (Sprint 1)
@@ -786,3 +786,51 @@ Considered and rejected; the premise that it would resize SER4/SER5 is **false**
 3. `ExecutionValue` is `Digestible` — changing how a DTO lowers into it changes **content-addressing digests**.
 4. Blast radius: the bridge functions are `private` file-scoped; decode sites are scattered across
    stores/controllers, not one `ClientRestApi`; and the `CalculatedColumnEval` generated-source trap lives there.
+
+---
+
+## Phase 4 as-built (SER4 ✓ 2026-07-17)
+
+**Direct-wire migrated (kotlinx `@Serializable`, hand codecs deleted):** `LogicStatus`, `LogicRunInfo`,
+`LogicRunFrameInfo` (recursive), `LogicRunState`/`TaskState` (enums), `TaskModel`, `TaskId` (new
+`TaskIdSerializer`, STRING). `epoch`/`structureVersion`/`sequence` ride the built-in `LongAsStringSerializer`;
+`@SerialName` preserves the short keys (`location`/`execution`/`id`/`partial`/`result`). **The `"null"` string
+sentinel on `LogicStatus.active` is dead** — it is now a nullable-without-default property, so stock `Json`
+emits an explicit JSON null; verified live: no-run `/logic/status` → `{"epoch":"0","structureVersion":"1","active":null}`.
+
+**The scope split was the crux, and it was NOT the phase text's literal list.** The trace-query surface
+(`LogicTraceEvent`/`LogicTraceEntry`/`LogicTraceSnapshot`/`LogicRunExecutionInfo`, plus the flow visual models
+and `TaskProgress`) does **not** ride the direct wire — it is wrapped in an `ExecutionValue` by the **detached**
+`LogicTraceEndpoint` and rides SER2's `ExecutionValueSerializer`. So those kept `toCollection`/`ofCollection`
+untouched and got a **dual-role comment only, NOT `@Serializable`** (annotating them would be inert and
+misleading — they never hit a direct kotlinx codec). Only three families were genuinely direct-wire:
+`LogicStatus`+tree, `TaskModel`, and the `ObjectStableMapper` snapshot (kept `Map<String,String>` on the wire).
+
+**One non-obvious dependency:** `TaskModel.partialResult: ExecutionSuccess?` is the *concrete* subtype, not the
+sealed `ExecutionResult` base, so it needed its own `ExecutionSuccessSerializer` (added beside SER2's three in
+`ExecutionValueSerialization.kt`; `@Serializable(with=…)` on `ExecutionSuccess`). `finalResult: ExecutionResult?`
+uses the base serializer automatically.
+
+**Server:** `RestHandler.logicStatus()`/`taskSubmit`/`taskQuery`/`taskCancel` return typed DTOs; `logicStatusJson()`
++ the `JsonMapper` field were **deleted — RestHandler no longer imports Jackson**. `KzenAutoMain` routes use
+`respondJson` (GET `/logic/status`, task, object-stable); the SSE `/logic/events` frame is
+`serverJson.encodeToString(restHandler.logicStatus())` (same codec as the GET, byte-identical — encoded outside
+the controller monitor). **Client:** `ClientRestApi` decodes via `clientJson` (`logicStatus`/`parseLogicStatusText`,
+task*, stable snapshot); new `getOrPutOrNull` for the nullable task decodes; the old `Json`-arg `parseLogicStatus`
+and the dead `getOrPutJsonOrNull` were removed. **`TesterClient`** (kzen-auto-test) dropped its Jackson mapper +
+ktor `ContentNegotiation{jackson()}`: `status()` → typed `LogicStatus`, `detached()` → `Json.decodeFromString<ExecutionResult>`,
+`isCompleted`/`isPaused` retyped (`active == null` / `active?.state == Paused`).
+
+**Tests:** new `LogicWireDtoSerializerTest` (kzen-lib-common commonTest) pins round-trip + wire form (string Longs,
+explicit-null sentinel-kill, recursive tree, `@SerialName` keys, omitted-`position`); `Ser4SpikeTest` **deleted**
+(the real DTOs now pin the same behaviour).
+
+**Verified:** `:kzen-lib-common:jvmTest`+`:jsTest` green (ChromeHeadless — the JS `Long` decode); publishToMavenLocal;
+kzen-auto `:kzen-auto-common:jsTest` (SER3 still green), `:kzen-auto-jvm:test`, all-module compile; **`:kzen-auto-test:selfTest`
+green** (drives the migrated `/logic/status` + detached trace through `TesterClient`); live headless boot confirmed the
+`/logic/status` wire form. LOC net ≈ 0, exactly as the gate predicted.
+
+**Left for SER5:** the manual dev-loop smoke SER3 already owed (ribbon storage manager, Job `MultiFileInputEditor`,
+Report input browser) plus SER4's own (SSE repaint on pause/settle through the shell proxy; Report Task-paradigm
+submit/query) — none block SER5's ContentNegotiation flip. The `ktor-serialization-jackson` dep in **kzen-auto-test**
+is now unused (TesterClient stopped negotiating) — SER5 can drop it with the server-side Jackson removal.
