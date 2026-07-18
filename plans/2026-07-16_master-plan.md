@@ -21,7 +21,7 @@
 | ID | Document | Scope | Open phases | Notes |
 |---|---|---|---|---|
 | G | `2026-07-16_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G3–G7 | G4 measurement-gated; G7b after Y |
-| SER | `2026-07-16_serialization-improvements.md` | Wire serialization (kotlinx convergence) | SER4–SER5 | strict chain; **SER3 gate = PROCEED** (2026-07-17) |
+| SER | `2026-07-16_serialization-improvements.md` | Wire serialization (kotlinx convergence) | ✅ **COMPLETE 2026-07-18** | SER2–SER5 all landed; Jackson gone from kzen-auto + kzen-shell (launcher YAML only) |
 | TP | `2026-07-16_trace-payload-improvements.md` | Trace payload + transport efficiency | TP1, TP3, TP4 (TP2 = optional stopgap, default skip) | realizes E5's two parked items |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (~2 sessions) | **before G7b** |
 | J | `2026-07-16_job-improvements.md` | Job flavour + Report subsumption | J2–J9 | J7 rescoped post-E7 |
@@ -55,8 +55,14 @@ interleave freely; the chains inside each track are ordered.
 in the SER plan) → ~~**SER3 (gate)**~~ ✅ **DONE 2026-07-17 — GATE VERDICT: PROCEED** →
 ~~**SER4**~~ ✅ **DONE 2026-07-17** (run/task DTOs kotlinx + `LogicStatus.active` sentinel-kill;
 trace DTOs stay value-tree; RestHandler shed Jackson; `Ser4SpikeTest` deleted; selfTest + live boot
-green — as-built in the SER plan) → SER5 — strict chain. SER4 also migrated the already-shipped SSE
-payload (the E5 soft edge inverted — see the SER plan's timeline note).
+green — as-built in the SER plan) → ~~**SER5**~~ ✅ **DONE 2026-07-18 — TRACK COMPLETE**
+(ContentNegotiation flipped to `json()`; the 4 raw-`Map` endpoints SER3/SER4 had left — `scan`,
+`notation-batch`, `actionDetached`, `logicRequest` — migrated to typed DTOs; `IconCollectionHandler`
+ported to kotlinx; `ClientJsonUtils` deleted; **Jackson removed from kzen-auto + kzen-shell**, surviving
+only in kzen-launcher YAML. `respondJson` KEPT, not collapsed to `call.respond(dto)`, to preserve
+buffered/gzip-clean output — see the SER plan's phase-5 as-built. Full suites + selfTest + live boot green).
+SER4 also migrated the already-shipped SSE payload (the E5 soft edge inverted — see the SER plan's timeline
+note).
 
 **SER3 as-built, what SER4 must carry** (full detail in the SER plan's phase-3 as-built):
 - The family was **3 wire DTOs, not the ~11 named** (`StorageAreaInfo`, `StorageBundleInfo`,
@@ -259,6 +265,9 @@ sizes/counts/`modified`/`active` and especially the **delete button's enablement
 (the only `listFiles` caller — browse a directory with a filter); and a **regression check on the
 Report input browser**, which reaches `DataLocationInfo` via the retained value-tree codec and must be
 unchanged (SER3's most likely over-deletion victim). Server side is already curl-verified end-to-end.
+**SER5 (2026-07-18)** adds to the same debt: an **SSE repaint on pause/settle through the shell proxy**
+(the ContentNegotiation flip touched every server) plus a Report **Task-paradigm** submit/query — both
+server-side wire is curl/selfTest-verified, only the visual confirmation is outstanding.
 Bundle into one dev-loop session with the user present.
 
 ### EXT-D5 (DataFormat) — parked
@@ -270,7 +279,7 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 
 ```
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
-           Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → SER4 → SER5   ├─ interleave freely
+           Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  Y → G7 · G5 · G6 · G3 · (G4 if measured) ─┘
            Fillers:  AE1 · AE2 · EXT-hygiene · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)

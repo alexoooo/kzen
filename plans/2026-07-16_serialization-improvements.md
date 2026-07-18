@@ -19,7 +19,7 @@
 > - [x] Phase 2 — wire-codec classification + kotlinx.serialization foundation (kzen-lib/kzen-auto) ✓ 2026-07-16 (as-built note at end)
 > - [x] Phase 3 — first endpoint-family migration (storage/file-listing) + **payoff gate** ✓ 2026-07-17 — **GATE VERDICT: PROCEED** (as-built + verdict at end)
 > - [x] Phase 4 — logic/task/trace/detached family ✓ 2026-07-17 (as-built note at end)
-> - [ ] Phase 5 — ContentNegotiation flip + Jackson slimming + hygiene sweep
+> - [x] Phase 5 — ContentNegotiation flip + Jackson slimming + hygiene sweep ✓ 2026-07-18 (as-built note at end) — **SER track COMPLETE**
 
 ## Landed context (Sprint 1)
 
@@ -834,3 +834,119 @@ green** (drives the migrated `/logic/status` + detached trace through `TesterCli
 Report input browser) plus SER4's own (SSE repaint on pause/settle through the shell proxy; Report Task-paradigm
 submit/query) — none block SER5's ContentNegotiation flip. The `ktor-serialization-jackson` dep in **kzen-auto-test**
 is now unused (TesterClient stopped negotiating) — SER5 can drop it with the server-side Jackson removal.
+
+---
+
+## Phase 5 as-built (SER5 ✓ 2026-07-18) — **SER TRACK COMPLETE**
+
+**The flip was NOT the mechanical one-liner the phase text implied.** Exploration found **four** `RestHandler`
+methods still returning raw `Map`s through Jackson's reflective serializer, which `json()` cannot serialize
+(no `Any?` serializer): `scan` (`Map<String, Any>`) and `notationBatch` (`Map<String, String>`) — **never in
+any SER inventory** — plus `actionDetached` and `logicRequest`, both `ExecutionResult.toJsonCollection()`,
+which SER3's table assigned to SER4 but **SER4 left undone**. All four had to migrate before the flip.
+
+### Server (kzen-auto-jvm + one kzen-auto-common DTO)
+- **New `NotationScanDocument`** (`kzen-auto-common/.../util/scan/`): `@Serializable data class(documentDigest:
+  String, resources: Map<String,String>? = null)`, mirroring the `/scan` wire shape byte-for-byte. `resources
+  = null` default is load-bearing (omit-on-null, same rule as `StorageAreaInfo.budget`); the client reads
+  absent and explicit-null identically, so the omit is harmless (wire-only, same-release). Pinned by 3 new
+  `WireDtoSerializerTest` cases.
+- `RestHandler`: `scan(...)` → `Map<String, NotationScanDocument>` (builds the DTO instead of the inline
+  nested `mapOf`); `actionDetached`/`logicRequest` → return `ExecutionResult` directly (dropped the trailing
+  `.toJsonCollection()` — SER2's `ExecutionResultSerializer` reproduces that exact form); `notationBatch` kept
+  its `Map<String,String>` return. RestHandler was already Jackson-free.
+- `KzenAutoMain`: install flipped `jackson(streamBody=false)` → `json(serverJson)`; the 7 route sites
+  (`scan`/`notationBatch`×2/`actionDetached`×3/`logicRequest`) now go through `respondJson`.
+
+### The `respondJson`-vs-collapse decision — KEPT `respondJson`, did NOT collapse to `call.respond(dto)`
+Phase 5's step 1 (and the in-code comment) called for collapsing `respondJson` into `call.respond(dto)` under
+`json()`. **Deliberately not done.** `respondJson` pre-encodes via `respondText`, yielding a **buffered
+`TextContent`** that `install(Compression)` gzips in place — which is exactly the property the retired
+`streamBody=false` comment fought to preserve. Routing `call.respond(dto)` through the kotlinx converter risks
+a streaming `WriteChannelContent` (the "Compressing a WriteChannelContent…" WARN + whole-body buffering).
+`respondJson` is now documented as the **permanent** buffered JSON path (comment rewritten), and `json()` is
+installed only so a future `call.respond(dto)` still resolves the kotlinx serializer. This is the approved
+plan's sanctioned fallback, chosen up front rather than after a failed gzip check. (kzen-shell, which has **no**
+Compression install, keeps its idiomatic `call.respond(list)` / `call.respond(boolean)` under `json()`.)
+
+### IconCollectionHandler ported to kotlinx (kzen-auto-jvm fully Jackson-free)
+Rewrote the ~95-line subset filter from the `tools.jackson` tree API (`readTree`/`ObjectNode`, mutated in
+place) to kotlinx `JsonObject`/`buildJsonObject` (immutable — accumulate into `mutableMapOf`/`mutableListOf`,
+freeze at the end). Same parse-once-and-cache semantics (`Json.parseToJsonElement` on the ~8 MB collection,
+cached per set). Output via `JsonElement.toString()`; caller still `respondText`s the String. New
+`IconCollectionHandlerTest` (fixture collection at `src/test/resources/icons/test-symbols.json`) covers direct
+hit, alias-chain resolution, dead-end alias → `texture` fallback + `not_found`, unknown name, missing collection.
+
+### Client (kzen-auto-js) + ClientJsonUtils removal (kzen-lib-js)
+- `ClientRestApi`: the 5 call sites (`scanNotation`, `readNotationBatch`, `performDetached`×2, `logicRequest`)
+  migrated from `getOrPutJson`/`postJson` + `ClientJsonUtils.toMap` + `fromJsonCollection`/hand-walk to
+  `getOrPut`/`post` + `clientJson.decodeFromString<…>`. The now-orphaned `getOrPutJson`/`postJson` helpers and
+  the `ClientJsonUtils` / `kotlin.js.Json` imports were deleted.
+- **`ClientJsonUtils` (kzen-lib-js) + its jsTest deleted** — `ClientRestApi` was its last consumer anywhere in
+  the ecosystem (grep-confirmed). kzen-lib round-trip: `publishToMavenLocal` → kzen-auto `--refresh-dependencies`.
+
+### Jackson dependency removal
+- **kzen-auto-jvm** `build.gradle.kts`: dropped `jackson-module-kotlin` + `ktor-serialization-jackson`,
+  uncommented `ktor-serialization-kotlinx-json`.
+- **kzen-auto-test** `build.gradle.kts`: dropped `jackson-module-kotlin`, `ktor-serialization-jackson`, and the
+  now-dead `ktor-client-content-negotiation` (TesterClient was already Jackson-free — SER4). kotlinx-json
+  arrives transitively via kzen-auto-common's `api(...)`.
+- **`jacksonModuleKotlin` constant deleted** from kzen-auto `buildSrc/Dependencies.kt` (no references left).
+- **kzen-shell** (Kotlin/JVM single-module, had no kotlinx setup): added `kotlin("plugin.serialization")` +
+  `kotlinx-serialization-json` dep (new `kotlinxSerializationVersion` constant), uncommented
+  `ktor-serialization-kotlinx-json`, dropped `jackson-module-kotlin` + `ktor-serialization-jackson` + the
+  `jacksonModuleKotlin` constant. `KzenShellMain` install `jackson()` → `json()`; `RunningProjectStatus` gained
+  `@Serializable`; `ProxyHandler.respondProxyError` rebuilt its `{error,name}` body with `buildJsonObject`
+  (its own `JsonMapper` was independent of ContentNegotiation, so the flip alone wouldn't have removed it).
+  **kzen-shell is now Jackson-free** (grep-clean). Proxied traffic is untouched byte-passthrough.
+- **kzen-launcher** unchanged — keeps Jackson 3 YAML (`jackson-databind` + `jackson-dataformat-yaml`) for
+  `ProjectRepo` only. This is now the ecosystem's sole Jackson.
+
+### Docs
+Umbrella `kzen/AGENTS.md`: Jackson pin shrunk to launcher-YAML-only; kotlinx-serialization pin extended to
+kzen-shell (and notes every server now serves JSON via kotlinx). "Serialized by Jackson" comment on
+`RunningProjectStatus` updated.
+
+### Files changed
+- **kzen-auto-common**: new `util/scan/NotationScanDocument.kt`; `serialization/WireDtoSerializerTest.kt` (+3).
+- **kzen-auto-jvm**: `server/api/RestHandler.kt`, `server/KzenAutoMain.kt`, `server/api/IconCollectionHandler.kt`
+  (full kotlinx rewrite), `build.gradle.kts`, `buildSrc/.../Dependencies.kt`; new
+  `src/test/.../api/IconCollectionHandlerTest.kt` + `src/test/resources/icons/test-symbols.json`.
+- **kzen-auto-js**: `client/service/rest/ClientRestApi.kt`.
+- **kzen-auto-test**: `build.gradle.kts`.
+- **kzen-lib-js**: deleted `client/ClientJsonUtils.kt` + `jsTest/.../client/ClientJsonUtilsTest.kt`.
+- **kzen-shell**: `KzenShellMain.kt`, `proxy/ProxyHandler.kt`, `model/RunningProjectStatus.kt`,
+  `build.gradle.kts`, `buildSrc/.../Dependencies.kt`.
+- **Docs**: `kzen/AGENTS.md`, this tracker.
+
+### Verification (all green, 2026-07-18)
+- **kzen-lib**: `:kzen-lib-js:compileTestKotlinJs` + `publishToMavenLocal` — proves the `ClientJsonUtils`
+  deletion compiles (its only consumer was the migrated `ClientRestApi`).
+- **kzen-auto** (`--refresh-dependencies`): `:kzen-auto-common:jvmTest` **and `:jsTest` (ChromeHeadless)** —
+  `WireDtoSerializerTest` 14/14 on **both** platforms (11 prior + 3 new `NotationScanDocument`, confirmed from
+  the persisted report XMLs); `:kzen-auto-jvm:test` all green incl. the new `IconCollectionHandlerTest` (5/5);
+  `:kzen-auto-js:compileKotlinJs` + `:jsEsbuildBundle`. **Two first-pass failures were test-assertion bugs in
+  my own `IconCollectionHandlerTest`** (compared the fallback value against a `resultIcons["texture"]` key that
+  was never requested → `NoSuchElementException`); the handler logic was correct — fixed by requesting `texture`
+  alongside so the reference key exists; re-run green.
+- **`:kzen-auto-test:selfTest`** green — drives the migrated `/action/detached` + `/logic/status` end-to-end
+  through `TesterClient`'s kotlinx decode (typed `ExecutionResult` / `LogicStatus`).
+- **Live headless boot** (jar on temurin-26, port 18099):
+  - `/scan?fresh=true` → the new `NotationScanDocument` wire form; `resources` **omitted** for resource-less
+    docs and **present** for `main/Action Target/~main.yaml` — the null-omission confirmed on real data.
+  - `/notation-batch?path=main/Script.yaml` → `{path: yaml}` `Map<String,String>` (note: the path constant is
+    `/notation-batch` and the param is `path`, not `/notation/batch?documentPath` — routing unchanged by SER5).
+  - `/storage/summary` (SER3 regression) → real numbers/booleans, `budget` present on `code-cache`, absent
+    elsewhere — intact under the flipped `json()` install.
+  - `/icon/material-symbols.json?icons=home,texture,star` → correct subset — the kotlinx `IconCollectionHandler`
+    port works live.
+  - **gzip checkpoint (the reason `respondJson` was kept):** `Content-Encoding: gzip` engages on `/scan` and the
+    multi-doc `/notation-batch`, and the boot log has **no "Compressing a WriteChannelContent" WARN**. The
+    `respondText`-buffered path stays gzip-clean. (Small bodies < `minimumSize(1024)`, e.g. a 3-icon response,
+    are correctly left uncompressed.)
+- **kzen-shell**: `:test` green (compile + tests); grep-confirmed Jackson-free.
+- **Manual dev-loop UI smoke NOT done in this headless session** — carried forward as smoke debt (same items
+  SER3/SER4 owed): ribbon storage manager (sizes/counts/`deletable`-driven delete button), Job
+  `MultiFileInputEditor` file listing, Report input browser (value-tree `DataLocationInfo`, must be unchanged),
+  and an SSE repaint on pause/settle through the shell proxy. None are SER5-specific regressions (the wire is
+  byte-compatible), but the visual confirmation remains outstanding.
