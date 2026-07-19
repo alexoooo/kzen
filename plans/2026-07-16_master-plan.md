@@ -30,9 +30,11 @@
 | AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js editor consolidation | AE1–AE6 | AE6 optional |
 | SH | `2026-07-16_shell-launcher-improvements.md` | Shell/launcher/project trio | SH2–SH5 | SH5 last (docs-to-truth) |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | hygiene S1–S10 (−S7) + decisions D1–D7 | **needs ratification session** |
+| R | `2026-07-18_reflection-improvements.md` | `@Reflect`/KSP/`ReflectionRegistry` mechanics | R1–R6 | R5 after B5 ratification; R1 reshapes D1 (Java plugins need no KSP) |
 
-~45 sessions total at one phase per session (G:5, SER:4, TP:3, Y:2, J:8, FL:3+gate, S8:2–4,
-AE:5–6, SH:4, EXT:1 decision + ~5, gates 0–2).
+~50 sessions total at one phase per session (G:5, SER:4, TP:3, Y:2, J:8, FL:3+gate, S8:2–4,
+AE:5–6, SH:4, EXT:1 decision + ~5, R:4–5 (R5 counts inside the EXT/D1 arc; R6 doc-only),
+gates 0–2).
 
 ## Sprint 2 — general-purpose platform first
 
@@ -119,6 +121,12 @@ G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last 
 - **AE1** (Old-fork removal — also unblocks FL5's cleaned-up scope) and **AE2** (close-policy
   select migration).
 - **EXT hygiene** (S1–S10 minus S7) — one opportunistic session.
+- **R3** (processor hardening) and **R4** (`@Service` FQN boot validation) — independent light
+  kzen-lib sessions.
+- **R1 → R2** (JVM reflective fallback mirror → test-fixture cleanup) — a two-session chain,
+  unconditionally valuable independent of the B5 ratification (it deletes the hand-maintained
+  test `ModuleReflection` fixtures and un-pollutes `src/main`); running it early also de-risks
+  the B5 decision session, since R1 is what lets D1 drop the KSP requirement for Java plugins.
 - **Manual smoke debt session** (see § Deferred & resolved) — needs the user at the browser.
 
 Sprint 2 exit: transport byte-efficient (compressed, binary-by-handle, exact re-fetch); one
@@ -157,16 +165,27 @@ crossing / nested-loop semantics) — decisions first, possibly docs-only.
 children surface + restart; registries atomic; template extension works out of the box; project
 upgrade path; 304s through the proxy.
 
-### Stage B5 — extensibility (1 decision session + ~5 build sessions)
+### Stage B5 — extensibility (1 decision session + ~5 build sessions; R1 is the pre-work)
 
+0. **Pre-work (pull-forward friendly, see Sprint-2 fillers): R1 → R2** from
+   `2026-07-18_reflection-improvements.md`. R1 (JVM reflective fallback mirror) is a hard
+   prerequisite of R5 and reshapes the D1 decision itself; R2 (test-fixture cleanup) is its
+   free dividend. R6's client-plugin verdict (declarative-first; separate Kotlin/JS bundles
+   can't share class identity) is already recorded — the D7 discussion should start from it.
 1. **Decision session**: ratify EXT D1–D7 (recommendations in the analysis; D1 —
    plugin-shipped `ModuleReflection` registration — is the strategic one and reshapes D2–D4).
-   Promote the analysis to `2026-07-XX_extensibility-improvements.md` in house plan format.
+   Fold in the R plan's R5-G gate (plugin classloader lifecycle: pinned boot-time load vs
+   today's ephemeral `.use{}` loaders). Promote the analysis to
+   `2026-07-XX_extensibility-improvements.md` in house plan format.
 2. D1 implementation + plugin UX + Custom power + registry disposition per the promoted plan.
-   (The hygiene phase may already have run as Sprint-2 filler.)
+   (The hygiene phase may already have run as Sprint-2 filler.) The reflection half of D1 is
+   R plan Phase R5 (`2026-07-18_reflection-improvements.md`): R1's JVM reflective fallback
+   mirror lets pure-Java plugins skip KSP entirely — `@Reflect` classes listed in
+   `plugins.yaml` register reflectively at load.
 
 Exit: `../kzen-sample-plugin` contributes a working `@Reflect` step/prototype with zero
-kzen-source edits.
+kzen-source edits — per R5, provable both ways (Kotlin plugin via KSP `ModuleReflection`,
+pure-Java plugin via the R1 reflective path).
 
 ## Dependency & coordination rules (the still-live ones)
 
@@ -188,6 +207,11 @@ kzen-source edits.
 8. **G4 measurement gate** — measure per-keystroke define cost post-G1 before building; record
    the number either way.
 9. **FL6 after FL3** (capability interfaces are the pre-work); **FE gates closed** (see below).
+10. **R1 → R2 → R5** — R2 and R5 both consume R1's reflective mirror (R1 publishes kzen-lib to
+    mavenLocal first); **R5 only after the B5 ratification** (its R5-G classloader-lifecycle
+    gate is decided there, together with D1). R3/R4 float freely. **R is independent of SH
+    Phase 4** (kzen-project static registration — the "static cousin"): separate code paths,
+    no ordering constraint (cross-refs in both plans).
 
 ## Deferred & resolved (carried from Sprint 1 — self-contained)
 
@@ -281,12 +305,12 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → G7 · G5 · G6 · G3 · (G4 if measured) ─┘
-           Fillers:  AE1 · AE2 · EXT-hygiene · smoke-debt session
+           Fillers:  AE1 · AE2 · EXT-hygiene · R1 → R2 · R3 · R4 · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)
-           B5: EXT ratify → D1 arc              (extensibility)
+           B5: (R1 → R2 pre-work) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
 ```
 
 ## Parallelism
@@ -296,7 +320,8 @@ One executor, so "parallel" means *interleavable without re-churn*:
 - Sprint 2's three tracks are mutually independent; the fillers fit anywhere.
 - Backlog stages B1–B5 are mutually independent and independent of Sprint 2 **except**: rules
   3–7 above (SER4↔TP4, AE→S8b/J8.4/FL5, S8a↔TP3, J-chain).
-- Spines that must stay ordered: **SER2→3→4→5**, **Y→G7b**, **J2→J3→J4→J9**, **AE3→AE4→AE5**.
+- Spines that must stay ordered: **SER2→3→4→5**, **Y→G7b**, **J2→J3→J4→J9**, **AE3→AE4→AE5**,
+  **R1→R2→R5** (R5 additionally behind the B5 ratification).
 
 ## Verification
 

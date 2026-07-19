@@ -274,6 +274,12 @@ session, can execute them directly:
   **Recommend: yes**, with **load-once-per-boot / restart-to-upgrade** lifecycle semantics
   stated up front. Acceptance: sample plugin contributes an `@Reflect` step/prototype with zero
   kzen-source edits. This decision reshapes D2–D4.
+  *Reshaped 2026-07-18 by `2026-07-18_reflection-improvements.md`:* the reflection half of D1
+  is its Phase R5. Its R1 (JVM reflective fallback mirror on `GlobalMirror`) means **Java/Maven
+  plugins need no KSP at all** — `@Reflect` classes listed in `plugins.yaml` register
+  reflectively at load; KSP-generated `ModuleReflection` remains the Kotlin-plugin path. The
+  classloader-lifecycle tension (registration pins the loader for JVM life, vs today's
+  ephemeral `.use{}` pattern) is its explicit gate R5-G — ratify together with D1.
 - **D2 — Isolation unit for multi-jar support.** Per-`PluginDocument` `URLClassLoader`
   (recommended) vs today's per-repository merge + cross-repo chaining. If D1 lands with
   boot-time loading, the loader set is fixed at boot and this simplifies further.
@@ -299,6 +305,11 @@ session, can execute them directly:
   Kotlin/JS bundles / web components / iframes) is a large, separable investment — decide only
   when a concrete plugin needs more than the default chrome. C6's per-tag card registry is the
   in-tree seam that keeps this future open.
+  *Verdict recorded 2026-07-18 in `2026-07-18_reflection-improvements.md` Phase R6:*
+  declarative-first stands; the blocking fact is that a separately-compiled Kotlin/JS bundle
+  does not share class identity with the host bundle (two copies of kzen-lib-common →
+  `instanceof`/registry-type failures), so "load another bundle that calls `register()`"
+  cannot work regardless of loader mechanics. Prerequisites for reopening are named there.
 
 ## Candidate phase structure (not ratified — sketch for the eventual plan)
 
