@@ -23,7 +23,7 @@
 | G | `2026-07-16_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G3–G7 | G4 measurement-gated; G7b after Y |
 | SER | `2026-07-16_serialization-improvements.md` | Wire serialization (kotlinx convergence) | ✅ **COMPLETE 2026-07-18** | SER2–SER5 all landed; Jackson gone from kzen-auto + kzen-shell (launcher YAML only) |
 | TP | `2026-07-16_trace-payload-improvements.md` | Trace payload + transport efficiency | TP1, TP3, TP4 (TP2 = optional stopgap, default skip) | realizes E5's two parked items |
-| Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | W1–W8 (~2 sessions) | **before G7b** |
+| Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | ✅ **COMPLETE 2026-07-18** | W1–W8 landed in one session; **before G7b** |
 | J | `2026-07-16_job-improvements.md` | Job flavour + Report subsumption | J2–J9 | J7 rescoped post-E7 |
 | FL | `2026-07-16_flow-improvements.md` | Flow flavour | FL3–FL6 | FL6 = decision gate |
 | S8 | `2026-07-16_script-client-sweep.md` | Script client sweep | S8a–S8d | 8b prefers AE3+AE5 first |
@@ -105,7 +105,7 @@ note).
 
 | Order | Phase | Why |
 |---|---|---|
-| N1–N2 | **Y** (W1–W8) | the notation format rework; **must precede G7b** (hot-seam rule); includes the mandatory legacy on-disk audit |
+| ~~N1–N2~~ | ~~**Y** (W1–W8)~~ ✅ **DONE 2026-07-18** | ~~the notation format rework; **must precede G7b** (hot-seam rule); includes the mandatory legacy on-disk audit~~ — landed W1–W8 in one session; legacy audit **clean** (zero no-space-colon keys across all on-disk yaml); unparse now emits bare / `'single'` / `\|-` / `"double"` and comments are modeled on `YamlNode`; kzen-lib JVM+JS + `:kzen-auto-jvm:test` green |
 | N3 | **G7** reducer split + template-respecting deparse | comments/formatting survive edits — the user-visible payoff of Y |
 | N4 | **G5** NotationCodec + notation-driven `isLogic` | deletes binding boilerplate; removes the hardcoded logic-document check (god-object fix) |
 | N5 | **G6** error surface | failures name their origin instead of "Missing: main" |
@@ -280,7 +280,7 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 ```
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
-           Track N:  Y → G7 · G5 · G6 · G3 · (G4 if measured) ─┘
+           Track N:  ~~Y~~ → G7 · G5 · G6 · G3 · (G4 if measured) ─┘
            Fillers:  AE1 · AE2 · EXT-hygiene · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
