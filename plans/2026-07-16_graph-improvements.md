@@ -17,7 +17,7 @@
 >   measurement** (see phase header)
 > - [ ] Phase 5 — declarative notation binding + notation-driven logic marker
 > - [ ] Phase 6 — error surface (`GraphInstanceAttempt`, structured definition failures)
-> - [ ] Phase 7 — reducer decomposition + format-preserving deparse (7b after the yaml plan)
+> - [x] Phase 7 — reducer decomposition + format-preserving deparse (7b after the yaml plan) — **done 2026-07-19**
 
 ## Landed context (Sprint 1) — what G3–G7 can rely on
 
@@ -319,6 +319,55 @@ hand-formatted files). Update the now-accurate `DirectGraphStore.writeCopy` comm
 Baseline (notation suites are the core safety net for both halves); kzen-auto raw-editor smoke:
 hand-comment a document, edit a *different* object via the structured UI, confirm the comment
 survives on disk; `SetDocumentObjectsCommand` (raw save) still round-trips.
+
+### As-built (2026-07-19)
+
+- **7a — full split (the conservative split was landed first, then extended to the full one when the
+  user asked why the file was still large; the "deferred" note below is superseded).** Every command
+  handler is now a pure top-level function in a sibling file, and `NotationReducer.kt` is a ~230-line
+  dispatch facade holding only the class (`applyStructural` delegates to a top-level dispatcher;
+  `applySemantic`'s `when` threads `codeReferenceRewriters` into `renameObjectRefactor`), the top-level
+  `internal class StructuralBuffer`, and the top-level `internal fun applyStructuralCommand` (the
+  structural `when`). The moves, all same-package so the `when` branches call them unchanged:
+  stateless handlers → `NotationReducer{Documents,Objects,Attributes,Resources}.kt`; composite-attribute
+  group D (`shiftInAttribute`/`addObjectAtAttribute`/`insertObjectInListAttribute`/`removeObjectInAttribute`)
+  → `NotationReducerComposite.kt`; the refactor + reference-analysis cluster (group E) →
+  `NotationReducerRefactor.kt`. The two enablers: `StructuralBuffer` had to become a top-level
+  `internal class` (was `private inner`) so top-level handlers can construct it, which in turn required
+  the structural dispatcher to be a top-level `internal fun` (verified instance-independent — it never
+  consults `codeReferenceRewriters`); the class's public `applyStructural` is now a one-line delegate.
+  **The visibility cost the plan feared didn't materialize:** because the whole E cluster moved as a
+  unit into one file, only its four dispatched entry points (`renameObjectRefactor`,
+  `relocateObjectTreeRefactor`, `relocateDocumentRefactor`, `relocateFolderRefactor`) are `internal`;
+  every reference-analysis helper stays file-`private`. `renameObjectRefactor` gained a
+  `codeReferenceRewriters: List<CodeReferenceRewriter>` parameter (the only group-E user of instance
+  state), threaded by `applySemantic`. The re-merge invariant is the single `remergeAttributeThenEdit`
+  top-level helper (consumed by the 5 nested-attribute edits; STEP 1 document lookup stays at each call
+  site so differing throw idioms `!!` vs `?: throw` are preserved verbatim; the edit lambda returns
+  `Pair<ObjectNotation, NotationEvent>` so two insert sites build their event from post-merge locals).
+  The 3-arg path helper `renameNestedObject` was renamed `renamedNestedObjectPath` (removing the
+  overload with the moved 2-arg command handler). All notation suites + kzen-auto's ~10
+  `NotationReducer().applyStructural` test callers pass unchanged.
+- **7b — as designed.** `unparseDocument` now honours `previousDocument`: `splitPreviousDocument`
+  segments the template by column-0 non-blank non-`#` boundary lines (each object carries its own
+  leading blank/comment run; leading document comments are the prefix), parses each segment
+  individually (single source of truth; empty-body/malformed segments skip), and reconstruction
+  emits the byte-identical (blank-edge-trimmed) segment for unchanged objects else house-serializes.
+  `houseSerializeObject` extracts the old per-object loop, reused by the full-serialize fast/fallback
+  path. Everything is wrapped in a try/catch → full serialization. `DirectGraphStore.writeCopy`'s
+  now-accurate comment updated.
+- **Tests:** 5 new `YamlNotationParserTest` cases (preserve-unchanged-comment, leading-comment,
+  blank normalization, comment-inside-changed-object lost, unmatched-template fallback) + 1
+  `RepositoryTest` store round-trip (edit A through the store, assert B's comment survives on disk).
+  **The disk-level folder-relocate `writeCopy` test was deferred** — it needs a writable copy of the
+  archetype fixture graph for reference resolution (heavy harness); `writeCopy` uses the identical
+  `unparseDocument(objects, template)` path already covered by the parser + store tests, and
+  `RenameFolderRefactorTest` covers the reference-rewrite that makes objects differ.
+- **Verification (all green):** `:kzen-lib-common:jvmTest`+`jsTest`, `:kzen-lib-jvm:test` (one
+  unrelated flaky `RunEngineTest.migrateConcurrentChildren…` passed on isolated re-run),
+  `publishToMavenLocal`, then `:kzen-auto-jvm:test --refresh-dependencies` (Job suite + FormulaStep +
+  JS bundle). Docs: kzen-lib `docs/architecture.md` CQRS § (reducer file organization +
+  format-preserving deparse). **Manual raw-editor smoke still owed** (browser session).
 
 ---
 
