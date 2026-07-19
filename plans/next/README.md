@@ -1,0 +1,81 @@
+# plans/next — detailed implementation plans for the independent backlog
+
+> Generated 2026-07-19 by a batch of parallel planning sessions (one per work item), each
+> elaborating its constituent plan's phase into an execution-ready document verified against the
+> current code. **The constituent plans remain the authority on design rationale**; these
+> documents are the execution elaboration — anchors refreshed, "check first" questions
+> pre-resolved. Executor: Opus, one plan per session, any order (all items here are
+> hard-independent of every other *remaining* backlog item).
+>
+> Source of truth for sequencing: `../2026-07-16_master-plan.md`. When a plan here lands, tick
+> the tracker in its constituent plan (as always) and strike it in the master plan; then delete
+> the plan file here (or mark it done at the top).
+
+## The independent set (planned here)
+
+| Plan | Item | Constituent plan | Notes |
+|---|---|---|---|
+| `G3_scoped-instantiation.md` | G3 — scoped instantiation + instance caching | graph | kzen-lib + kzen-auto; **3a rescoped** (premise already landed — test-pin + measurement only) |
+| `G6_error-surface.md` | G6 — structured definition/creation failures | graph | light session |
+| `J2_job-signature.md` | J2 — Job parameters in / results out | job | spine opener (priority-first among J) |
+| `J3_report-subsumption-a.md` | J3 — pluggable input formats + design-time services | job | no hard dep on J2 (per J plan header); **two steps rescoped down** (file-browse route + sync driver already exist) |
+| `J5_perf-headless.md` | J5 — benchmark-first perf + headless mode | job | **serve-gate rescoped** (literal skip unsatisfiable; headless stamps synthesized duplex channels non-external instead) |
+| `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job | **demand-driven — lowest J priority** |
+| `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job | retain=false extractable as micro-session |
+| `FL3_vertex-capability-spi.md` | FL3 — vertex capability SPI | flow | B3 opener; FL6 gate needs it |
+| `FL4_flow-client-perf-errors.md` | FL4 — Flow client perf + Error phase | flow | independent of FL3 (same-file adaptation note inside); **refetch mostly landed by E5/TP4** — residual = involvement gate; two required jvm `FlowRun` additions |
+| `S8a_script-hot-paths.md` | S8a — Script client hot paths | script sweep | post-TP3/TP4 anchors |
+| `S8c_branch-discovery.md` | S8c — notation-driven branch discovery | script sweep | unblocks SwitchStep |
+| `S8d_script-hygiene.md` | S8d — Script client hygiene | script sweep | one AE5-conditional item inside |
+| `AE1_retire-old-fork.md` | AE1 — delete flow/edit/*Old.kt fork | attribute-editor | also unblocks FL5's scope |
+| `AE2_select-values-editor.md` | AE2 — SelectClosePolicy → SelectValues | attribute-editor | |
+| `AE3_commit-primitive.md` | AE3 — shared commit primitive | attribute-editor | opens the AE3→AE4→AE5 spine |
+| `SH2_child-exit-detection.md` | SH2 — child exit detection + UI surfacing | shell/launcher | DA5 later replaces its bind-failure pane |
+| `SH3_registry-durability.md` | SH3 — atomic registries + --project.home | shell/launcher | **rescoped to ProjectRepo only** (ArchetypeRepo already directory-scan + atomic) |
+| `SH4_template-extension-upgrade.md` | SH4 — kzen-project extension point + upgrade | shell/launcher | static cousin of R5; no ordering constraint |
+| `R1_reflective-fallback-mirror.md` | R1 — JVM reflective fallback mirror | reflection | prerequisite of R2 and R5 |
+| `R3_processor-hardening.md` | R3 — KSP processor hardening | reflection | floats freely |
+| `R4_service-fqn-validation.md` | R4 — @Service FQN boot validation | reflection | floats freely; G3c adaptation note inside |
+| `EXTH_hygiene.md` | EXT-H — extensibility hygiene S1–S10 (−S7) | extensibility analysis | D1–D7 remain unratified, untouched |
+| `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-app | closes gate D1; gates DA2+ |
+
+## Excluded from this batch — and why
+
+Behind another remaining item (plan them after their prerequisite lands, so they elaborate
+reality rather than a prediction):
+
+- **J4** (after J3), **J9** (after J4, same files), **J8** (after J3; prefer after AE3+AE5)
+- **FL5** (AE1 first — master rule 5), **FL6** (decision gate after FL3)
+- **S8b** (AE3+AE5 first — master rule 4)
+- **AE4** (after AE3), **AE5** (after AE4), **AE6** (optional, after 1–5 land smoothly)
+- **SH5** (docs-to-truth over whatever SH2–SH4 changed)
+- **R2** (after R1 + publishToMavenLocal), **R5** (after R1 **and** the B5 ratification)
+- **DA2–DA5** (after the DA1 spike closes gate D1; DA6 macOS deferred)
+
+Gated or not implementable by an autonomous session:
+
+- **G4** — measurement-gated by its own plan: measure per-keystroke define cost post-G1 first,
+  build only if it still hurts. The measurement is cheap (micro-session); the graph plan holds
+  the full design if the verdict is "build". Deliberately not pre-planned here so the gate stays
+  honest.
+- **EXT decision session (D1–D7 + R5-G)** — needs the user to ratify; the analysis doc holds the
+  recommendations. After ratification, promote the analysis to a standard plan and then plan the
+  D-arc build sessions.
+- **Manual smoke debt** — needs the user at the browser; the checklist lives in the master plan
+  § "Manual smoke debt (one session, needs the user)".
+- **R6** — effectively already done: the client-plugin verdict is recorded in both the R plan
+  (Phase R6) and EXT D7; only the R-plan tracker checkbox needs ticking. No session required.
+
+## Suggested pick order (matches master-plan priorities)
+
+Sprint-2 remainder first: **G6 → G3** (Track N), with fillers **AE1 · AE2 · R1 · R3 · R4 ·
+EXT-H** interleaved anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
+(B2; J5/J7 slot around, J6 last), **FL3 · FL4** (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
+
+## Standing rules for every implementation session
+
+- The constituent plan's decisions are pre-made; these documents elaborate, never override.
+- If a sibling from this directory has landed since a plan was written, re-verify its anchors in
+  the overlap areas (each plan's "Dependencies & coordination" section names the known seams).
+- Tick trackers (constituent plan + master plan) when a phase lands; append as-built notes on
+  deviation.
