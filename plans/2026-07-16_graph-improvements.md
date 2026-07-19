@@ -15,7 +15,8 @@
 > - [ ] Phase 3 — scoped instantiation + instance caching (Flow per-vertex, detached actions)
 > - [ ] Phase 4 — incremental define (per-object definition cache, opt-in SPI) — **gated on
 >   measurement** (see phase header)
-> - [ ] Phase 5 — declarative notation binding + notation-driven logic marker
+> - [x] Phase 5 — declarative notation binding + notation-driven logic marker — **done 2026-07-19**
+>   (5b's marker already landed under CC-17 → reduced to a doc fix; 5a = NotationCodec layer + FilterSpec/PivotSpec port)
 > - [ ] Phase 6 — error surface (`GraphInstanceAttempt`, structured definition failures)
 > - [x] Phase 7 — reducer decomposition + format-preserving deparse (7b after the yaml plan) — **done 2026-07-19**
 
@@ -250,6 +251,52 @@ Baseline + report UI smoke (filter/pivot editing round-trips — codec parity wi
 `ofNotation` verified by unit tests comparing outputs over the existing notation fixtures).
 selfTest covers ribbon gating (Script/Job run controls present); manually confirm a Flow document
 still shows Run controls.
+
+### As-built (2026-07-19)
+
+- **5b was already done — reduced to a doc fix (user decision: "doc fix only").** The plan's premise
+  (a hardcoded `isScript || isFlow || isReport || isJob` OR in `AutoConventions.isLogic`) no longer held:
+  `isLogic(graphNotation, documentPath)` already tests the `main` archetype's inheritance chain for a
+  common `Logic` marker (`ObjectName("Logic")`), every logic archetype declares `is: [Document, Logic]`
+  in `common-document.yaml`, and the server twin is the `LogicDocument` interface (guarded by
+  `LogicCompiler`'s `as? LogicDocument`). This landed earlier under **CC-17**. So the notation-marker
+  design the plan proposed already exists. **The `GraphNotation.inheritsFrom` helper was NOT added**
+  (user chose doc-only) — the ~7 hand-rolled `inheritanceChain(x).any { it.objectPath.name == … }`
+  scan sites stay as-is; a future cleanup can still add it. Only change: corrected the stale
+  `kzen-auto/docs/architecture.md` § 1 gotcha to describe the actual mechanism (no umbrella duplicate found).
+- **5a — as designed, with placement decided.** New `NotationCodec<T>` (`parse`/`unparse`) + combinator
+  library `NotationCodecs` (`scalar`/`boolean`/`int`/`long`/`double`, `scalarMapped`, reified `enum`,
+  `list`/`set`/`map`, `record` + `field`/`fieldOrNull`/`recordOf` + `xmap`) in **new package
+  `kzen-lib-common/.../model/structure/notation/codec/`** (chosen over the plan's tentative
+  `service/binding/` — the codec depends only on `AttributeNotation` model types, no service coupling).
+  Generic `abstract class CodecAttributeDefiner<T>(codec, inheritanceMerge)` in
+  `kzen-lib-common/.../objects/general/` — abstract, so no `@Reflect` / no `kzen-base.yaml` entry.
+- **Ported FilterSpec (`inheritanceMerge = false`, verbatim `firstAttribute`) and PivotSpec
+  (`inheritanceMerge = true`, `mergeAttribute`)** plus their nested specs (ColumnFilterSpec,
+  PivotValueTableSpec, PivotValueColumnSpec). Each spec's `Definer` collapsed from a ~20-line
+  `object … : AttributeDefiner { override define … }` to `object Definer: CodecAttributeDefiner<Spec>(codec, …)`
+  (kept `@Reflect`; **zero notation YAML change** — `FilterSpecDefiner`/`PivotSpecDefiner`'s
+  `class: …$Definer` still resolve). `ofNotation` (still consumed client-side by ValueSetFilterEditor /
+  PivotSpecEditor, and by AnalysisSpec.Definer for the Report host) now delegates to `codec.parse`;
+  `ColumnFilterSpec.emptyNotation` now derives from `codec.unparse(empty)` (single source of truth for
+  the `{type, values}` layout). PivotSpec's `rows` dedup (`HeaderListing` uniqueness) preserved via
+  `.distinct()`. `PivotValueTableSpec.ofRequest`/`asRequest` (the separate RequestParams wire) left
+  hand-written. Minor intentional improvement: the base reads via the nullable `firstAttribute(path)` /
+  `mergeAttribute` overloads → graceful `AttributeDefinitionFailure` instead of the prior by-name throw
+  when the attribute is wholly absent (never happens in practice — archetypes default `filter`/`pivot`).
+- **Follow-up (documented, not this phase):** ~13 codec-portable definers remain — report
+  `SortSpec`/`PreviewSpec`/`FormulaSpec`/`OutputExportSpec`/`OutputSpec`/`AnalysisSpec`/`InputSpec`,
+  plus `FieldFormatListSpec`/`ClassListSpec`/`ResourceClosePolicyDefiner`/`ResultSignatureDefiner`/
+  `TypeMetadataDefiner`/`ParameterDefaultDefiner`. Not codec-portable (structural / registry / metadata
+  dispatch): `TargetSpecDefiner`, `ChannelTypeDefiner`, `FlowWiring`, `EdgesDefiner`.
+- **Tests / verification (all green):** `NotationCodecTest` (kzen-lib commonTest — every combinator +
+  order preservation + field defaults + xmap); `FilterSpecCodecTest` + `PivotSpecCodecTest` (kzen-auto
+  commonTest — parse+unparse against hand-built fixtures, empty-template parity, rows dedup).
+  `:kzen-lib-common:jvmTest`+`jsTest` + `:kzen-lib-jvm:test`, `publishToMavenLocal`, then (with
+  `--refresh-dependencies`) `:kzen-auto-common:jvmTest`+`jsTest` + `:kzen-auto-jvm:test` (Job suite drives
+  both definers via `job-worker.yaml`'s `is: FilterSpec`/`is: PivotSpec`) + the `kzen-auto-js` bundle
+  (client `ofNotation` callers still bind). **Manual report filter/pivot round-trip smoke still owed**
+  (browser session — folded into the standing smoke-debt item).
 
 ---
 

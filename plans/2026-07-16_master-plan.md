@@ -20,7 +20,7 @@
 
 | ID | Document | Scope | Open phases | Notes |
 |---|---|---|---|---|
-| G | `2026-07-16_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G3–G6 (G7 ✅ done 2026-07-19) | G4 measurement-gated |
+| G | `2026-07-16_graph-improvements.md` | Notation→Definition→Instance stack (kzen-lib) | G3, G4, G6 (G5 ✅, G7 ✅ done 2026-07-19) | G4 measurement-gated |
 | SER | `2026-07-16_serialization-improvements.md` | Wire serialization (kotlinx convergence) | ✅ **COMPLETE 2026-07-18** | SER2–SER5 all landed; Jackson gone from kzen-auto + kzen-shell (launcher YAML only) |
 | TP | `2026-07-16_trace-payload-improvements.md` | Trace payload + transport efficiency | TP1, TP3, TP4 (TP2 = optional stopgap, default skip) | realizes E5's two parked items |
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | ✅ **COMPLETE 2026-07-18** | W1–W8 landed in one session; **before G7b** |
@@ -110,7 +110,7 @@ note).
 |---|---|---|
 | ~~N1–N2~~ | ~~**Y** (W1–W8)~~ ✅ **DONE 2026-07-18** | ~~the notation format rework; **must precede G7b** (hot-seam rule); includes the mandatory legacy on-disk audit~~ — landed W1–W8 in one session; legacy audit **clean** (zero no-space-colon keys across all on-disk yaml); unparse now emits bare / `'single'` / `\|-` / `"double"` and comments are modeled on `YamlNode`; kzen-lib JVM+JS + `:kzen-auto-jvm:test` green |
 | ~~N3~~ | ~~**G7** reducer split + template-respecting deparse~~ ✅ **DONE 2026-07-19** | comments/formatting survive edits — the user-visible payoff of Y (conservative reducer split; disk-level writeCopy test + manual raw-editor smoke owed) |
-| N4 | **G5** NotationCodec + notation-driven `isLogic` | deletes binding boilerplate; removes the hardcoded logic-document check (god-object fix) |
+| ~~N4~~ | ~~**G5** NotationCodec + notation-driven `isLogic`~~ ✅ **DONE 2026-07-19** | NotationCodec layer + FilterSpec/PivotSpec port landed; `isLogic` was **already** notation-driven (CC-17) so 5b reduced to a doc fix — the `inheritsFrom` helper was skipped per decision |
 | N5 | **G6** error surface | failures name their origin instead of "Missing: main" |
 | N6 | **G3** scoped instantiation + instance caching | detached-action hot path; Flow per-vertex closure |
 | (N7) | **G4** incremental define | **only if the post-G1 measurement demands it** — measure first, record either way |
@@ -319,7 +319,7 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 ```
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
-           Track N:  ~~Y~~ → ~~G7~~ · G5 · G6 · G3 · (G4 if measured) ─┘
+           Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · G3 · (G4 if measured) ─┘
            Fillers:  AE1 · AE2 · EXT-hygiene · R1 → R2 · R3 · R4 · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
