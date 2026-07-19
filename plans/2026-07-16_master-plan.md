@@ -31,10 +31,11 @@
 | SH | `2026-07-16_shell-launcher-improvements.md` | Shell/launcher/project trio | SH2–SH5 | SH5 last (docs-to-truth) |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | hygiene S1–S10 (−S7) + decisions D1–D7 | **needs ratification session** |
 | R | `2026-07-18_reflection-improvements.md` | `@Reflect`/KSP/`ReflectionRegistry` mechanics | R1–R6 | R5 after B5 ratification; R1 reshapes D1 (Java plugins need no KSP) |
+| DA | `2026-07-18_desktop-app-distribution.md` | Desktop-app distribution: embedded tabbed shell (JCEF) + jpackage installers | DA1–DA5 (DA6 macOS deferred) | engine gate D1 closes after DA1 spike (fallback Electron); DA5 coordinates with SH2 |
 
-~50 sessions total at one phase per session (G:5, SER:4, TP:3, Y:2, J:8, FL:3+gate, S8:2–4,
+~55 sessions total at one phase per session (G:5, SER:4, TP:3, Y:2, J:8, FL:3+gate, S8:2–4,
 AE:5–6, SH:4, EXT:1 decision + ~5, R:4–5 (R5 counts inside the EXT/D1 arc; R6 doc-only),
-gates 0–2).
+DA:5 (DA6 deferred), gates 0–2).
 
 ## Sprint 2 — general-purpose platform first
 
@@ -187,6 +188,15 @@ Exit: `../kzen-sample-plugin` contributes a working `@Reflect` step/prototype wi
 kzen-source edits — per R5, provable both ways (Kotlin plugin via KSP `ModuleReflection`,
 pure-Java plugin via the R1 reflective path).
 
+### Stage B6 — desktop-app distribution (~5 sessions + spike gate)
+
+**DA1 (spike, closes engine gate D1) → DA2 → DA3 → DA4 → DA5** from
+`2026-07-18_desktop-app-distribution.md` (DA6 macOS deferred). Embedded-Chromium tabbed window
+inside kzen-shell (JCEF via jcefmaven; fallback Electron per D1) + jpackage installers
+(Windows MSI, Linux deb/rpm), replacing the zip + `.bat` + system-browser flow. Exit: installed
+app opens a tabbed window (launcher pinned + one tab per project) with plain-browser access
+retained; Windows and Linux installers ship.
+
 ## Dependency & coordination rules (the still-live ones)
 
 1. **Y before G7b** — the yaml plan's one-time unparse churn must precede byte-identical
@@ -212,6 +222,11 @@ pure-Java plugin via the R1 reflective path).
     gate is decided there, together with D1). R3/R4 float freely. **R is independent of SH
     Phase 4** (kzen-project static registration — the "static cousin"): separate code paths,
     no ordering constraint (cross-refs in both plans).
+11. **DA5 ↔ SH2** — both touch the second-launch/bind-failure UX in `DesktopUi`: SH2 plans a
+    bind-failure pane in today's Swing window; DA5 replaces it with focus-existing-window
+    single-instance behaviour. Whichever lands second adapts (if DA2+ is in, SH2 drops its
+    pane in favour of DA5's path). **DA2+ within the stage only after the DA1 spike closes
+    gate D1**; otherwise DA is independent of Sprint 2 and B1–B5.
 
 ## Deferred & resolved (carried from Sprint 1 — self-contained)
 
@@ -311,6 +326,7 @@ Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)
            B5: (R1 → R2 pre-work) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
+           B6: DA1 spike (gate) → DA2 → DA3 → DA4 → DA5   (desktop distribution)
 ```
 
 ## Parallelism
@@ -318,10 +334,10 @@ Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
 One executor, so "parallel" means *interleavable without re-churn*:
 
 - Sprint 2's three tracks are mutually independent; the fillers fit anywhere.
-- Backlog stages B1–B5 are mutually independent and independent of Sprint 2 **except**: rules
-  3–7 above (SER4↔TP4, AE→S8b/J8.4/FL5, S8a↔TP3, J-chain).
+- Backlog stages B1–B6 are mutually independent and independent of Sprint 2 **except**: rules
+  3–7 and 11 above (SER4↔TP4, AE→S8b/J8.4/FL5, S8a↔TP3, J-chain, DA5↔SH2).
 - Spines that must stay ordered: **SER2→3→4→5**, **Y→G7b**, **J2→J3→J4→J9**, **AE3→AE4→AE5**,
-  **R1→R2→R5** (R5 additionally behind the B5 ratification).
+  **R1→R2→R5** (R5 additionally behind the B5 ratification), **DA1→DA2** (spike gates the rest).
 
 ## Verification
 
