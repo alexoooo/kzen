@@ -1,5 +1,12 @@
 # G3 — scoped instantiation + instance caching — implementation plan
 
+> **✅ DONE 2026-07-19.** Landed in one session (Parts A–E). Trackers ticked in
+> `../2026-07-16_graph-improvements.md` (which carries the full as-built note) and
+> `../2026-07-16_master-plan.md`. Two deviations worth knowing: the 3b executor test could not use
+> a `test/`-nested fixture (outside `AutoConventions.serverAllowed`) and drives the production
+> `ScriptValidator` instead; and the manual before/after `/action/detached` timing is still owed
+> (needs the user at the browser — manual smoke debt).
+
 > **Status: ready to execute.** Generated 2026-07-19 by a planning session from
 > `2026-07-16_graph-improvements.md` Phase 3 (3a/3b/3c); the design decisions are pre-made there —
 > this document elaborates them into execution-ready steps and does not re-litigate. Every anchor

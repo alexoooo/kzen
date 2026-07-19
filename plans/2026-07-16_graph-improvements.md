@@ -12,7 +12,8 @@
 > segment preservation); `2026-07-16_master-plan.md` (sequencing).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 3 — scoped instantiation + instance caching (Flow per-vertex, detached actions)
+> - [x] Phase 3 — scoped instantiation + instance caching (Flow per-vertex, detached actions) —
+>   **done 2026-07-19** (3a rescoped to survey-pin + measurement; 3b + 3c as planned)
 > - [ ] Phase 4 — incremental define (per-object definition cache, opt-in SPI) — **gated on
 >   measurement** (see phase header)
 > - [x] Phase 5 — declarative notation binding + notation-driven logic marker — **done 2026-07-19**
@@ -160,6 +161,66 @@ Baseline + selfTest (Flow FizzBuzz exercises per-vertex execution; Script sub-ru
 compile). Manual: Report input/output panel actions (detached hot path) — behaviour unchanged,
 server log timing before/after worth capturing in the as-built note. Job suite for 3c (env
 threading through `EngineJobControl`).
+
+### As-built (2026-07-19)
+
+**3a — rescoped to survey-pin + measurement, no production change.** The premise no longer held:
+`FlowRun` builds **one** graph per run (`FlowRun.kt:113-116`) and every vertex execution / retrace
+reads that single `runInstance` — the per-execution rebuild 3a targeted was already eliminated by
+the engine-rewrite era Flow work, and per-vertex closures would now be a *de-optimization* for a
+full run (N `createGraph` calls each re-paying the bootstrap tower vs one over the same objects).
+The mandatory survey confirmed per-vertex closures **are** self-contained: channels are define-time
+`ValueAttributeDefinition`s (`FlowWiring.define`), sibling vertices connect by grid geometry not
+references (`EdgesDefiner` emits value `EdgeDescriptor`s), and `RunLogicVertex.instructions` is
+`by: Nominal` → weak → excluded from `references()`. `FlowVertexClosureTest` (new) pins that
+invariant and creates each vertex standalone. **Measurement** on `test/flow-run-test.yaml`
+(3 vertices incl. a `RunLogic`): per-vertex closure = **3** definitions vs document-scoped = **6**
+— a real but modest ratio at this size, consistent with the rescope. The kzen-lib
+`GraphCreator.createObject` single-object API **stays deferred**.
+
+**3b — landed as planned, with one cache-key refinement.** `GraphInstanceCache`
+(`kzen-auto-jvm/.../server/service/exec/`) takes the already-`serverAllowed`-filtered definition,
+scopes with `filterTransitive(actionLocation)`, and reuses the located `ObjectInstance`
+(access-ordered LRU, `maxEntries = 32`). The key is **not** bare `transitiveDigest`: an inheritance
+ancestor is not in `references()`, so editing a user-editable prototype (a Custom-document
+archetype) would change the merged definition without bumping the closure digest. The key therefore
+folds in each closure member's inheritance-chain notation digests. `GraphInstanceCacheTest` case
+`inheritanceAncestorEditRebuilds` pins this — verified to fail when the chain contribution is
+removed. **Statelessness survey: all 10 implementations are stateless** (all-`val` config/services,
+no `var`/mutable collection/stored handle), so none needs the opt-out; the archetype attribute
+`instanceCaching: "false"` (read via inheritance-walking `firstAttribute`) ships anyway as the
+third-party escape hatch, exercised by the `FreshActionArchetype` fixture. The contract is now kdoc
+on `DetachedAction`, `DetachedDownloadAction` and kzen-lib `ManagedTask`, including the newly
+reachable "same instance may serve concurrent requests". `ModelTaskRepository`'s
+`// TODO: add GraphInstanceAttempt` is preserved.
+
+**3c — landed, with drift corrections.** kzen-lib `GraphEnvironmentBuilder.put(className, provider)`
++ `MapGraphEnvironment.ServiceProvider` (`by lazy`) added; `KzenAutoContext.graphEnvironment` is now
+an eager `val` declared mid-constructor, with the two below-it members (`logicTrace`,
+`serverLogicController`) registered as providers; `ServerLogicController` / `ModelDetachedExecutor` /
+`ModelTaskRepository` take a plain `GraphEnvironment`. Drift vs the plan: **`ClientContext` never
+took a thunk** (its env is `by lazy`, passed directly to `createGraph`) — no client change; the
+**plugin repo was never a thunk site** either (it takes no environment at all and already scopes
+with `filterTransitive` + its own digest cache) — the stale sentence in kzen-auto
+`docs/architecture.md` §4 was corrected; and one *dead* fourth thunk site the plan didn't list,
+`kzen-auto-common/.../service/GraphInstanceCreator.kt` (zero references anywhere), was **deleted**.
+kzen-lib's `docs/architecture.md` gained its first `@Service` / `GraphEnvironment` paragraph.
+
+**Test-coverage deviation.** The planned `ModelDetachedExecutorTest` fixture could not live in
+`test/` notation: `AutoConventions.serverAllowed` covers only `kzen/`, `auto-common/`, `auto-jvm/`,
+`main/`, so a `test/`-nested action is filtered out before the executor ever sees it. The test
+instead drives the real executor over the production `ScriptValidator` (`auto-jvm/script/…`) — the
+same "impossible before 3b" coverage, since the whole-graph build was unsatisfiable in the test
+environment — plus a not-found case pinning that the guard precedes `transitiveDigest`'s `require`.
+The offline `GraphInstanceCacheTest` still uses the new `test/detached-cache-test.yaml` fixture
+(it passes definitions directly, no policy filter). The optional `ManagedTask` parity case was
+skipped for the same nesting reason.
+
+**Not yet done: the manual before/after timing.** The `/action/detached` browser-Network
+measurement and the three-family smoke (ScriptValidator / ScreenshotTaker / PluginDocument) need
+the user at the browser — outstanding, tracked with the master plan's manual smoke debt. The
+permanent `logger.debug("built {} - {} of {} definitions in {}us", …)` line inside
+`GraphInstanceCache` is in place to capture the scoping ratio when that run happens.
 
 ---
 

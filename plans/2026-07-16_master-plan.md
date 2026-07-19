@@ -112,7 +112,7 @@ note).
 | ~~N3~~ | ~~**G7** reducer split + template-respecting deparse~~ ✅ **DONE 2026-07-19** | comments/formatting survive edits — the user-visible payoff of Y (conservative reducer split; disk-level writeCopy test + manual raw-editor smoke owed) |
 | ~~N4~~ | ~~**G5** NotationCodec + notation-driven `isLogic`~~ ✅ **DONE 2026-07-19** | NotationCodec layer + FilterSpec/PivotSpec port landed; `isLogic` was **already** notation-driven (CC-17) so 5b reduced to a doc fix — the `inheritsFrom` helper was skipped per decision |
 | N5 | **G6** error surface | failures name their origin instead of "Missing: main" |
-| N6 | **G3** scoped instantiation + instance caching | detached-action hot path; Flow per-vertex closure |
+| ~~N6~~ | ~~**G3** scoped instantiation + instance caching~~ ✅ **DONE 2026-07-19** | detached actions/tasks now build only their own closure and reuse the instance (digest + inheritance-chain key); env thunks replaced by kzen-lib provider registration; **3a rescoped** — Flow already builds once per run, so it became a survey-pinning test + measurement (before/after browser timing still owed, see manual smoke debt) |
 | (N7) | **G4** incremental define | **only if the post-G1 measurement demands it** — measure first, record either way |
 
 G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last and gated.
@@ -319,7 +319,7 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 ```
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
-           Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · G3 · (G4 if measured) ─┘
+           Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
            Fillers:  AE1 · AE2 · EXT-hygiene · R1 → R2 · R3 · R4 · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)

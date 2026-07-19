@@ -155,6 +155,14 @@ fields get defaults; new factory params get defaults.
 
 ### kzen-auto — server
 
+> ⚠️ **Drift since this plan was written — G3 landed 2026-07-19.** Both executors below now
+> instantiate through `GraphInstanceCache.objectInstance(serverDefinition, location)` (closure-scoped,
+> digest-keyed) instead of calling `graphCreator.createGraph` on the whole serverAllowed graph, and
+> take a plain `GraphEnvironment`. The line anchors in this section are stale; the *error shapes*
+> described (soft `ExecutionFailure` vs hard `error(...)`, the unwrapped creator throw, the preserved
+> `// TODO: add GraphInstanceAttempt`) all survive unchanged — the creator call simply moved inside
+> `GraphInstanceCache.create`. The "Not DetachedAAction" typo was fixed in passing.
+
 - **`ModelTaskRepository.submit`**
   (`kzen-auto-jvm/src/main/kotlin/tech/kzen/auto/server/service/exec/ModelTaskRepository.kt:128-167`):
   `graphStore.graphDefinition().transitiveSuccessful.filterDefinitions(AutoConventions.serverAllowed)`
@@ -170,7 +178,8 @@ fields get defaults; new factory params get defaults.
 - **`GraphInstanceCreator`**
   (`kzen-auto-common/src/commonMain/kotlin/tech/kzen/auto/common/service/GraphInstanceCreator.kt`,
   `objectGraph[objectLocation]!!` at :27) — **dead code**: zero callers anywhere in kzen-auto
-  (whole-repo grep). Leave untouched (or delete under separate hygiene); not part of this phase.
+  (whole-repo grep). ⚠️ **Already deleted by G3 (2026-07-19)** — this anchor no longer exists;
+  nothing to do here.
 - Other `createGraph` consumers (`LogicCompiler.kt:39`, `FlowRun.kt:116`, the per-flavour
   `*LogicCompiler`s, `PluginReportDefinitionRepository`) stay on `createGraph` — they run
   behind the client-side run gate (`HeaderRunController.runBlocker`) and are **out of scope**
@@ -355,7 +364,8 @@ per-object, only reachable via global-host resolution (G1 as-built note), and pi
 `LogicCompiler`, JvmGraphTestUtils, tests): none catch a specific exception type from
 `createGraph`.
 
-**Q9 — `GraphInstanceCreator` (kzen-auto-common).** Dead code, zero callers — leave untouched.
+**Q9 — `GraphInstanceCreator` (kzen-auto-common).** Dead code, zero callers — **deleted by G3
+(2026-07-19)**; the file is gone, so nothing to leave untouched.
 
 ## Step-by-step implementation
 

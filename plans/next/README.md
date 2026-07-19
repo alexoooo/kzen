@@ -15,7 +15,7 @@
 
 | Plan | Item | Constituent plan | Notes |
 |---|---|---|---|
-| `G3_scoped-instantiation.md` | G3 — scoped instantiation + instance caching | graph | kzen-lib + kzen-auto; **3a rescoped** (premise already landed — test-pin + measurement only) |
+| ~~`G3_scoped-instantiation.md`~~ ✅ **done 2026-07-19** | G3 — scoped instantiation + instance caching | graph | kzen-lib + kzen-auto; **3a rescoped** (premise already landed — test-pin + measurement only) |
 | `G6_error-surface.md` | G6 — structured definition/creation failures | graph | light session |
 | `J2_job-signature.md` | J2 — Job parameters in / results out | job | spine opener (priority-first among J) |
 | `J3_report-subsumption-a.md` | J3 — pluggable input formats + design-time services | job | no hard dep on J2 (per J plan header); **two steps rescoped down** (file-browse route + sync driver already exist) |
