@@ -18,7 +18,9 @@
 >   measurement** (see phase header)
 > - [x] Phase 5 — declarative notation binding + notation-driven logic marker — **done 2026-07-19**
 >   (5b's marker already landed under CC-17 → reduced to a doc fix; 5a = NotationCodec layer + FilterSpec/PivotSpec port)
-> - [ ] Phase 6 — error surface (`GraphInstanceAttempt`, structured definition failures)
+> - [x] Phase 6 — error surface (`GraphInstanceAttempt`, structured definition failures) —
+>   **done 2026-07-19** (client bullet rescoped: `DefinitionErrors` already consumed the structured
+>   failures, so the work was `transitiveFailures` + the `ReportStore` NPE guard — see as-built note)
 > - [x] Phase 7 — reducer decomposition + format-preserving deparse (7b after the yaml plan) — **done 2026-07-19**
 
 ## Landed context (Sprint 1) — what G3–G7 can rely on
@@ -386,6 +388,62 @@ Baseline; add kzen-lib tests: an object with a dangling strong reference produce
 failure naming the attribute and reference; a creator throwing produces a `GraphInstanceAttempt`
 failure rather than aborting the graph. kzen-auto: break a report document's notation (blank
 required reference) and confirm the UI names the object/attribute instead of "Missing: main".
+
+### As-built (2026-07-19)
+
+Landed as specified, with these deviations worth recording:
+
+- **A dangling strong reference is not a definition failure — it is a *pruning* cause.** The
+  phase text assumed `AttributeObjectDefiner` could name it; it cannot. Two mechanisms hide it:
+  `StructuralAttributeDefiner` emits a `ReferenceAttributeDefinition` without resolving, and
+  `NotationMetadataReader.inferMetadata` drops the attribute's metadata entirely when its value
+  doesn't resolve (so a *value-inferred* attribute doesn't even become a reference). The object
+  therefore defines fine and vanishes silently from `transitiveSuccessful`. The new
+  **`GraphDefinitionAttempt.transitiveFailures`** lazy is what records the drop cause per
+  reference (attribute path, reference, host); `transitiveSuccessful` is untouched (hot path).
+  Consequence for tests and for the UI: a *declared* attribute type (archetype `meta:`) is what
+  makes a dangling reference visible as a reference at all.
+- **`AttributeObjectDefiner` enrichment is additive alongside `attributeErrors`**, not a
+  replacement: new `ObjectDefinitionFailure.attributeFailures` (keyed by `AttributePath`) +
+  `AttributeDefinitionFailure.unresolvedReference` / `.referenceHost`. Object-level messages
+  de-flattened (`"Unfulfilled dependency : {map}"` → `"Unfulfilled dependency for: a, b"`).
+- **G3 landed first**, so the kzen-auto executors reach the creator through
+  `GraphInstanceCache`, not `createGraph` directly. `GraphInstanceCache.create` now calls
+  `tryCreateGraph` and returns a new `ObjectInstanceAttempt` (`Created` / `Failed` / `Undefined`);
+  only `Created` is cached (failures are rare and recompute cheaply). `ExecutionGraphErrors`
+  turns that plus `transitiveFailures` into the message for `ModelTaskRepository.submit` and both
+  `ModelDetachedExecutor` entry points. The `objectInstance(…)` nullable convenience survives for
+  `GraphInstanceCacheTest`.
+- **Behaviour delta accepted (Q8):** `createGraph`'s missing-definition / unresolvable-creator /
+  non-`ObjectCreator` paths now surface through the aggregate `IllegalStateException` rather than
+  `IllegalArgumentException`, and a creator exception is aggregated rather than propagated raw.
+  Ambiguity still propagates as `IllegalArgumentException` (pinned by `GraphCreatorTest`). One
+  user-visible improvement worth knowing: a creation failure in an *unrelated* object no longer
+  aborts a detached-action call.
+- **Client:** `runBlocker` chases `missingObjects` to the root cause and names the blocking
+  object. **`DefinitionErrors.all` deliberately stays on `attempt.failures`** — see the next
+  bullet.
+- **⚠️ Pruned ≠ broken — do not extend `DefinitionErrors.all` to `transitiveFailures`.** The plan
+  called for it; it was built, shipped, and reverted the same day after the user hit it. A Job
+  worker's channel ports are blank *by design* (`input: ""` / `serve: ""`, non-nullable, in
+  `auto-jvm/job/job-worker.yaml`) and are filled only in `JobChannelSynthesis`'s ephemeral
+  run-copy — so **every saved Job worker is permanently pruned** from `transitiveSuccessful` and
+  reports "Required reference is empty". Listing pruned objects unprompted put 3 false errors on
+  every Job document in the `ProjectController` banner and made `StageController`'s panel claim
+  documents "can't run until it's fixed" — documents that run fine. The distinction the
+  definition layer cannot make is *broken* vs *deliberately incomplete, completed at run time*;
+  the presentation layer must not guess. `runBlocker` is the safe consumer of `transitiveFailures`
+  because it is asked about one specific run root, where absence really does block. (Job `main`
+  itself survives pruning — `workers` is `by: NestedList`, i.e. weak references, which
+  `ObjectDefinition.references()` excludes — so the run gate was never affected.) The rationale
+  is duplicated in the `all()` kdoc so it survives without this file.
+  `ReportStore.onClientState` guards the `objectDefinitions[main]!!` NPE (which used to surface as
+  `window.alert("Observer error in ReportStore…")`), pinning the reason to the existing
+  `ReportState.notationError` when a good state exists; a `definitionBlocked` flag keeps the
+  recovery clear from wiping a sub-store's error. `ReportState`'s seven `!!` spec unwraps became
+  one named-throw helper.
+- **Not done:** the manual UI smoke (needs the browser) — folded into the standing smoke-debt
+  item. Automated coverage: 3 new kzen-lib test classes (11 tests) + the existing suites.
 
 ---
 

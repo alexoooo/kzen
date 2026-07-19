@@ -16,7 +16,7 @@
 | Plan | Item | Constituent plan | Notes |
 |---|---|---|---|
 | ~~`G3_scoped-instantiation.md`~~ ✅ **done 2026-07-19** | G3 — scoped instantiation + instance caching | graph | kzen-lib + kzen-auto; **3a rescoped** (premise already landed — test-pin + measurement only) |
-| `G6_error-surface.md` | G6 — structured definition/creation failures | graph | light session |
+| ~~`G6_error-surface.md`~~ ✅ **done 2026-07-19** | G6 — structured definition/creation failures | graph | landed post-G3; client bullet rescoped (see the constituent plan's as-built note) |
 | `J2_job-signature.md` | J2 — Job parameters in / results out | job | spine opener (priority-first among J) |
 | `J3_report-subsumption-a.md` | J3 — pluggable input formats + design-time services | job | no hard dep on J2 (per J plan header); **two steps rescoped down** (file-browse route + sync driver already exist) |
 | `J5_perf-headless.md` | J5 — benchmark-first perf + headless mode | job | **serve-gate rescoped** (literal skip unsatisfiable; headless stamps synthesized duplex channels non-external instead) |
@@ -68,8 +68,8 @@ Gated or not implementable by an autonomous session:
 
 ## Suggested pick order (matches master-plan priorities)
 
-Sprint-2 remainder first: **G6 → G3** (Track N), with fillers **AE1 · AE2 · R1 · R3 · R4 ·
-EXT-H** interleaved anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
+Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **AE1 · AE2 · R1 · R3 ·
+R4 · EXT-H** interleave anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
 (B2; J5/J7 slot around, J6 last), **FL3 · FL4** (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
 
 ## Standing rules for every implementation session

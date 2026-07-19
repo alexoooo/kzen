@@ -111,7 +111,7 @@ note).
 | ~~N1–N2~~ | ~~**Y** (W1–W8)~~ ✅ **DONE 2026-07-18** | ~~the notation format rework; **must precede G7b** (hot-seam rule); includes the mandatory legacy on-disk audit~~ — landed W1–W8 in one session; legacy audit **clean** (zero no-space-colon keys across all on-disk yaml); unparse now emits bare / `'single'` / `\|-` / `"double"` and comments are modeled on `YamlNode`; kzen-lib JVM+JS + `:kzen-auto-jvm:test` green |
 | ~~N3~~ | ~~**G7** reducer split + template-respecting deparse~~ ✅ **DONE 2026-07-19** | comments/formatting survive edits — the user-visible payoff of Y (conservative reducer split; disk-level writeCopy test + manual raw-editor smoke owed) |
 | ~~N4~~ | ~~**G5** NotationCodec + notation-driven `isLogic`~~ ✅ **DONE 2026-07-19** | NotationCodec layer + FilterSpec/PivotSpec port landed; `isLogic` was **already** notation-driven (CC-17) so 5b reduced to a doc fix — the `inheritsFrom` helper was skipped per decision |
-| N5 | **G6** error surface | failures name their origin instead of "Missing: main" |
+| ~~N5~~ | ~~**G6** error surface~~ ✅ **DONE 2026-07-19** | failures name their origin instead of "Missing: main" — new `GraphDefinitionAttempt.transitiveFailures` (a dangling reference *prunes*, it never fails to define), `GraphCreator.tryCreateGraph` → `GraphInstanceAttempt`, near-miss locate messages; server executors + client `DefinitionErrors` consume them, and `ReportStore`'s NPE-on-broken-report alert is gone. Manual UI smoke owed (smoke debt) |
 | ~~N6~~ | ~~**G3** scoped instantiation + instance caching~~ ✅ **DONE 2026-07-19** | detached actions/tasks now build only their own closure and reuse the instance (digest + inheritance-chain key); env thunks replaced by kzen-lib provider registration; **3a rescoped** — Flow already builds once per run, so it became a survey-pinning test + measurement (before/after browser timing still owed, see manual smoke debt) |
 | (N7) | **G4** incremental define | **only if the post-G1 measurement demands it** — measure first, record either way |
 
@@ -307,6 +307,11 @@ unchanged (SER3's most likely over-deletion victim). Server side is already curl
 **SER5 (2026-07-18)** adds to the same debt: an **SSE repaint on pause/settle through the shell proxy**
 (the ContentNegotiation flip touched every server) plus a Report **Task-paradigm** submit/query — both
 server-side wire is curl/selfTest-verified, only the visual confirmation is outstanding.
+**G6 (2026-07-19)**: break a scratch Report's `main` (e.g. `filter: ""`) and confirm there is **no**
+`window.alert("Observer error in ReportStore…")`, the `StageController` panel + `ProjectController`
+banner name `<doc>#main` and the offending attribute, and a detached call against the broken doc
+answers `"… failed to define: …"` rather than `"Not found: …"`; then break a *reference* in a scratch
+Script and confirm the run gate says `"Blocked by <step>: …"` instead of the old generic line.
 Bundle into one dev-loop session with the user present.
 
 ### EXT-D5 (DataFormat) — parked
