@@ -17,7 +17,7 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase R1 — JVM reflective fallback mirror (kzen-lib; enables R2 + R5) — **done 2026-07-20**
-> - [ ] Phase R2 — test-fixture / src-main pollution cleanup (kzen-auto; after R1)
+> - [x] Phase R2 — test-fixture / src-main pollution cleanup (kzen-auto; after R1) — **done 2026-07-20**
 > - [x] Phase R3 — processor hardening (kzen-lib; independent) — **done 2026-07-20**
 > - [ ] Phase R4 — `@Service` FQN coupling validation (kzen-lib + both bootstraps; independent)
 > - [ ] Phase R5 — plugin dynamic reflection (D1 execution, reflection half; **after B5
@@ -212,6 +212,46 @@ contrast is itself the coverage). Risk: **low** (deletion-heavy).
 (`KspTask`-level configuration / `CommandLineArgumentProvider`) to give the test source set a
 distinct module FQN. Version-sensitive Gradle plumbing that has churned across KSP releases;
 revisit only if the reflective net proves insufficient for some fixture class.
+
+**As-built (2026-07-20).** Step 1 landed as planned; step 2's survey found nothing eligible to move;
+one unplanned build fix was required.
+
+- **KSP2 *does* process kzen-auto-jvm's test source set — the "there is no `kspTest`" premise was
+  false.** The moment the fixtures gained `@Reflect`, `kspTestKotlin` emitted a **second**
+  `tech.kzen.auto.server.codegen.KzenAutoJvmModule` (8 fixture registrations) which, because test
+  output precedes the main classes on the test runtime classpath, **shadowed the real module and
+  dropped all 74 production registrations**. The suite still passed — R1's mirror silently served
+  57 production classes, i.e. exactly the JVM-primary mode R1-G rejected, arrived at by accident.
+  Fixed at the root: `kzen-auto-jvm/build.gradle.kts` disables the task
+  (`tasks.matching { it.name == "kspTestKotlin" }.configureEach { enabled = false }` — `named()`
+  fails, KSP registers the task after configuration). **The `Serving … by JVM reflection` log is
+  the assertion**: post-fix exactly the 8 fixtures appear, zero production classes. Any future
+  module that grows an `@Reflect` test class needs the same guard.
+- **Fixtures now carry `@Reflect`** (the mirror's gate), and the four standalone modules
+  (`FlowVertexTestModule`, `GatedWorkerTestModule`, `RunWorkerTestModule`,
+  `ScratchWorkerTestModule`) plus the in-file `TargetTestModule` are deleted, along with their
+  `register()` calls in five tests. `ScriptStepTestModule` stays with its purpose restated.
+  `TargetExtensibilityTest` now proves third-party registration through the *reflective* path while
+  `ScriptExtensibilityTest` proves it through the *manual module* path — the intended contrast.
+- **Step 2 survey — nothing moved.** No `@Reflect` class under `kzen-auto-jvm/src/main` is a
+  relocatable test-only fixture:
+
+  | Candidate | Verdict | Why |
+  |---|---|---|
+  | Flow example vertices (`IntRangeSource`, `DivisibleFilter`, `AppendText`, `CountSink`, `AccumulateSink`, `ReplaceProcessor`, `RepeatProcessor`, `SelectLast`, `RunLogicVertex`, `FlowInput/OutputVertex`) | stayed | archetypes in `notation/auto-jvm/flow/flow-vertex.yaml` — user-facing palette entries, not fixtures |
+  | Job Workers (all of `objects/job/worker/`) | stayed | archetypes in `notation/auto-jvm/job/job-worker.yaml` — production |
+  | `objects/custom/test/{AdhocDetached, AdhocTask, AdhocNamedImpl}` (the one `test` package under `src/main`) | stayed | referenced by bundled `notation/main/Custom.yaml`, so they must stay on the production classpath |
+
+  The plan's premise ("Flow example vertices, Job synthetic workers were forced into `src/main`")
+  did not hold — those are production types declared in bundled notation; the genuinely test-only
+  fixtures were already in `src/test`, which is what step 1 addressed.
+- **Surfaced, not acted on (CC-07):** `flow/vertex/PrimeFilter` and `script/step/browser/BrowserFocusStep`
+  are `@Reflect` classes in `src/main` whose archetypes are commented out in notation — dead as far as
+  the graph is concerned.
+- Docs: kzen-auto `AGENTS.md` (the old "`src/main` only / no `kspTest`" gotcha replaced by two — the
+  shadowing hazard with its grep-able symptom, and the fixture/mirror pattern) and
+  `docs/architecture.md` § 8 (new "JVM reflective fallback" subsection).
+- Green: `:kzen-auto-jvm:test` — 438 tests, 0 failures, 0 errors; kzen-auto `./gradlew build`.
 
 ---
 

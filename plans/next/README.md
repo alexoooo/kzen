@@ -49,7 +49,8 @@ reality rather than a prediction):
 - **S8b** (AE3+AE5 first — master rule 4)
 - **AE4** (after AE3), **AE5** (after AE4), **AE6** (optional, after 1–5 land smoothly)
 - **SH5** (docs-to-truth over whatever SH2–SH4 changed)
-- **R2** (R1 landed and published — now plannable), **R5** (after the B5 ratification)
+- ~~**R2**~~ ✅ **done 2026-07-20** (executed straight from the constituent plan, no elaboration
+  needed), **R5** (after the B5 ratification)
 - **DA2–DA5** (after the DA1 spike closes gate D1; DA6 macOS deferred)
 
 Gated or not implementable by an autonomous session:

@@ -130,10 +130,16 @@ G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last 
 - ~~**R1**~~ ✅ **DONE 2026-07-20** (JVM reflective fallback mirror — `GlobalMirror.register` chain
   + `ReflectiveClassMirror` in kzen-lib-jvm, wired into both kzen-auto bootstraps and published to
   mavenLocal; contingency C1 fired, so the KSP processor now skips Java-origin declarations)
-  → **R2** (test-fixture cleanup) — unconditionally valuable independent of the B5 ratification
-  (it deletes the hand-maintained test `ModuleReflection` fixtures and un-pollutes `src/main`);
-  R1 also de-risks the B5 decision session, since it is what lets D1 drop the KSP requirement for
-  Java plugins.
+  → ~~**R2** (test-fixture cleanup)~~ ✅ **DONE 2026-07-20** (five hand-written test
+  `ModuleReflection`s deleted, fixtures now `@Reflect` + served by the R1 mirror,
+  `ScriptStepTestModule` kept as the hand-implementable-contract proof). Two findings worth
+  carrying: **KSP2 does process kzen-auto-jvm's test source set** — its second `KzenAutoJvmModule`
+  shadowed the main one and silently dropped all 74 production registrations, so
+  `kspTestKotlin` is now disabled in `kzen-auto-jvm/build.gradle.kts` (grep the test log for
+  `Serving … by JVM reflection` — only fixtures may appear); and the **`src/main` survey moved
+  nothing** — the "example vertices / synthetic workers" are production types declared in bundled
+  notation. R1 also de-risks the B5 decision session, since it is what lets D1 drop the KSP
+  requirement for Java plugins.
 - **Manual smoke debt session** (see § Deferred & resolved) — needs the user at the browser.
 
 Sprint 2 exit: transport byte-efficient (compressed, binary-by-handle, exact re-fetch); one
@@ -174,10 +180,11 @@ upgrade path; 304s through the proxy.
 
 ### Stage B5 — extensibility (1 decision session + ~5 build sessions; R1 is the pre-work)
 
-0. **Pre-work (pull-forward friendly, see Sprint-2 fillers): R1 → R2** from
-   `2026-07-18_reflection-improvements.md`. R1 (JVM reflective fallback mirror) is a hard
-   prerequisite of R5 and reshapes the D1 decision itself; R2 (test-fixture cleanup) is its
-   free dividend. R6's client-plugin verdict (declarative-first; separate Kotlin/JS bundles
+0. ~~**Pre-work (pull-forward friendly, see Sprint-2 fillers): R1 → R2**~~ ✅ **DONE 2026-07-20**
+   — both from `2026-07-18_reflection-improvements.md`. R1 (JVM reflective fallback mirror) is a
+   hard prerequisite of R5 and reshapes the D1 decision itself; R2 (test-fixture cleanup) was its
+   free dividend, and its `@Reflect`-fixture-through-the-mirror path is now a working precedent
+   for the pure-Java plugin case D1 has to decide. R6's client-plugin verdict (declarative-first; separate Kotlin/JS bundles
    can't share class identity) is already recorded — the D7 discussion should start from it.
 1. **Decision session**: ratify EXT D1–D7 (recommendations in the analysis; D1 —
    plugin-shipped `ModuleReflection` registration — is the strategic one and reshapes D2–D4).
@@ -331,12 +338,12 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
-           Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → R2 · ~~R3~~ · R4 · smoke-debt session
+           Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · R4 · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)
-           B5: (R1 → R2 pre-work) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
+           B5: (~~R1~~ → ~~R2~~ pre-work done) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
            B6: DA1 spike (gate) → DA2 → DA3 → DA4 → DA5   (desktop distribution)
 ```
 
