@@ -16,7 +16,7 @@
 > B5 ratification session).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase R1 — JVM reflective fallback mirror (kzen-lib; enables R2 + R5)
+> - [x] Phase R1 — JVM reflective fallback mirror (kzen-lib; enables R2 + R5) — **done 2026-07-20**
 > - [ ] Phase R2 — test-fixture / src-main pollution cleanup (kzen-auto; after R1)
 > - [ ] Phase R3 — processor hardening (kzen-lib; independent)
 > - [ ] Phase R4 — `@Service` FQN coupling validation (kzen-lib + both bootstraps; independent)
@@ -155,6 +155,30 @@ nested class (`$` registry name), `@Service` parameter, Java class (with `-param
 test fixture), unregistered-and-unannotated class still fails fast. Baseline suites green.
 Risk: **medium** — reflective results must byte-match generated behaviour (arg order, service
 map keys as FQN strings, nested-name convention); the tests above pin exactly that parity.
+
+**As-built (2026-07-20).** Landed as planned. Deviations worth carrying forward:
+
+- **Contingency C1 fired.** KSP2 *does* process Java sources: the `JavaServiceHolder` fixture was
+  captured and emitted as a broken no-arg `JavaServiceHolder()` (KSP reports no primary constructor
+  for a Java class), failing `compileTestKotlin`. Applied the pre-decided guard in
+  `ReflectSymbolProcessor.process` — skip `Origin.JAVA` / `Origin.JAVA_LIB` declarations. **R3's
+  executor inherits this**: the processor's `process()` now has a second `continue` guard above
+  `capture()`. Registration is Kotlin-only by design; Java classes route to the fallback.
+- **Test placement.** Both test files went to `kzen-lib-jvm/src/test/kotlin/tech/kzen/lib/server/reflect/`
+  (colocated with `ReflectiveClassMirror`, CC-13) rather than flat under `server/`.
+- **Registry access from tests.** `JvmGraphTestUtils.reflectionRegistry` was added — reading it
+  initializes the object (so the modules and the mirror are registered) and hands back
+  `ReflectionRegistry.global` for the parity assertions.
+- **Log wording.** "Serving {} by JVM reflection — a generated registration is required on JS": the
+  mirror cannot know whether a *generated* registration exists (a test probing a fresh instance
+  directly bypasses the chain), so the message states the JS requirement instead of asserting a
+  registry fact. Verification signal is unchanged — through `GlobalMirror`,
+  `ReflectiveClassMirror.global` served only `JavaServiceHolder` across the whole kzen-lib-jvm
+  suite, and **zero** classes across kzen-auto's 435 tests.
+- **R3 KDoc sentence** on `@Reflect` was NOT added (R3 has not landed; per the coordination rule R3
+  owns it). It is now applicable.
+- Green: kzen-lib `:kzen-lib-common:jvmTest :kzen-lib-jvm:test` (15 new tests) and `:jsTest`;
+  kzen-auto `:kzen-auto-jvm:test` — 435 tests, 0 failures.
 
 ---
 

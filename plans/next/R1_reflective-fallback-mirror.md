@@ -1,5 +1,22 @@
 # R1 — JVM reflective fallback mirror — implementation plan
 
+> **✅ DONE 2026-07-20.** Landed in one session, all 8 steps. Trackers ticked in
+> `../2026-07-18_reflection-improvements.md` (Phase R1, carries the as-built note) and
+> `../2026-07-16_master-plan.md` (Sprint-2 filler list). Verification: kzen-lib
+> `:kzen-lib-common:jvmTest :kzen-lib-jvm:test` green (15 new tests) plus `:kzen-lib-common:jsTest`;
+> `publishToMavenLocal`; kzen-auto `:kzen-auto-jvm:test --refresh-dependencies` — 435 tests, 0
+> failures, and **zero** fallback INFO lines there, as predicted.
+>
+> Deviations: **contingency C1 fired** — KSP2 *does* process Java sources and emitted a broken
+> no-arg `JavaServiceHolder()`, so the pre-decided `Origin.JAVA`/`Origin.JAVA_LIB` guard went into
+> `ReflectSymbolProcessor.process` (R3's executor must re-verify its anchors there). Test files went
+> to `server/reflect/` for CC-13 colocation rather than flat under `server/`; `JvmGraphTestUtils`
+> gained a `reflectionRegistry` accessor for the parity assertions; the fallback log line states the
+> JS requirement rather than asserting a registry fact the mirror cannot know. The R3-owned
+> `@Reflect` KDoc sentence was **not** added here and is now applicable.
+>
+> ---
+>
 > **Status: ready to execute.** Generated 2026-07-19 from
 > `2026-07-18_reflection-improvements.md` **Phase R1**. Decisions pre-made in the constituent
 > plan — do not re-litigate: **decision gate R1-G is decided — fallback-only** (generated

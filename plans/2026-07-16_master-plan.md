@@ -126,10 +126,13 @@ G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last 
 - **EXT hygiene** (S1–S10 minus S7) — one opportunistic session.
 - **R3** (processor hardening) and **R4** (`@Service` FQN boot validation) — independent light
   kzen-lib sessions.
-- **R1 → R2** (JVM reflective fallback mirror → test-fixture cleanup) — a two-session chain,
-  unconditionally valuable independent of the B5 ratification (it deletes the hand-maintained
-  test `ModuleReflection` fixtures and un-pollutes `src/main`); running it early also de-risks
-  the B5 decision session, since R1 is what lets D1 drop the KSP requirement for Java plugins.
+- ~~**R1**~~ ✅ **DONE 2026-07-20** (JVM reflective fallback mirror — `GlobalMirror.register` chain
+  + `ReflectiveClassMirror` in kzen-lib-jvm, wired into both kzen-auto bootstraps and published to
+  mavenLocal; contingency C1 fired, so the KSP processor now skips Java-origin declarations)
+  → **R2** (test-fixture cleanup) — unconditionally valuable independent of the B5 ratification
+  (it deletes the hand-maintained test `ModuleReflection` fixtures and un-pollutes `src/main`);
+  R1 also de-risks the B5 decision session, since it is what lets D1 drop the KSP requirement for
+  Java plugins.
 - **Manual smoke debt session** (see § Deferred & resolved) — needs the user at the browser.
 
 Sprint 2 exit: transport byte-efficient (compressed, binary-by-handle, exact re-fetch); one
