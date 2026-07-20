@@ -119,8 +119,8 @@ G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last 
 
 ### Sprint-2 fillers (any time, prerequisite-free)
 
-- **AE1** (Old-fork removal — also unblocks FL5's cleaned-up scope) and **AE2** (close-policy
-  select migration).
+- ~~**AE1** (Old-fork removal — also unblocks FL5's cleaned-up scope)~~ ✅ **DONE 2026-07-19**
+  (FL5's cleanup scope is now unblocked) and **AE2** (close-policy select migration).
 - **EXT hygiene** (S1–S10 minus S7) — one opportunistic session.
 - **R3** (processor hardening) and **R4** (`@Service` FQN boot validation) — independent light
   kzen-lib sessions.
@@ -209,8 +209,8 @@ retained; Windows and Linux installers ship.
    `BinaryValue`) in addition to the existing `binary` (base64) shape.
 4. **AE3+AE5 before S8b and before J8.4** — the shared editor primitives land once, in AE;
    the dedupe remainders build on them (hot-seam rule; notes in all three plans).
-5. **AE1 before FL5's cleanup scope** — AE1 owns the `flow/edit/*Old.kt` arc; if FL5 arrives
-   first, run AE1 as its own session first.
+5. ~~**AE1 before FL5's cleanup scope**~~ — **satisfied 2026-07-19**: AE1 landed, the
+   `flow/edit/*Old.kt` package is gone, so FL5 can run without that constraint.
 6. **S8a ↔ TP2/TP3** — same file (`ScriptProgressStore`); whichever runs second skims the
    other's as-built.
 7. **J3 → J4 → J9**; **J8 after J3**.

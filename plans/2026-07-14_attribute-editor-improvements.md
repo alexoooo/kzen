@@ -28,7 +28,13 @@
 >   hook). Phase 3 deliberately stops at these seams (see its `FormulaMapRow` note).
 >
 > **Progress tracker** (update as phases land; add ✓ + date + as-built notes):
-> - [ ] Phase 1 — retire the `flow/edit/*Old.kt` fork (5 files + dead registrations)
+> - [x] Phase 1 — retire the `flow/edit/*Old.kt` fork (5 files + dead registrations) ✅ **2026-07-19**
+>   — as-built: the `common-js.yaml` Old block was :57–81 (not :60–78); `PluginController`
+>   migrated to `TextAttributeEditor` reading the value via the **nullable `AttributePath`**
+>   overload of `firstAttribute` (the `AttributeName` overload throws on missing). Verified by
+>   full `./gradlew build` (green, incl. `:kzen-auto-jvm:test`) plus headless-Chrome DOM dumps
+>   of a Plugin / Script / Flow document (field renders pre-filled, zero console errors).
+>   Interactive typing/blur-flush smoke still owed (needs a browser).
 > - [ ] Phase 2 — `SelectClosePolicyEditor` → `SelectValuesEditor` + `values:` metadata
 > - [ ] Phase 3 — shared commit primitive (`DebouncedSubmitter` / `AttributeCommitter`) + field-local error capture
 > - [ ] Phase 4 — merge `AttributePathValueEditor` into `DefaultAttributeEditor`, composing the leaf editors

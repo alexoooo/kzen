@@ -1,5 +1,17 @@
 # AE1 — retire the flow/edit/*Old.kt fork — implementation plan
 
+> **✅ DONE 2026-07-19.** Landed in one session exactly as planned (all 4 steps). Trackers ticked
+> in `../2026-07-14_attribute-editor-improvements.md` (Phase 1, carries the as-built note) and
+> `../2026-07-16_master-plan.md` (filler list + coordination rule 5, now satisfied — FL5's
+> cleanup scope is unblocked). Deviations: none beyond the two this document already corrected
+> (yaml block :57–81; nullable `AttributePath` overload of `firstAttribute`). Verification: full
+> `./gradlew build` green in kzen-auto (incl. `:kzen-auto-jvm:test`), residue grep clean (only
+> the historical `docs/js-architecture.md:311` line), and headless-Chrome DOM dumps against a
+> scratch fixture confirmed the migrated jar-path field renders pre-filled with the notation
+> value and that Script/Flow documents render with zero console errors. **Still owed:** the
+> interactive part of smoke 4 (type → debounce persist; blur-race flush) — needs the user at a
+> browser.
+
 > **Status: ready to execute.** Generated 2026-07-19 from
 > `2026-07-14_attribute-editor-improvements.md` **Phase 1** (which owns this item — supersedes
 > EXT-S7 and the old Flow-plan FL5 bullet). Decisions pre-made in the constituent plan — do not
