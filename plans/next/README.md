@@ -36,7 +36,7 @@
 | ~~`R1_reflective-fallback-mirror.md`~~ ✅ **done 2026-07-20** | R1 — JVM reflective fallback mirror | reflection | landed as planned; **contingency C1 fired** — the KSP processor now skips Java-origin declarations. R2 and R5 unblocked |
 | ~~`R3_processor-hardening.md`~~ ✅ **done 2026-07-20** | R3 — KSP processor hardening | reflection | landed; **local-class guard dropped** — KSP never surfaces local declarations (see the constituent plan's as-built note) |
 | ~~`R4_service-fqn-validation.md`~~ ✅ **done 2026-07-20** | R4 — @Service FQN boot validation | reflection | landed as planned; G3c had already landed, so the "forces the lazy" caveat did not apply (`contains()` never forces providers) |
-| `EXTH_hygiene.md` | EXT-H — extensibility hygiene S1–S10 (−S7) | extensibility analysis | D1–D7 remain unratified, untouched |
+| ~~`EXTH_hygiene.md`~~ ✅ **done 2026-07-20** | EXT-H — extensibility hygiene S1–S10 (−S7) | extensibility analysis | D1–D7 untouched as planned; **C7 rename pin is half-red** — object rename green, document rename `@Ignore`d against a kzen-lib root-objects-only limitation (finding recorded under C7) |
 | `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-app | closes gate D1; gates DA2+ |
 
 ## Excluded from this batch — and why
@@ -70,7 +70,7 @@ Gated or not implementable by an autonomous session:
 ## Suggested pick order (matches master-plan priorities)
 
 Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · ~~AE2~~ ·
-~~R1~~ · ~~R3~~ · ~~R4~~ · EXT-H** interleave anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
+~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
 (B2; J5/J7 slot around, J6 last), **FL3 · FL4** (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
 
 ## Standing rules for every implementation session

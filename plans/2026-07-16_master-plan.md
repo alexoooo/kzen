@@ -123,7 +123,12 @@ G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last 
   (FL5's cleanup scope is now unblocked) and ~~**AE2** (close-policy select migration)~~
   ✅ **DONE 2026-07-20** (bespoke enum editor deleted; `values:` proven through the `meta.ref`
   inheritance path — label now renders "ClosePolicy" per the standard `formattedLabel`).
-- **EXT hygiene** (S1–S10 minus S7) — one opportunistic session.
+- ~~**EXT hygiene** (S1–S10 minus S7)~~ ✅ **DONE 2026-07-20** — all nine landed with first tests for
+  the Customize cluster. Two notes: the Custom view models moved to kzen-auto-common for
+  testability, and S9's C7 rename pin surfaced a **real gap** — kzen-lib's document-rename
+  reference rewriting only covers *root* objects, so renaming a Custom document dangles every
+  cross-document reference to its (nested) exports. Test committed `@Ignore`d; finding recorded in
+  the extensibility analysis under C7.
 - ~~**R3** (processor hardening)~~ ✅ **DONE 2026-07-20** (inner-class error + fully-qualified type
   rendering — the import machinery and its allowlist are gone; `@Reflect` KDoc is now the contract
   doc) and ~~**R4** (`@Service` FQN boot validation)~~ ✅ **DONE 2026-07-20** (additive

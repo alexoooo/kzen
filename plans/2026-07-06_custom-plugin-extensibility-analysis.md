@@ -153,6 +153,22 @@ Design tensions to settle *in the decision*, not discover during execution:
   Nominal rename rewriting should handle it; nothing tests that a rename of an exported object
   (or of the document) keeps the exports list and downstream `SelectLogicEditor` references
   intact.
+  - **RESOLVED 2026-07-20 (EXT-H) — one green leg, one confirmed gap.** Pinned by
+    `kzen-auto-jvm/src/test/.../custom/CustomExportsRenameTest.kt` (+ two self-contained
+    `notation/test/custom-exports-rename*.yaml` fixtures). **Object rename is green**: renaming an
+    exported object rewrites the `exports` entry, the cross-document `RunStep.instructions`
+    reference, and keeps `customDocumentExportedLogic` resolving. **Document rename is broken for
+    Custom exports** — test committed `@Ignore`d. Root cause is in kzen-lib and explicitly
+    documented there: `NotationReducerRefactor.adjustReferencesForRenamedDocument` carries the
+    comment *"NB: only top-level (root) objects cross-document reference are currently supported"*
+    and only loops `rootObjectPaths`. Custom exports are nested (`main.objects/<Name>`), so every
+    cross-document consumer is left dangling (`Missing: <old-doc>#main.objects/Exported`). Fixing
+    it means extending that loop to the full object set in kzen-lib — deliberately out of scope for
+    the hygiene pass; un-ignore the test when it lands.
+  - Incidental finding from building the pin: reference rewriting walks object **definitions**
+    (`locateReferences` iterates `graphDefinitionAttempt.objectDefinitions` + `failures.partial`),
+    so an `abstract: true` holder of a reference is invisible to any rename. Relevant to anyone
+    writing rename fixtures, and a real (if narrow) product-level blind spot.
 - **C8 — stale docs.** `docs/architecture.md` § 6 still describes a `main.logic` list; reality is
   `exports` + tags. `docs/js-architecture.md` § 3 still says "custom/ is the exception — no
   sub-stores, no model/ directory"; it now has the full store stack.
@@ -250,22 +266,40 @@ is how it got here.
 These are correctness/hygiene items; any future plan's phase 1, or an opportunistic cleanup
 session, can execute them directly:
 
-- **S1** Remove the `+"[foo bbb]"` artifact (C1).
-- **S2** Assign `cachedStructureDigest` after refresh + regression test (P3).
-- **S3** Fix `"Name found"` typo (P6).
-- **S4** Move prototype listing out of render into `CustomViewModel.Builder` (C3).
-- **S5** Cache `ObjectRegistryDocument.scan` by notation digest (R3).
-- **S6** Stop the orphan task poll after unmount; guard `pollLoop` on runner observers or an
-  explicit cancel (C5, the leak half only — persistence is D6).
+> **All executed 2026-07-20** as the EXT-H session (S1–S6, S8–S10; S7 superseded), per
+> `plans/next/EXTH_hygiene.md`. Deviations from that plan are noted per item below; the one
+> substantive finding is the C7 document-rename gap recorded above.
+
+- ~~**S1**~~ ✅ Remove the `+"[foo bbb]"` artifact (C1).
+- ~~**S2**~~ ✅ Assign `cachedStructureDigest` after refresh + regression test (P3). Assigned only
+  where the definer cache is complete, so an unloadable jar keeps retrying; pinned by
+  `PluginReportDefinitionRepositoryTest` through an `internal refreshCount` test seam.
+- ~~**S3**~~ ✅ Fix `"Name found"` typo (P6).
+- ~~**S4**~~ ✅ Move prototype listing out of render into `CustomViewModel.Builder` (C3). The
+  Builder moved into `CustomStore.onClientState` (not the controller), so it recomputes per
+  notation event and a prototype added in *another* document reaches the picker.
+- ~~**S5**~~ ✅ Cache `ObjectRegistryDocument.scan` by notation digest (R3), keyed by a new shared
+  `ObjectRegistryConventions.scanDigest` that `ScriptValidationCache` now also uses.
+- ~~**S6**~~ ✅ Stop the orphan task poll after unmount — explicit `CustomObjectTaskRunner.dispose()`
+  from `CustomObject.componentWillUnmount` (C5, the leak half only — persistence is D6).
 - ~~**S7** Port `PluginController` off `AttributePathValueEditorOld`~~ — **superseded
   2026-07-14** by `2026-07-14_attribute-editor-improvements.md` phase 1 (P6/P7; the S-item count
   in headers stays for stable numbering). The other P6 bits (the "Name found" message,
   whole-`ClientState` storage) remain here.
-- **S8** Docs refresh (C8, R1's doc half, P2's doc half).
-- **S9** First tests for the cluster (list above).
-- **S10** Replace the bundled `Custom.yaml` scratch content with a clean sample (C2 — content of
-  the curated prototype library can start minimal: the two Adhoc runners renamed/tidied, real
-  descriptions).
+- ~~**S8**~~ ✅ Docs refresh (C8, R1's doc half, P2's doc half) — architecture.md § 6 (Custom
+  paragraph rewritten; `plugin/` and `registry/` table rows corrected) and § 7 step 2;
+  js-architecture.md § 3 (custom/ is no longer the exception); kzen-auto AGENTS.md one-liner.
+- ~~**S9**~~ ✅ First tests for the cluster: `PluginReportDefinitionRepositoryTest`,
+  `ObjectRegistryScanCacheTest`, `CustomViewModelBuilderTest`, `CustomExportsRenameTest`
+  (kzen-auto-jvm) + `CustomViewReorderTest`, `ClassListSpecTest`, `FieldFormatSpecTest`
+  (kzen-auto-common commonTest, so they also run on ChromeHeadless). Two deviations: the drop
+  translation was extracted into a testable common `CustomViewReorder` (and `CustomObjectInfo` /
+  `CustomViewModel` / `CustomViewExports` moved to kzen-auto-common alongside it); and the Builder
+  test uses a self-contained `notation/test/custom-view-model-test.yaml` rather than the bundled
+  `main/Custom.yaml`, because `AutoTestUtils.readNotation()` excludes the `main/` nesting.
+- ~~**S10**~~ ✅ Replace the bundled `Custom.yaml` scratch content with a clean sample (C2) —
+  `HelloAction` / `CountingTask` prototypes with `description:` attributes and a `DefaultGreeter`
+  name provider; the `Adhoc*` classes in `src/main` are untouched.
 
 ## Open decisions — ratify before promoting to a plan
 

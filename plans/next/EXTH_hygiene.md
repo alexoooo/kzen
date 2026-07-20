@@ -1,5 +1,43 @@
 # EXT-H — extensibility cluster hygiene (S1–S10 −S7) — implementation plan
 
+> **✅ DONE 2026-07-20.** All nine S-items landed in one session. Trackers ticked in
+> `../2026-07-06_custom-plugin-extensibility-analysis.md` (Settled findings + C7) and
+> `../2026-07-16_master-plan.md` (Sprint-2 filler list). Verification: full `./gradlew build`
+> green in kzen-auto — jvm test suite (incl. `FormulaStepTest`, `ScriptValidationCacheTest` whose
+> registry digest component was refactored, and the `ScriptNotationTest` family) plus
+> kzen-auto-common commonTest on **both** JVM and ChromeHeadless. Manual browser smoke (the
+> Verification § matrix) is **not** done — it needs the user at the browser.
+>
+> **Deviations from the plan as written:**
+> 1. **7c fixture** — the plan had `CustomViewModelBuilderTest` read the bundled `main/Custom.yaml`.
+>    It can't: `AutoTestUtils.readNotation()` constructs its `ClasspathNotationMedia` with
+>    `exclude = listOf(AutoConventions.autoMainDocumentNesting)`, so `main/` is invisible to every
+>    test. Replaced with self-contained `notation/test/custom-view-model-test.yaml` +
+>    `custom-prototype-elsewhere-test.yaml` — which also matches 7f's own stated rationale (S10 and
+>    future curation can't break the pins). Consequence: the curated `Custom.yaml` of step 8 is
+>    **not** covered by any automated test; the boot check in Verification § 5 is its only gate.
+> 2. **7f is half-red — a real finding, handled per the C7 protocol.** Object rename is green.
+>    Document rename is **broken for Custom exports** and the test is committed `@Ignore`d: kzen-lib's
+>    `NotationReducerRefactor.adjustReferencesForRenamedDocument` only rewrites references to a
+>    document's *root* objects (its own comment says so), and Custom exports are nested under
+>    `main.objects/`. No kzen-lib fix attempted. Recorded under C7 in the analysis.
+> 3. **7f caller fixture shape** — the plan specified an `abstract: true` holder for the
+>    cross-document reference. That silently never rewrites: `locateReferences` walks object
+>    *definitions*, and abstract objects have none. Replaced with the real production shape — a
+>    `RunStep` whose `instructions` holds the location, exactly what `SelectLogicEditor` writes.
+> 4. **7c edit choice** — "unrelated object edit" uses `abstract` rather than `named`. Changing
+>    `named` provably does *not* change the model, because `CustomObjectInfo` derives only metadata,
+>    abstract/tags, and export membership. The plan's assertion would have failed on correct code.
+> 5. **Two extra pins added** while writing 7c/7d (`modelListsDocumentObjectsWithoutMain`,
+>    `viewPathsHidesRootMain`) — cheap, and they anchor the projection contract the rest assume.
+>
+> Everything else landed as specified, including the note-only `@Synchronized`+`runBlocking` comment
+> and the conservative S2 assignment placement (pinned by `incompleteDefinerCacheKeepsRetrying`).
+>
+> ---
+>
+> *(Original plan below, as written 2026-07-19.)*
+
 > **Status: ready to execute.** Generated 2026-07-19 from
 > `2026-07-06_custom-plugin-extensibility-analysis.md` § "Settled findings — plan-ready now"
 > (S1–S6, S8–S10; **S7 superseded** by `2026-07-14_attribute-editor-improvements.md` phase 1 —
