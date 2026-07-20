@@ -35,7 +35,19 @@
 >   full `./gradlew build` (green, incl. `:kzen-auto-jvm:test`) plus headless-Chrome DOM dumps
 >   of a Plugin / Script / Flow document (field renders pre-filled, zero console errors).
 >   Interactive typing/blur-flush smoke still owed (needs a browser).
-> - [ ] Phase 2 — `SelectClosePolicyEditor` → `SelectValuesEditor` + `values:` metadata
+> - [x] Phase 2 — `SelectClosePolicyEditor` → `SelectValuesEditor` + `values:` metadata ✅ **2026-07-20**
+>   — as-built: landed exactly as planned (166-line editor deleted, `values:` map under
+>   `ResourceClosePolicy.meta.ref`, JS registration removed, 4 comment references updated).
+>   **D7 correction**: the label renders **"ClosePolicy"**, not "Close Policy" —
+>   `CommonEditUtils.formattedLabel` splits on non-word characters only, never camel humps; the
+>   decision's substance (drop the hardcoded string, accept the standard label) stands, and
+>   camel-hump splitting remains out of scope (it would change every default label app-wide).
+>   Verified by full `./gradlew build` (green) plus a throwaway `NotationMetadataReader` probe
+>   (since deleted) proving the `values:` map reaches `BrowserOpenStep.closePolicy`'s merged
+>   `attributeMetadataNotation` through the **`meta.ref` inheritance path** — merged keys
+>   `[by, editor, values, is]`, `editor = SelectValuesEditor`, all 7 entries in enum order with
+>   em-dashes intact end-to-end (first non-ASCII bytes in bundled notation; file is UTF-8, no
+>   BOM). Browser smoke (render/select/no-echo-write) still owed — needs the user.
 > - [ ] Phase 3 — shared commit primitive (`DebouncedSubmitter` / `AttributeCommitter`) + field-local error capture
 > - [ ] Phase 4 — merge `AttributePathValueEditor` into `DefaultAttributeEditor`, composing the leaf editors
 > - [ ] Phase 5 — select-of-reference family on a shared base (5 editors, identities preserved)

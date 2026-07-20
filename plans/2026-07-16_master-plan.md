@@ -120,7 +120,9 @@ G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last 
 ### Sprint-2 fillers (any time, prerequisite-free)
 
 - ~~**AE1** (Old-fork removal — also unblocks FL5's cleaned-up scope)~~ ✅ **DONE 2026-07-19**
-  (FL5's cleanup scope is now unblocked) and **AE2** (close-policy select migration).
+  (FL5's cleanup scope is now unblocked) and ~~**AE2** (close-policy select migration)~~
+  ✅ **DONE 2026-07-20** (bespoke enum editor deleted; `values:` proven through the `meta.ref`
+  inheritance path — label now renders "ClosePolicy" per the standard `formattedLabel`).
 - **EXT hygiene** (S1–S10 minus S7) — one opportunistic session.
 - **R3** (processor hardening) and **R4** (`@Service` FQN boot validation) — independent light
   kzen-lib sessions.

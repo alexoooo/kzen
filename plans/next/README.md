@@ -28,7 +28,7 @@
 | `S8c_branch-discovery.md` | S8c — notation-driven branch discovery | script sweep | unblocks SwitchStep |
 | `S8d_script-hygiene.md` | S8d — Script client hygiene | script sweep | one AE5-conditional item inside |
 | ~~`AE1_retire-old-fork.md`~~ ✅ **done 2026-07-19** | AE1 — delete flow/edit/*Old.kt fork | attribute-editor | landed as planned (yaml block was :57–81); FL5's scope now unblocked |
-| `AE2_select-values-editor.md` | AE2 — SelectClosePolicy → SelectValues | attribute-editor | |
+| ~~`AE2_select-values-editor.md`~~ ✅ **done 2026-07-20** | AE2 — SelectClosePolicy → SelectValues | attribute-editor | landed as planned; `values:` proven through the `meta.ref` path; label renders "ClosePolicy" (D7 prediction corrected) |
 | `AE3_commit-primitive.md` | AE3 — shared commit primitive | attribute-editor | opens the AE3→AE4→AE5 spine |
 | `SH2_child-exit-detection.md` | SH2 — child exit detection + UI surfacing | shell/launcher | DA5 later replaces its bind-failure pane |
 | `SH3_registry-durability.md` | SH3 — atomic registries + --project.home | shell/launcher | **rescoped to ProjectRepo only** (ArchetypeRepo already directory-scan + atomic) |
@@ -68,8 +68,8 @@ Gated or not implementable by an autonomous session:
 
 ## Suggested pick order (matches master-plan priorities)
 
-Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · AE2 · R1 ·
-R3 · R4 · EXT-H** interleave anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
+Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · ~~AE2~~ ·
+R1 · R3 · R4 · EXT-H** interleave anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
 (B2; J5/J7 slot around, J6 last), **FL3 · FL4** (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
 
 ## Standing rules for every implementation session

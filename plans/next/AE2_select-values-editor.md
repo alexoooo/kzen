@@ -1,6 +1,22 @@
 # AE2 — SelectClosePolicyEditor → SelectValuesEditor — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from
+> **✅ DONE 2026-07-20.** Landed in one session exactly as planned (all 8 steps, no deviations).
+> Trackers ticked in `../2026-07-14_attribute-editor-improvements.md` (Phase 2, carries the
+> as-built note) and `../2026-07-16_master-plan.md` (Sprint-2 filler list). Verification: full
+> `./gradlew build` green in kzen-auto (incl. `:kzen-auto-js:build` — KSP regenerated
+> `KzenAutoJsModule` without the deleted wrapper — and `:kzen-auto-jvm:test`); residue grep for
+> `SelectClosePolicy` clean across kzen-auto; the yaml confirmed UTF-8 **without BOM** and
+> strict-decodable. Beyond the plan's gates, a throwaway `NotationMetadataReader` probe (written,
+> run, then deleted — no new test persisted, per the Tests section) proved the load-bearing risk
+> empirically: `BrowserOpenStep.closePolicy`'s merged `attributeMetadataNotation` is
+> `[by, editor, values, is]` with `editor = SelectValuesEditor` and all 7 labels in enum order,
+> em-dashes intact — i.e. `values:` **does** ride the `meta.ref` inheritance path, which was the
+> point of the phase. Q4's correction confirmed against the shipped code path (label will render
+> **"ClosePolicy"**). **Still owed:** the browser smoke (steps 1–7 of Verification: visual render,
+> selection round-trip to `closePolicy: run`, no-echo-write mtime check, ResultStep/ControlStep
+> regression) and `:kzen-auto-test:selfTest` — both need the user.
+>
+> **Status (original): ready to execute.** Generated 2026-07-19 from
 > `2026-07-14_attribute-editor-improvements.md` **Phase 2**. Decisions pre-made in the
 > constituent plan (D7 label change; raw-string-compare delta) — do not re-litigate. Every
 > anchor re-verified against current kzen-auto master (`ceb699d0`) and kzen-lib source on
