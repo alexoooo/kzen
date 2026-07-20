@@ -19,7 +19,8 @@
 > - [x] Phase R1 — JVM reflective fallback mirror (kzen-lib; enables R2 + R5) — **done 2026-07-20**
 > - [x] Phase R2 — test-fixture / src-main pollution cleanup (kzen-auto; after R1) — **done 2026-07-20**
 > - [x] Phase R3 — processor hardening (kzen-lib; independent) — **done 2026-07-20**
-> - [ ] Phase R4 — `@Service` FQN coupling validation (kzen-lib + both bootstraps; independent)
+> - [x] Phase R4 — `@Service` FQN coupling validation (kzen-lib + both bootstraps; independent) —
+>   **done 2026-07-20**
 > - [ ] Phase R5 — plugin dynamic reflection (D1 execution, reflection half; **after B5
 >   ratification**)
 > - [ ] Phase R6 — client-side plugins (D7): record the verdict (doc-only, no build work)
@@ -331,6 +332,28 @@ becomes a startup failure on both platforms.
 **Verification:** deliberately misspell one JS `ClassName` literal locally → boot fails with
 the named FQN; restore → clean boot both platforms (`frontendDevelopment` smoke). Risk:
 **low**.
+
+### As-built (2026-07-20)
+
+Landed as elaborated in `plans/next/R4_service-fqn-validation.md`, with three notes:
+
+- **Accessor shape** — step 1's strawman `serviceArgumentClassNames(): Set<ClassName>` became
+  `serviceArgumentDeclarations(): Map<ClassName, Set<ClassName>>` (service type → declaring
+  classes). A bare `Set` cannot produce the message this phase mandates ("naming the missing FQN
+  **and** the registered class that declares it") without a second enumeration API.
+- **Assertion body** lives in one shared kzen-auto-common `commonMain` helper
+  (`tech.kzen.auto.common.service.ServiceEnvironmentValidation`) called from both bootstraps, so
+  the JVM/JS unit tests exercise exactly the code production runs. All misses report in one throw.
+- **G3c had already landed**, so the JVM `graphEnvironment` is eager and the plan's
+  "forces the `by lazy`" caveat did not apply. The validation calls `contains()`, never
+  `resolve()`, so G3c's memoized providers (`logicTrace`, `serverLogicController`) are *not*
+  forced at boot — provider keys are visible to `contains()` because
+  `GraphEnvironmentBuilder` stores them in the same `services` map.
+
+Both deliberate-miss smokes were run: commenting out the JVM `TargetLocator` env `put` fails every
+`forTest()` boot naming the type and all six declarers; misspelling the JS `ClientRestApi` literal
+renders the named failure into `#root` (verified headless). No live mismatch existed on either
+platform, as predicted.
 
 ---
 

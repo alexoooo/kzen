@@ -126,7 +126,10 @@ G5/G6/G7 are mutually independent — N3–N5 can reorder; G3 anywhere; G4 last 
 - **EXT hygiene** (S1–S10 minus S7) — one opportunistic session.
 - ~~**R3** (processor hardening)~~ ✅ **DONE 2026-07-20** (inner-class error + fully-qualified type
   rendering — the import machinery and its allowlist are gone; `@Reflect` KDoc is now the contract
-  doc) and **R4** (`@Service` FQN boot validation) — independent light kzen-lib sessions.
+  doc) and ~~**R4** (`@Service` FQN boot validation)~~ ✅ **DONE 2026-07-20** (additive
+  `ReflectionRegistry.serviceArgumentDeclarations()` + a shared kzen-auto-common helper asserted at
+  the end of both bootstraps — a service type nothing registered now fails the boot naming the type
+  and its declaring classes) — independent light kzen-lib sessions.
 - ~~**R1**~~ ✅ **DONE 2026-07-20** (JVM reflective fallback mirror — `GlobalMirror.register` chain
   + `ReflectiveClassMirror` in kzen-lib-jvm, wired into both kzen-auto bootstraps and published to
   mavenLocal; contingency C1 fired, so the KSP processor now skips Java-origin declarations)
@@ -338,7 +341,7 @@ exists is how it got here"). Reopen trigger: a real consumer for field/type sche
 Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
-           Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · R4 · smoke-debt session
+           Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
 Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)

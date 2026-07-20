@@ -1,5 +1,14 @@
 # R4 — @Service FQN coupling validation — implementation plan
 
+> ## ✅ **DONE 2026-07-20** — landed as planned.
+> As-built notes live in the constituent plan (`../2026-07-18_reflection-improvements.md`
+> § Phase R4). Three deviations: the accessor returns a `Map` (service type → declaring classes),
+> not a `Set`; **G3c had already landed**, so the JVM `graphEnvironment` is eager and this plan's
+> "forces the `by lazy`" caveat and its step-5 comment-fix did not apply (the validation calls
+> `contains()`, never `resolve()`, so G3c's memoized providers are not forced at boot); the docs
+> sentence went into kzen-auto `docs/architecture.md` § 4 **and** `docs/js-architecture.md` § 4
+> (the JS literals are where the risk actually lives).
+>
 > **Status: ready to execute.** Generated 2026-07-19 from `2026-07-18_reflection-improvements.md`
 > Phase R4 (decisions pre-made there — additive `ReflectionRegistry` enumeration accessor;
 > boot-time assertion in both bootstraps naming the missing FQN + declaring class; the
