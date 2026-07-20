@@ -18,7 +18,7 @@
 > **Progress tracker** (update as phases land):
 > - [x] Phase R1 — JVM reflective fallback mirror (kzen-lib; enables R2 + R5) — **done 2026-07-20**
 > - [ ] Phase R2 — test-fixture / src-main pollution cleanup (kzen-auto; after R1)
-> - [ ] Phase R3 — processor hardening (kzen-lib; independent)
+> - [x] Phase R3 — processor hardening (kzen-lib; independent) — **done 2026-07-20**
 > - [ ] Phase R4 — `@Service` FQN coupling validation (kzen-lib + both bootstraps; independent)
 > - [ ] Phase R5 — plugin dynamic reflection (D1 execution, reflection half; **after B5
 >   ratification**)
@@ -244,6 +244,28 @@ revisit only if the reflective net proves insufficient for some fixture class.
 but both repos must compile and pass baseline suites; add a processor-level fixture with two
 same-simple-name param types (the previously-clashing case) to the kzen-lib test module.
 Risk: **low**.
+
+**As-built (2026-07-20).** Landed as planned, with one step dropped on evidence:
+
+- **The local-class guard was NOT added — it is unreachable.** KSP 2.3.9's
+  `getSymbolsWithAnnotation` does not surface local declarations at all: a `@Reflect` local class
+  inside a member function *and* inside a top-level function were both probed, and neither reached
+  `capture()` (no error, no registration, absent from the generated module). A `decl.isLocal()`
+  guard would therefore be code that can never run (CC-10), so only the `inner` guard shipped —
+  verified firing by a scratch `@Reflect inner class`, which failed `kspTestKotlin` naming the
+  class. The `@Reflect` KDoc records local classes as invisible-to-the-processor rather than as a
+  processor error.
+- **Fully-qualified rendering landed whole**: the per-class import sets, the framework imports, the
+  same-package skip, and `isAutoImportedPackage` are all deleted; the two framework references are
+  FQN constants. Generated modules now carry **zero** imports (checked `KzenAutoJvmModule`:
+  74 registrations, 0 imports, `@Service` maps and registry-name strings unchanged).
+- **Red step run**: with the fixture in place and the old renderer restored,
+  `:kzen-lib-jvm:compileTestKotlin` fails with `Conflicting import: imported name 'Payload' is
+  ambiguous` — the fixture demonstrably covers the bug.
+- **R1's KDoc sentence was included** (R1 landed first): the "Processed source sets" bullet names
+  the JVM reflective fallback, and a Kotlin-only bullet documents R1's Java-origin skip.
+- Green: kzen-lib `./gradlew build` (incl. the new `ClashingParamsTest`) → `publishToMavenLocal`;
+  kzen-auto `./gradlew build --refresh-dependencies` — 435 + 192 + 3 tests, 0 failures.
 
 ---
 

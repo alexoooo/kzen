@@ -34,7 +34,7 @@
 | `SH3_registry-durability.md` | SH3 — atomic registries + --project.home | shell/launcher | **rescoped to ProjectRepo only** (ArchetypeRepo already directory-scan + atomic) |
 | `SH4_template-extension-upgrade.md` | SH4 — kzen-project extension point + upgrade | shell/launcher | static cousin of R5; no ordering constraint |
 | ~~`R1_reflective-fallback-mirror.md`~~ ✅ **done 2026-07-20** | R1 — JVM reflective fallback mirror | reflection | landed as planned; **contingency C1 fired** — the KSP processor now skips Java-origin declarations. R2 and R5 unblocked |
-| `R3_processor-hardening.md` | R3 — KSP processor hardening | reflection | floats freely; **re-verify `ReflectSymbolProcessor.process` anchors** — R1's C1 added a Java-origin guard there, and R3 owns the `@Reflect` fallback KDoc sentence |
+| ~~`R3_processor-hardening.md`~~ ✅ **done 2026-07-20** | R3 — KSP processor hardening | reflection | landed; **local-class guard dropped** — KSP never surfaces local declarations (see the constituent plan's as-built note) |
 | `R4_service-fqn-validation.md` | R4 — @Service FQN boot validation | reflection | floats freely; G3c adaptation note inside |
 | `EXTH_hygiene.md` | EXT-H — extensibility hygiene S1–S10 (−S7) | extensibility analysis | D1–D7 remain unratified, untouched |
 | `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-app | closes gate D1; gates DA2+ |
@@ -69,7 +69,7 @@ Gated or not implementable by an autonomous session:
 ## Suggested pick order (matches master-plan priorities)
 
 Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · ~~AE2~~ ·
-~~R1~~ · R3 · R4 · EXT-H** interleave anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
+~~R1~~ · ~~R3~~ · R4 · EXT-H** interleave anywhere. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
 (B2; J5/J7 slot around, J6 last), **FL3 · FL4** (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
 
 ## Standing rules for every implementation session
