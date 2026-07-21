@@ -12,7 +12,7 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 2 — child exit detection, surfaced to the UI (shell + launcher UI) — **landed 2026-07-21**
-> - [ ] Phase 3 — registry durability + explicit project home (launcher, + shell spawn arg)
+> - [x] Phase 3 — registry durability + explicit project home (launcher, + shell spawn arg) — **landed 2026-07-21**
 > - [ ] Phase 4 — kzen-project template: extension point + project upgrade path
 > - [ ] Phase 5 — hygiene + conditional-GET 304s (all three, + kzen-auto one-liner)
 
@@ -134,6 +134,22 @@ papercut.
 **Verification:** hand-edit the YAML while stopped → reflected on relaunch; two rapid creates
 both persist; shell-spawned and IDE-run launchers pointed at the same `--project.home` see the
 same projects.
+
+**As-built (landed 2026-07-21).** Durability applies to `ProjectRepo` only — the 0.30.0 catalogue
+redesign had already turned `ArchetypeRepo` into a directory scan with no metadata file and an
+atomic `.part`-move download, so it was touched solely to make `archetypeHome` a required
+constructor parameter. `LauncherEnvironment` is deleted; `buildContext` resolves the home once
+(`--project.home` > `../kzen-proj`) and injects it into all three collaborators, and
+`KzenLauncherContext.init` logs the resolved absolute path. On the shell side `programArgs` was
+threaded only through the launcher-spawn path (`MainJarProcess`'s `home` overload defaults it to
+empty, so project spawns are untouched), fed by a new `project.home` key/arg defaulting to
+`work/kzen-proj`. Two behaviour changes worth knowing: an unparseable registry now **fails the
+boot** with the file path in the message (was per-request 500s), and shell-spawned launchers move
+from the accidental `work/kzen-launcher/kzen-proj` to `work/kzen-proj`, orphaning any registry at
+the old location (recoverable via the launcher's import command). Verified against the real jar:
+boot log line, three concurrent imports all persisting with the on-disk file shape unchanged,
+hand-edit-while-stopped reflected on relaunch, and the loud boot failure. The kzen-shell-spawn
+end-to-end smoke needs the desktop UI, so it stays manual debt.
 
 ## Phase 4 — kzen-project template: extension point + project upgrade path
 

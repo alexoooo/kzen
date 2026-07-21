@@ -12,7 +12,7 @@ This is a **Gradle composite-build umbrella** that has no source of its own. `se
 - `../kzen-launcher` — UI for selecting / launching a project (KMP) → [docs](../kzen-launcher/AGENTS.md)
 - `../kzen-shell` — JVM-only desktop shell that boots the launcher and reverse-proxies child processes → [docs](../kzen-shell/AGENTS.md)
 - `../kzen-repo` (forked-artifact mirror, no Kotlin source) and `../kzen-sample-plugin` (Maven sample, no Gradle source) are also `includeBuild`d but contain nothing to bump
-- `../kzen-proj` (legacy directory) lives alongside and is NOT in the composite
+- `../kzen-proj` lives alongside and is NOT in the composite — it is the interactive launcher's default project home (`--project.home`, CWD-relative `../kzen-proj`); a kzen-shell-spawned launcher is pointed at `work/kzen-proj` instead
 
 Cloning just `kzen` is not enough — every sibling listed above must exist at `../<name>` for Gradle to resolve the build. The point of the composite is to let changes in `kzen-lib` flow into `kzen-auto`/`kzen-project`/`kzen-launcher`/`kzen-shell` without going through Maven Local.
 

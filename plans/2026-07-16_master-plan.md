@@ -191,7 +191,8 @@ crossing / nested-loop semantics) — decisions first, possibly docs-only.
 
 ### Stage B4 — platform trio (4 sessions)
 
-~~**SH2**~~ ✅ (child exit detection + UI surfacing — landed 2026-07-21) **→ SH3 → SH4 → SH5**
+~~**SH2**~~ ✅ (child exit detection + UI surfacing — landed 2026-07-21), ~~**SH3**~~ ✅ (atomic
+project registry + `--project.home` — landed 2026-07-21) **→ SH4 → SH5**
 (SH5 last — docs-to-truth over whatever 2–4 changed). Exit: crashed children surface + restart;
 registries atomic; template extension works out of the box; project upgrade path; 304s through
 the proxy.
@@ -407,7 +408,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
 Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · ~~S8b~~ · ~~S8c~~ · ~~S8d~~ ✅ (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: ~~FL3~~ → ~~FL4~~ → FL5 · FL6 gate   (Flow capability)
-           B4: ~~SH2~~ → SH3 → SH4 → SH5        (platform trio)
+           B4: ~~SH2~~ → ~~SH3~~ → SH4 → SH5        (platform trio)
            B5: (~~R1~~ → ~~R2~~ pre-work done) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
            B6: DA1 spike (gate) → DA2 → DA3 → DA4 → DA5   (desktop distribution)
 ```
