@@ -191,9 +191,10 @@ crossing / nested-loop semantics) — decisions first, possibly docs-only.
 
 ### Stage B4 — platform trio (4 sessions)
 
-**SH2 → SH3 → SH4 → SH5** (SH5 last — docs-to-truth over whatever 2–4 changed). Exit: crashed
-children surface + restart; registries atomic; template extension works out of the box; project
-upgrade path; 304s through the proxy.
+~~**SH2**~~ ✅ (child exit detection + UI surfacing — landed 2026-07-21) **→ SH3 → SH4 → SH5**
+(SH5 last — docs-to-truth over whatever 2–4 changed). Exit: crashed children surface + restart;
+registries atomic; template extension works out of the box; project upgrade path; 304s through
+the proxy.
 
 ### Stage B5 — extensibility (1 decision session + ~5 build sessions; R1 is the pre-work)
 
@@ -261,11 +262,12 @@ retained; Windows and Linux installers ship.
     gate is decided there, together with D1). R3/R4 float freely. **R is independent of SH
     Phase 4** (kzen-project static registration — the "static cousin"): separate code paths,
     no ordering constraint (cross-refs in both plans).
-11. **DA5 ↔ SH2** — both touch the second-launch/bind-failure UX in `DesktopUi`: SH2 plans a
-    bind-failure pane in today's Swing window; DA5 replaces it with focus-existing-window
-    single-instance behaviour. Whichever lands second adapts (if DA2+ is in, SH2 drops its
-    pane in favour of DA5's path). **DA2+ within the stage only after the DA1 spike closes
-    gate D1**; otherwise DA is independent of Sprint 2 and B1–B5.
+11. **DA5 ↔ SH2** — both touch the second-launch/bind-failure UX in `DesktopUi`. SH2 landed
+    first (2026-07-21), so the Swing bind-failure pane exists: `DesktopUi.showBindFailure` plus
+    the `FreePortUtil.isTcpPortFree` pre-flight in `kzenShellInit`, marked at the pane for
+    deletion. **DA5 replaces both** with focus-existing-window single-instance behaviour.
+    **DA2+ within the stage only after the DA1 spike closes gate D1**; otherwise DA is
+    independent of Sprint 2 and B1–B5.
 
 ## Deferred & resolved (carried from Sprint 1 — self-contained)
 
@@ -405,7 +407,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
 Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · ~~S8b~~ · ~~S8c~~ · ~~S8d~~ ✅ (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: ~~FL3~~ → ~~FL4~~ → FL5 · FL6 gate   (Flow capability)
-           B4: SH2 → SH3 → SH4 → SH5            (platform trio)
+           B4: ~~SH2~~ → SH3 → SH4 → SH5        (platform trio)
            B5: (~~R1~~ → ~~R2~~ pre-work done) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
            B6: DA1 spike (gate) → DA2 → DA3 → DA4 → DA5   (desktop distribution)
 ```

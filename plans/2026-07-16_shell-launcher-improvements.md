@@ -11,7 +11,7 @@
 > are stable across the sprint reorganization.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 2 — child exit detection, surfaced to the UI (shell + launcher UI)
+> - [x] Phase 2 — child exit detection, surfaced to the UI (shell + launcher UI) — **landed 2026-07-21**
 > - [ ] Phase 3 — registry durability + explicit project home (launcher, + shell spawn arg)
 > - [ ] Phase 4 — kzen-project template: extension point + project upgrade path
 > - [ ] Phase 5 — hygiene + conditional-GET 304s (all three, + kzen-auto one-liner)
@@ -54,6 +54,11 @@ same cap silently truncated any proxied download slower than 15 s, invisible in 
   tens of entries; phase 3 makes the files safe, not different.
 
 ## Phase 2 — child exit detection, surfaced to the UI
+
+> **✅ Landed 2026-07-21** as elaborated in `plans/next/SH2_child-exit-detection.md` (see its
+> as-built note). Every design decision below held; the one refinement worth carrying forward is
+> that both exit callbacks use `thenAcceptAsync` rather than `thenAccept`, keeping them off the
+> JVM's process-reaper thread. Browser-side smoke of the launcher UI is outstanding manual debt.
 
 **Benefit:** a crashed project (the exact failure process-per-project isolation exists to
 contain) stays listed as RUNNING forever — its pages return 503 with no explanation and recovery

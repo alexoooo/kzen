@@ -1,5 +1,30 @@
 # SH2 — child exit detection, surfaced to the UI — implementation plan
 
+> **✅ Landed 2026-07-21.** All seven steps executed as written; every anchor in § Current-state
+> findings held. As-built deltas:
+>
+> - **Both** exit callbacks use `thenAcceptAsync` (the constituent plan's prose said
+>   `thenAccept`); § Risks already required this, so the plan is self-consistent — noted because
+>   the constituent plan's text needs reading through this one.
+> - `ProjectState` grew a `terminal` predicate (`FAILED || EXITED`) instead of open-coding the
+>   pair in `start()`; `ShellSimulator` mirrors it with a private `isTerminal`.
+> - `renderActionButton` takes an action lambda rather than a name (it previously always called
+>   `onStop`), which is what lets Restart and Dismiss share it.
+> - The recent-output block uses `overflowY = Auto.auto` — `Overflow.auto` does not exist in
+>   kotlin-wrappers 2026.7.1 (`Auto.auto` is the ecosystem-wide idiom).
+> - `ProjectRegistryStateMachineTest`'s restart scenario awaits the **tombstone** before
+>   restarting: `ProcessRegistry`'s unregister and `ProjectRegistry`'s EXITED flip are
+>   independent `onExit` continuations, so a 50 ms poll can observe EXITED microseconds before
+>   the name is free again. A user click never races this; a test loop does.
+> - Verified: `./gradlew build` green in both repos (15 new kzen-shell tests, five of them
+>   spawning real child JVMs through the actual spawn/readiness/reap path; 3 new launcher
+>   commonTest cases green on both JVM and JS), plus a headless drive of the dev `ShellSimulator`
+>   over HTTP confirming the `"state":"exited"` + `exitCode` + `recentOutput` wire shape and the
+>   start/restart/dismiss transitions. **Outstanding manual debt**: the browser-side matrix in
+>   § Verification (items 1–8) — the launcher UI rendering and the double-launch pane.
+>
+> ---
+>
 > **Status: ready to execute.** Generated 2026-07-19 from
 > `2026-07-16_shell-launcher-improvements.md` **Phase 2** (decisions pre-made there — onExit
 > callbacks not polling; tombstones; `exitCode` on the wire; file+ring-buffer output tee;

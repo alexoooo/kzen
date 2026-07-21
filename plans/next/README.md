@@ -30,7 +30,7 @@
 | ~~`AE1_retire-old-fork.md`~~ ✅ **done 2026-07-19** | AE1 — delete flow/edit/*Old.kt fork | attribute-editor | landed as planned (yaml block was :57–81); FL5's scope now unblocked |
 | ~~`AE2_select-values-editor.md`~~ ✅ **done 2026-07-20** | AE2 — SelectClosePolicy → SelectValues | attribute-editor | landed as planned; `values:` proven through the `meta.ref` path; label renders "ClosePolicy" (D7 prediction corrected) |
 | ~~`AE3_commit-primitive.md`~~ ✅ **done 2026-07-20** | AE3 — shared commit primitive | attribute-editor | landed as planned, all 8 adopters; the elaboration's three drift flags all held. **AE4 unblocked** |
-| `SH2_child-exit-detection.md` | SH2 — child exit detection + UI surfacing | shell/launcher | DA5 later replaces its bind-failure pane |
+| ~~`SH2_child-exit-detection.md`~~ ✅ **done 2026-07-21** | SH2 — child exit detection + UI surfacing | shell/launcher | landed as planned; both exit callbacks use `thenAcceptAsync`, and the exited-restart test syncs on the tombstone (the two callbacks race by microseconds). DA5 later replaces the bind-failure pane. Browser smoke is manual debt |
 | `SH3_registry-durability.md` | SH3 — atomic registries + --project.home | shell/launcher | **rescoped to ProjectRepo only** (ArchetypeRepo already directory-scan + atomic) |
 | `SH4_template-extension-upgrade.md` | SH4 — kzen-project extension point + upgrade | shell/launcher | static cousin of R5; no ordering constraint |
 | ~~`R1_reflective-fallback-mirror.md`~~ ✅ **done 2026-07-20** | R1 — JVM reflective fallback mirror | reflection | landed as planned; **contingency C1 fired** — the KSP processor now skips Java-origin declarations. R2 and R5 unblocked |
@@ -74,7 +74,8 @@ Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~
 ~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed, and **B1 is closed out** — the AE arc
 (~~AE3 → AE4 → AE5 → AE6~~) and the whole Script sweep (~~S8a · S8b · S8c · S8d~~) are done. Then
 backlog stage openers by appetite: **J2 → J3** (B2; J5/J7 slot around, J6 last), **~~FL3~~ ·
-~~FL4~~** (B3 — FL5 and the FL6 gate are both plannable now), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
+~~FL4~~** (B3 — FL5 and the FL6 gate are both plannable now), **~~SH2~~ · SH3 · SH4** (B4),
+**DA1** (B6).
 
 ## Standing rules for every implementation session
 
