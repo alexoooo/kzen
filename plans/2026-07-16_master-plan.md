@@ -26,7 +26,7 @@
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | ✅ **COMPLETE 2026-07-18** | W1–W8 landed in one session; **before G7b** |
 | J | `2026-07-16_job-improvements.md` | Job flavour + Report subsumption | J2–J9 | J7 rescoped post-E7 |
 | FL | `2026-07-16_flow-improvements.md` | Flow flavour | FL3–FL6 | FL6 = decision gate |
-| S8 | `2026-07-16_script-client-sweep.md` | Script client sweep | S8a–S8d | 8b prefers AE3+AE5 first |
+| S8 | `2026-07-16_script-client-sweep.md` | Script client sweep | S8c, S8d (S8a ✅, S8b ✅ done 2026-07-21) | — |
 | AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js editor consolidation | ✅ **COMPLETE 2026-07-20** | AE1–AE6 all landed; AE6's item 2 dropped on a finding |
 | SH | `2026-07-16_shell-launcher-improvements.md` | Shell/launcher/project trio | SH2–SH5 | SH5 last (docs-to-truth) |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | hygiene S1–S10 (−S7) + decisions D1–D7 | **needs ratification session** |
@@ -162,7 +162,7 @@ wait makes it convenient.
 ### Stage B1 — client convergence (~7 sessions)
 
 **~~AE3 → AE4 → AE5 → AE6~~ (all landed 2026-07-20 — the AE plan is COMPLETE)**, then
-**~~S8a~~ (landed 2026-07-21, post-TP3/TP4) · S8b–S8d** (8b/8d shrink now that AE5 is in). Exit: one commit primitive, one
+**~~S8a~~ (landed 2026-07-21, post-TP3/TP4) · ~~S8b~~ (landed 2026-07-21) · S8c–S8d** (8d shrinks now that AE5 is in). Exit: one commit primitive, one
 select-reference base, no whole-`ClientState` stores, notation-driven branch discovery
 (SwitchStep unblocked).
 
@@ -371,6 +371,15 @@ attribute → immediately rename the step) confirming the `this.props` sweep lef
 ordering intact. The other three call sites — both managers and `ScriptStepDisplayDefault` — are already
 headless-verified against the bundled Custom/Script/FizzBuzz documents, with those notation files
 MD5-identical afterwards.
+**S8a/S8b (2026-07-21)**: both were headless-verified only. With React DevTools "highlight updates"
+on a FizzBuzz-style Script, confirm a per-step expand/collapse and a progress tick do **not** light up
+sibling branches (the S8b base now enforces the guards; S8a made the wasted work cheap), and that the
+film strip shows **no duplicate frames** after overlapping refreshes (S8a's dedupe). Then the surfaces
+whose code moved under S8b: an **If / ForEach / DoWhile** body renders its condition/items editor,
+branch labels and the ForEach **item-type** label; a **RunStep**'s expanded film strip keeps its
+groups/ordinals ("… #2") and the full-screen viewer's left/right order still matches the visible
+strip; a **step-reference select** and a **RunStep argument select** offer exactly the in-scope
+candidates (prior steps + parameters/loop items), and a **Formula** expression's insert list matches.
 Bundle into one dev-loop session with the user present.
 
 ### EXT-D5 (DataFormat) — parked
@@ -385,7 +394,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
-Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · S8b–d   (client convergence)
+Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · ~~S8b~~ · S8c–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)

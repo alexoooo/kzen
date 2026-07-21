@@ -15,7 +15,8 @@
 > **Progress tracker** (update as phases land):
 > - [x] 8a — hot paths (`ScriptDependencyAnalysis` memo, timeline append, incremental representatives)
 >   — **landed 2026-07-21** (see the as-built note under 8a)
-> - [ ] 8b — display/editor dedup (`ScriptStepDisplayBase`, scope helper, buildGroups)
+> - [x] 8b — display/editor dedup (`ScriptStepDisplayBase`, scope helper, buildGroups)
+>   — **landed 2026-07-21** (see the as-built note under 8b)
 > - [ ] 8c — notation-driven branch discovery (removes the SwitchStep blocker)
 > - [ ] 8d — hygiene (`StepRowRefRegistry` scoping, TODOs, deprecated-archetype check)
 
@@ -117,6 +118,51 @@ this sub-phase's remainder.
   (`SelectReferenceEditorBase`: hydrate / renaming-flag / echo-suppressed commit skeleton shared
   by SelectObject/Step/EnclosingLoop/Logic/Channel; candidate sources and crop policy stay
   per-editor). With AE5 landed, this bullet's remainder is only the scope helper + buildGroups.
+
+### As-built (landed 2026-07-21)
+
+- **`ScriptStepDisplayBase`** (new, `kzen-auto-js .../script/display/`) modelled on AE5's
+  `SelectReferenceEditorBase`: `final` `componentDidMount`/`componentWillUnmount`/`onClientState`/
+  `onScriptState` owning both subscriptions, the common derivation and **the value-equality skip
+  guards**, plus four open hooks (`onStepMount`, `onStepUnmount`, `onClientStateExtra`,
+  `onScriptStateExtra`). A subclass now *cannot* skip the js-architecture.md §2 discipline — it never
+  sees the callbacks. All four displays adopted; **−359/+94 across 13 files** plus the two new ones.
+- Two `setState` partials per publish is the accepted cost for extras (React batches them into one
+  render); the alternative — an extras value object compared by the base — would have made every
+  subclass thread a holder field for no render win.
+- **`stepValidation` replaces the split `typeMetadata`/`validationError`** in the three control
+  displays (what `ScriptStepDisplayDefault` already stored); the two strings are derived in `render`.
+- The three control-display props interfaces were **character-identical**, so they collapsed into one
+  `BranchStepDisplayProps`; If/DoWhile now declare no state interface at all
+  (`ScriptStepDisplayBaseState` directly). Each `Wrapper` keeps its own explicit prop wiring — a
+  Wrapper base copying three service props is a visual-concern split, and every Wrapper must declare
+  its own `@Service` ctor params for notation DI regardless.
+- **S8a's prediction that this phase "subsumes structurally" `ScriptBranchDisplay`'s guard is wrong**
+  and is hereby corrected: that component's consumed slice is `stepLocations` + `dependencyEdges`,
+  nothing to do with the step header/trace, so its hand-written `==` guard stays. `RunStepDisplay`,
+  `StepImageThumbnail` and `MultiStepDisplay` are out for the same reason (different slice / no
+  observers).
+- **The scope helper had five call sites, not two** — `ScriptTree.inScopeReferencePaths` (kzen-auto-
+  common) is now used by `SelectStepEditor`, `RunStepArgumentsEditor`, `KotlinExpressionEditor`
+  (Formula branch only — the DoWhile-condition branch is a different scope, 8c's), plus
+  `KzenAutoCodeReferenceRewriter` (common) and `StepExpressionSupport` (jvm). The last two are a
+  **deliberate, user-approved widening of this sweep's "kzen-auto-js only" ground rule**: mechanical
+  one-line swaps that make the editors' "Mirrors server …" comments structurally true, so client and
+  server can no longer drift on what "in scope" means.
+- **Screenshot grouping** moved to its data owner: `ScriptProgressState.screenshotFramesByExecution`
+  (it already held `traceEvents` + `runStepOwnedExecutions`). `RunStepDisplay.buildGroups` became
+  `labelGroups` (labels only) and its change signature is now
+  `stableId|groupCount|frameCount|maxSequence` — the `ownedExecutions.size` term was dropped (an
+  owned execution with no screenshots cannot change the strip) and `maxSequence` is taken over the
+  groups' last frames, exact because `traceEvents` is sequence-sorted. `PageScreenshots.stripFrames`
+  is gone (one `.flatten()` at the call site) and `frameTitle` now delegates to `stepTitle`.
+- **`kzen-auto/docs/js-architecture.md` §2 item 3 was quoting the deleted guard** as its reference
+  implementation; it now shows `ScriptBranchDisplay` (which still hand-writes one) and points at the
+  base as what to do when a *family* shares a slice. §2's trace-payload paragraph likewise names
+  `screenshotFramesByExecution` as the single definition of strip order.
+- Verified: `:kzen-auto-js:compileKotlinJs`, full `cd ../kzen-auto && ./gradlew build` (js + jvm
+  suites) and `:kzen-auto-test:selfTest` all green. Browser smoke is manual debt — see the master
+  plan's § Manual smoke debt.
 
 ## 8c. Notation-driven branch discovery
 
