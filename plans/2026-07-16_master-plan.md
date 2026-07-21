@@ -27,7 +27,7 @@
 | J | `2026-07-16_job-improvements.md` | Job flavour + Report subsumption | J2–J9 | J7 rescoped post-E7 |
 | FL | `2026-07-16_flow-improvements.md` | Flow flavour | FL3–FL6 | FL6 = decision gate |
 | S8 | `2026-07-16_script-client-sweep.md` | Script client sweep | S8a–S8d | 8b prefers AE3+AE5 first |
-| AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js editor consolidation | AE5, AE6 (AE1–AE4 ✅ done) | AE6 optional |
+| AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js editor consolidation | AE6 only (AE1–AE5 ✅ done) | AE6 optional |
 | SH | `2026-07-16_shell-launcher-improvements.md` | Shell/launcher/project trio | SH2–SH5 | SH5 last (docs-to-truth) |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | hygiene S1–S10 (−S7) + decisions D1–D7 | **needs ratification session** |
 | R | `2026-07-18_reflection-improvements.md` | `@Reflect`/KSP/`ReflectionRegistry` mechanics | R1–R6 | R5 after B5 ratification; R1 reshapes D1 (Java plugins need no KSP) |
@@ -161,7 +161,7 @@ wait makes it convenient.
 
 ### Stage B1 — client convergence (~7 sessions)
 
-**~~AE3~~ ~~AE4~~ (both landed 2026-07-20) → AE5 (→ AE6 optional)**, then **S8a–S8d** (8b/8d shrink once AE5 is in; 8a can go
+**~~AE3 → AE4 → AE5~~ (all landed 2026-07-20) (→ AE6 optional)**, then **S8a–S8d** (8b/8d shrink now that AE5 is in; 8a can go
 any time — fence with TP2/TP3 on `ScriptProgressStore`). Exit: one commit primitive, one
 select-reference base, no whole-`ClientState` stores, notation-driven branch discovery
 (SwitchStep unblocked).
@@ -228,12 +228,15 @@ retained; Windows and Linux installers ship.
    serializer MUST round-trip the new `binary-handle` envelope `{type: binary-handle, run, hash,
    size, mime}` (kzen-lib `BinaryHandleExecutionValue`, a sibling of `binary` under the sealed
    `BinaryValue`) in addition to the existing `binary` (base64) shape.
-4. **AE3+AE5 before S8b and before J8.4** — the shared editor primitives land once, in AE;
-   the dedupe remainders build on them (hot-seam rule; notes in all three plans). AE3 **landed
-   2026-07-20** (`DebouncedSubmitter` / `AttributeCommitter` / `CommonEditUtils.applyCommand`);
-   AE5 is still the outstanding half. **AE4 also landed 2026-07-20** — `AttributePathValueEditor`
-   is gone and `DefaultAttributeEditor` composes the leaf editors, so S8b/J8.4 build on the leaves
-   directly with no middle layer.
+4. ~~**AE3+AE5 before S8b and before J8.4**~~ — **satisfied 2026-07-20**: AE3
+   (`DebouncedSubmitter` / `AttributeCommitter` / `CommonEditUtils.applyCommand`), AE4
+   (`AttributePathValueEditor` gone, `DefaultAttributeEditor` composes the leaf editors) and AE5
+   (`SelectReferenceEditorBase` behind all five reference selects) all landed. **S8b and J8.4 are
+   unblocked** and build on the shared primitives directly — no middle layer, one commit primitive,
+   one select base. Two carried notes for whoever picks them up: the select family's only write path
+   is now `selectAndCommit` (hydration/rename never write — do not reintroduce a
+   `componentDidUpdate` commit), and the AE3 adopters have an open bare-`props` capture follow-up
+   recorded under the AE plan's Phase 3.
 5. ~~**AE1 before FL5's cleanup scope**~~ — **satisfied 2026-07-19**: AE1 landed, the
    `flow/edit/*Old.kt` package is gone, so FL5 can run without that constraint.
 6. **S8a ↔ TP2/TP3** — same file (`ScriptProgressStore`); whichever runs second skims the
@@ -344,6 +347,15 @@ attributes (a BrowserWrite step covers multiline `text` + Boolean `overwrite` + 
 default text attribute → immediately rename the step → the edit must land *before* the rename in the
 yaml) and the accepted D2 change that a Boolean toggle now persists **immediately** rather than after
 1 s. The Custom-document path (text / multiline / boolean / list) is already headless-verified.
+**AE5 (2026-07-20)**: the five reference selects now share `SelectReferenceEditorBase`, and their only
+write path is a user selection. Re-check, again in the hosts headless can't expand: **Script** —
+If/ForEach/DoWhile condition & items selects; a fresh ControlStep inside nested loops pre-fills the
+innermost loop **and persists it**; RunStep logic select **plus its launch button**. **Job** — channel
+selects across worker cards. Then the two paths this phase changed on purpose: rename a referenced
+step, then a referenced document → the selects follow with **no** echo write (watch the yaml,
+read-only); and edit a referenced attribute through the **raw editor** → the select updates
+**without** writing back (this round-tripped as a redundant Upsert before AE5). `SelectObjectEditor`
+in a Custom document is already headless-verified (hydration + pre-selection + no mount write).
 Bundle into one dev-loop session with the user present.
 
 ### EXT-D5 (DataFormat) — parked
@@ -358,7 +370,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
-Backlog    B1: ~~AE3~~ → ~~AE4~~ → AE5 (→AE6) · S8a–d   (client convergence)
+Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)

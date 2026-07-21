@@ -94,7 +94,43 @@
 >   byte-identical afterwards (**no echo write on mount**). Manual browser matrix still owed — needs the user:
 >   Script/Flow/Job *hosts* (their step/vertex/worker bodies only render editors once expanded, which headless
 >   can't click), the debounce race, and the D2 immediate-Boolean-commit confirmation.
-> - [ ] Phase 5 — select-of-reference family on a shared base (5 editors, identities preserved)
+> - [x] Phase 5 — select-of-reference family on a shared base (5 editors, identities preserved)
+>   ✅ **2026-07-20** — as-built: `common/edit/select/SelectReferenceEditorBase.kt` (191 lines) now backs all five;
+>   every class name, nested `Wrapper`, `editor:` marker and `*-js.yaml` registration is untouched. Net across the
+>   five editors **1461 → 1016 lines**. Two design amendments, both decided with the user before starting:
+>   **(a) the base's ONLY write path is `selectAndCommit`, reached from the field's `onSelect`.** The phase text
+>   kept the `componentDidUpdate` commit with a `hydrated` flag; in practice that mechanism *conflates* "the user
+>   picked this" with "the notation moved underneath us", which is why every editor carried ad-hoc
+>   `renaming`/`initialized` guards — and `SelectStepEditor` re-hydrates on every `onClientState`, so an external
+>   edit (raw editor, second client) round-tripped straight back out as a redundant Upsert. Hydration and rename
+>   now go through `setSelected`, which never writes. **`renaming`, `initialized`/`hydrated` and all five
+>   `componentDidUpdate` overrides are gone**, the phase's stated echo-write risk is closed by construction, and
+>   the family gains field-local error capture (it previously discarded `apply`'s result everywhere) by reusing
+>   AE3's `AttributeCommitter` explicit-value `commitNow`.
+>   **(b) the `V` type parameter collapsed to nothing.** The base stores the *option key* (`SelectOption.value`)
+>   and each subclass maps key→wire only in `wireValue(optionKey)`, so all four crop policies fit without a typed
+>   value param; the `ObjectLocation` domain stays subclass-local. Final shape is
+>   `SelectReferenceEditorBase<P: AttributeEditorProps, S: SelectReferenceEditorState>` — `P` earns its keep via
+>   `SelectLogicEditor`'s `navigationGlobal`, `S` via `SelectObjectEditor`'s `constraintMissing`.
+>   Mechanics worth carrying: this is the codebase's **first abstract React component base** (there were zero, and
+>   zero `super.` calls) — it works, and it avoids `super` discipline entirely by making `componentDidMount`/
+>   `WillUnmount` **final** and delegating to `onMount()`/`onUnmount()` hooks. The base deliberately declares **no
+>   `S.init`**, which lets Channel/Object/Logic keep synchronous hydration (no first-paint flash) and dodges
+>   calling an open member from a constructor. `setOptions` content-compares because `SelectOption` is an external
+>   interface and `Array` equality is by reference — without it `RPureComponent`'s shallow bail-out is defeated on
+>   every recompute. **A latent bug found and avoided:** in a property initializer a constructor parameter
+>   *shadows* the inherited `props` member, so the base uses `this.props` in its committer lambdas — bare `props`
+>   would pin the first render's props object for the component's life (these editors outlive a rename of their
+>   own host). **The 8 AE3 adopters all use bare `props` and have this latent pin** — see the note under Phase 3.
+>   `SelectLogicEditor`'s `// TODO: convert to RPureComponent` is resolved (Channel/Object/Logic all move
+>   `RComponent` → `RPureComponent`); `SelectEnclosingLoopEditor` keeps `defaultApplied` + plain-field mirrors and
+>   now performs its one-shot pre-fill as an explicit `selectAndCommit`.
+>   Verified: `./gradlew build` in kzen-auto green with zero Kotlin warnings; `:kzen-auto-test:selfTest` green;
+>   **headless-Chrome DOM dump** of a scratch Custom document with two `SelectObjectEditor` instances — the bound
+>   one renders `value="DefaultGreeter"` **pre-selected**, the unset abstract prototype renders `value=""`, both
+>   labelled "Named", zero console errors, zero server errors, and the notation file **MD5-identical afterwards
+>   (no echo write on mount)**. Manual browser matrix still owed — needs the user (the Script/Job/Flow hosts only
+>   render editors once a card is expanded, which headless can't click).
 > - [ ] Phase 6 (optional) — hygiene: manager-lookup helper; rename-editor scaffolding
 
 ## Context
@@ -355,6 +391,18 @@ path/format/preview fields still commit and trigger refresh; `AnalysisFlatContro
 `invalid` wiring (pattern errors) still renders; force a command failure (e.g. edit an attribute
 of a just-deleted object via a stale panel) → global banner still appears, TextField shows error
 state where wired. `:kzen-auto-test:selfTest`.
+
+**Follow-up found during Phase 5 (open, not yet fixed):** all 8 AE3 adopters construct their
+`AttributeCommitter`/`DebouncedSubmitter` as a **property initializer** whose lambdas read bare
+`props` — e.g. `graphStore = { props.mirroredGraphStore }` in `TextAttributeEditor:66-72`. In a
+property initializer the primary-constructor parameter **shadows** the inherited `props` member, so
+those lambdas capture the *first render's* props object rather than reading the live one, defeating
+the "every argument is a lambda, evaluated at commit time" contract in `AttributeCommitter`'s own
+KDoc. Field reads are still deferred, but off a pinned object: a component whose `objectLocation`
+changes while mounted (the manager re-renders an editor in place after its host is renamed) would
+commit to the stale location. Phase 5's base uses `this.props` and is unaffected. Low observed
+impact — no bug report traces to it — but the 8 adopters should each get `this.props` in a small
+sweep; folding it into the S8 client sweep or a micro-session is fine.
 
 ## Phase 4 — Merge `AttributePathValueEditor` into `DefaultAttributeEditor`
 
