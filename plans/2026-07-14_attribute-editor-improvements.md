@@ -1,6 +1,7 @@
 # Attribute-editor improvements — consolidate the kzen-auto-js editor landscape — phased plan
 
-> **Status: planned.** Written 2026-07-14 from a full catalogue of the ~35 attribute-editor files
+> **Status: ✅ COMPLETE 2026-07-20** (all six phases; see the tracker below for as-built notes).
+> Written 2026-07-14 from a full catalogue of the ~35 attribute-editor files
 > in kzen-auto-js (three parallel exploration sweeps, findings verified against source). The
 > target architecture already exists — the notation-driven `AttributeEditorManager` (`editor:`
 > metadata key → autowired `is: AttributeEditor` wrapper resolved by object name, hard fallback
@@ -131,7 +132,56 @@
 >   labelled "Named", zero console errors, zero server errors, and the notation file **MD5-identical afterwards
 >   (no echo write on mount)**. Manual browser matrix still owed — needs the user (the Script/Job/Flow hosts only
 >   render editors once a card is expanded, which headless can't click).
-> - [ ] Phase 6 (optional) — hygiene: manager-lookup helper; rename-editor scaffolding
+> - [x] Phase 6 (optional) — hygiene: manager-lookup helper; rename-editor scaffolding
+>   ✅ **2026-07-20 — PLAN COMPLETE** — as-built: item 1 landed with **wider reach than planned**,
+>   item 2 **dropped on a finding**, and Phase 3's parked follow-up **closed here**.
+>   **(a)** The metadata read was duplicated **4×, not 2×**: besides the two managers,
+>   `ScriptStepDisplayDefault.findSummaryAttributes` and `WorkerDisplayDefault.renderAttributeSummaries`
+>   each inlined `attributeMetadataNotation.get(summaryAttributePath.toNesting())?.asString()` to decide
+>   whether an attribute has a summary view. New `common/attribute/AttributeWrapperLookup.kt` (57 lines)
+>   now owns **both keys and the read**, with two overloads — one from an already-resolved
+>   `AttributeMetadata` (the two iteration sites), one from `GraphStructure` (the two managers) — and all
+>   four adopted. Both return **null for a blank value**, which unified the two shapes in the tree (the
+>   managers took the string verbatim, the display sites additionally required `isNotEmpty()`); accepted
+>   delta: `editor: ""` now falls back to `DefaultAttributeEditor` instead of rendering
+>   `[Attribute editor not found: ]`. The abstract-base variant was **considered and rejected** — 6
+>   abstract members for 2 subclasses, against AE5's base which backs 5. Rider: `AttributeEditorManagerProps`
+>   stopped extending `AttributeEditorProps` (it inherited a `mirroredGraphStore` **no host ever sets** —
+>   every call site passes exactly `objectLocation` + `attributeName`) and declares its own dispatch
+>   contract; `AttributeViewManagerProps` had no dead field and was left alone.
+>   **(b) Item 2 dropped, deliberately.** Its premise is partly false: `StepNameEditor` has **no text
+>   field** — it renders a reader and embeds `ObjectNameEditor`. The real pair is
+>   `ObjectNameEditor` ↔ `DocumentNameEditor`, which share the TextField + Cancel/Save IconButtons +
+>   `handleEnterAndEscape` + `isModified()` but diverge in container (inline `float:right` with
+>   −3em/−0.5em negative margins vs. a flex row inside a `Popover`). Lifting the render needs either
+>   `sx`-offset parameters (a leaky abstraction) or converting ObjectNameEditor to flex — a **visual
+>   change, not hygiene**. Recorded rather than built; revisit only if that layout is being touched anyway.
+>   **(c) Phase 3's pinned-`props` follow-up is CLOSED** (see the note under Phase 3): bare `props` →
+>   `this.props` in the `AttributeCommitter` property-initializer lambdas of `TextAttributeEditor`,
+>   `MultiTextAttributeEditor`, `BooleanAttributeEditor`, `SelectAttributeEditor`,
+>   `KotlinExpressionEditor`, `TargetSpecEditor`, with the explanatory comment written once (in
+>   `TextAttributeEditor`) and referenced from the other five. `FormulaMapRow` / `JobChannelNumberField`
+>   were **not** affected — their `DebouncedSubmitter { onSubmitEdit() }` lambdas call an instance method,
+>   so props are read live. Renaming the constructor parameter (the structural alternative) was rejected:
+>   it would diverge from ~100 other components for no gain over AE5's `this.props` idiom.
+>   **New test**: `kzen-auto-js/src/jsTest/.../AttributeWrapperLookupTest.kt` — 6 cases over a synthetic
+>   YAML fixture (`MapNotationMedia` + `DirectGraphStore.graphStructure()`), including the **`meta.ref`
+>   inheritance path** that AE2 could only prove with a throwaway probe. `NotationMetadataReader` resolves
+>   from notation alone (no Kotlin classes) and degrades dangling type refs to `Any`, so the fixture is
+>   self-contained. The `async {}` test idiom was **negative-controlled** — a deliberately wrong expectation
+>   was confirmed to FAIL the suite before restoring it, so these assertions are not silently swallowed.
+>   Verified: `cd ../kzen-auto && ./gradlew build` green with zero Kotlin warnings (12/12 jsTest cases under
+>   ChromeHeadless); `:kzen-auto-test:selfTest` green; **headless-Chrome DOM dumps** against the bundled
+>   notation on a throwaway port — `main/Custom.yaml` renders 4 `SelectObjectEditor`s (the two bound ones
+>   pre-selected `DefaultGreeter`, the two abstract prototypes empty, all labelled "Named") plus
+>   `DefaultGreeter.name` pre-filled "world", with **zero** `[Attribute editor not found]` markers;
+>   `main/Script.yaml` and `main/FizzBuzz/FizzBuzz Script Loop.yaml` render collapsed-header summary rows
+>   (`location: …`, `from: 1`, `to: 100`, `code: 1..200` via `TextAttributeView`) and the RunStep's
+>   `ReferenceLinkAttributeView` drill-in link — i.e. all four call sites but the Job one exercised end to
+>   end; zero console errors, zero server errors, and the three notation files **MD5-identical afterwards**.
+>   Owed (folded into the existing smoke-debt session, no new debt): a **Job** worker card's summary row
+>   (the fourth call site needs an expanded card headless can't click) and one debounce-then-rename race to
+>   confirm the `this.props` sweep left the flush-before-rename ordering intact.
 
 ## Context
 
@@ -392,7 +442,7 @@ path/format/preview fields still commit and trigger refresh; `AnalysisFlatContro
 of a just-deleted object via a stale panel) → global banner still appears, TextField shows error
 state where wired. `:kzen-auto-test:selfTest`.
 
-**Follow-up found during Phase 5 (open, not yet fixed):** all 8 AE3 adopters construct their
+**Follow-up found during Phase 5 — ✅ CLOSED in Phase 6 (2026-07-20):** all 8 AE3 adopters construct their
 `AttributeCommitter`/`DebouncedSubmitter` as a **property initializer** whose lambdas read bare
 `props` — e.g. `graphStore = { props.mirroredGraphStore }` in `TextAttributeEditor:66-72`. In a
 property initializer the primary-constructor parameter **shadows** the inherited `props` member, so
@@ -403,6 +453,9 @@ changes while mounted (the manager re-renders an editor in place after its host 
 commit to the stale location. Phase 5's base uses `this.props` and is unaffected. Low observed
 impact — no bug report traces to it — but the 8 adopters should each get `this.props` in a small
 sweep; folding it into the S8 client sweep or a micro-session is fine.
+**Closed in Phase 6**, and the count was **6, not 8**: `FormulaMapRow` and `JobChannelNumberField`
+pass a method-calling lambda (`DebouncedSubmitter { onSubmitEdit() }`), which reads props live.
+**S8 need not pick this up.**
 
 ## Phase 4 — Merge `AttributePathValueEditor` into `DefaultAttributeEditor`
 
@@ -511,14 +564,26 @@ Execute only if phases 1–5 landed without surprises.
    name" logic from `AttributeEditorManager` (`editor:`) and `AttributeViewManager` (`summary:`)
    into a small function; both `Wrapper` classes remain distinct notation objects with distinct
    autowire lists (`common-js.yaml` unchanged).
-2. **Rename-editor scaffolding**: extract the Enter/Escape + save/cancel shape shared by
-   `common/edit/ObjectNameEditor`, `script/step/header/StepNameEditor`, and
-   `sidebar/DocumentNameEditor` (they already share `ClientInputUtils.handleEnterAndEscape`).
-   Commands differ (rename refactors, not attribute upserts), so this is UI scaffolding only —
-   not `AttributeCommitter`.
+   *As built: **4 call sites**, not 2 — `ScriptStepDisplayDefault.findSummaryAttributes` and
+   `WorkerDisplayDefault.renderAttributeSummaries` inline the same read. `AttributeWrapperLookup`
+   owns both keys and two overloads (`AttributeMetadata`-shaped and `GraphStructure`-shaped).*
+2. ~~**Rename-editor scaffolding**~~ — **DROPPED 2026-07-20 on a finding.** The stated premise
+   ("three rename editors share the shape") does not hold: `script/step/header/StepNameEditor`
+   has **no text field** — it renders a reader and embeds `common/edit/ObjectNameEditor`. That
+   leaves `ObjectNameEditor` ↔ `sidebar/DocumentNameEditor`, which do share the TextField +
+   Cancel/Save IconButtons + `ClientInputUtils.handleEnterAndEscape` + `isModified()`, but sit in
+   incompatible containers (inline `float:right` with −3em/−0.5em negative margins compensating for
+   the float, vs. a flex row inside a `Popover` with a `textFieldTextInset` origin shift). Lifting
+   the render needs either `sx`-offset parameters — a leaky abstraction — or converting
+   ObjectNameEditor to flex, which is a **visual change, not hygiene**, on a surface (the step
+   header's inline name editor) that headless verification can't reach. Revisit only if that layout
+   is being touched for its own reasons.
 
-**Verify:** build gate; step/object/document renames still work incl. Escape-cancel; editor and
-summary-view selection unchanged across Script/Job/Flow/Custom.
+3. **Also folded in here** (parked under Phase 3, closed 2026-07-20): the pinned-`props` sweep —
+   bare `props` → `this.props` in the `AttributeCommitter` property-initializer lambdas of the six
+   affected adopters. See the Phase 3 follow-up note.
+
+**Verify:** build gate; editor and summary-view selection unchanged across Script/Job/Flow/Custom.
 
 ## Explicitly out of scope
 

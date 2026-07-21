@@ -27,7 +27,7 @@
 | J | `2026-07-16_job-improvements.md` | Job flavour + Report subsumption | J2–J9 | J7 rescoped post-E7 |
 | FL | `2026-07-16_flow-improvements.md` | Flow flavour | FL3–FL6 | FL6 = decision gate |
 | S8 | `2026-07-16_script-client-sweep.md` | Script client sweep | S8a–S8d | 8b prefers AE3+AE5 first |
-| AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js editor consolidation | AE6 only (AE1–AE5 ✅ done) | AE6 optional |
+| AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js editor consolidation | ✅ **COMPLETE 2026-07-20** | AE1–AE6 all landed; AE6's item 2 dropped on a finding |
 | SH | `2026-07-16_shell-launcher-improvements.md` | Shell/launcher/project trio | SH2–SH5 | SH5 last (docs-to-truth) |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | hygiene S1–S10 (−S7) + decisions D1–D7 | **needs ratification session** |
 | R | `2026-07-18_reflection-improvements.md` | `@Reflect`/KSP/`ReflectionRegistry` mechanics | R1–R6 | R5 after B5 ratification; R1 reshapes D1 (Java plugins need no KSP) |
@@ -161,10 +161,17 @@ wait makes it convenient.
 
 ### Stage B1 — client convergence (~7 sessions)
 
-**~~AE3 → AE4 → AE5~~ (all landed 2026-07-20) (→ AE6 optional)**, then **S8a–S8d** (8b/8d shrink now that AE5 is in; 8a can go
+**~~AE3 → AE4 → AE5 → AE6~~ (all landed 2026-07-20 — the AE plan is COMPLETE)**, then **S8a–S8d** (8b/8d shrink now that AE5 is in; 8a can go
 any time — fence with TP2/TP3 on `ScriptProgressStore`). Exit: one commit primitive, one
 select-reference base, no whole-`ClientState` stores, notation-driven branch discovery
 (SwitchStep unblocked).
+
+AE6 as-built worth carrying into S8: the `editor:`/`summary:` metadata-key convention now has a
+single owner, `AttributeWrapperLookup` (kzen-auto-js `common/attribute/`), covering **4** call sites
+— both managers plus `ScriptStepDisplayDefault.findSummaryAttributes` and
+`WorkerDisplayDefault.renderAttributeSummaries` — with a jsTest that locks in the `meta.ref`
+inheritance path. **The AE3 pinned-`props` follow-up is closed** (6 adopters moved to `this.props`;
+`FormulaMapRow`/`JobChannelNumberField` were never affected) — S8 must not pick it up again.
 
 ### Stage B2 — Job: Report subsumption (~8 sessions)
 
@@ -356,6 +363,13 @@ step, then a referenced document → the selects follow with **no** echo write (
 read-only); and edit a referenced attribute through the **raw editor** → the select updates
 **without** writing back (this round-tripped as a redundant Upsert before AE5). `SelectObjectEditor`
 in a Custom document is already headless-verified (hydration + pre-selection + no mount write).
+**AE6 (2026-07-20)** adds only two small items to the same bundle: a **Job** worker card's summary row
+(`WorkerDisplayDefault` — the one `AttributeWrapperLookup` call site headless can't reach, since worker
+bodies render only once a card is expanded), and one debounce-then-rename race (type into a step text
+attribute → immediately rename the step) confirming the `this.props` sweep left flush-before-rename
+ordering intact. The other three call sites — both managers and `ScriptStepDisplayDefault` — are already
+headless-verified against the bundled Custom/Script/FizzBuzz documents, with those notation files
+MD5-identical afterwards.
 Bundle into one dev-loop session with the user present.
 
 ### EXT-D5 (DataFormat) — parked
@@ -370,7 +384,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
-Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ (→AE6) · S8a–d   (client convergence)
+Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)
