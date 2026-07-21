@@ -29,7 +29,7 @@
 | `S8d_script-hygiene.md` | S8d — Script client hygiene | script sweep | one AE5-conditional item inside |
 | ~~`AE1_retire-old-fork.md`~~ ✅ **done 2026-07-19** | AE1 — delete flow/edit/*Old.kt fork | attribute-editor | landed as planned (yaml block was :57–81); FL5's scope now unblocked |
 | ~~`AE2_select-values-editor.md`~~ ✅ **done 2026-07-20** | AE2 — SelectClosePolicy → SelectValues | attribute-editor | landed as planned; `values:` proven through the `meta.ref` path; label renders "ClosePolicy" (D7 prediction corrected) |
-| `AE3_commit-primitive.md` | AE3 — shared commit primitive | attribute-editor | opens the AE3→AE4→AE5 spine |
+| ~~`AE3_commit-primitive.md`~~ ✅ **done 2026-07-20** | AE3 — shared commit primitive | attribute-editor | landed as planned, all 8 adopters; the elaboration's three drift flags all held. **AE4 unblocked** |
 | `SH2_child-exit-detection.md` | SH2 — child exit detection + UI surfacing | shell/launcher | DA5 later replaces its bind-failure pane |
 | `SH3_registry-durability.md` | SH3 — atomic registries + --project.home | shell/launcher | **rescoped to ProjectRepo only** (ArchetypeRepo already directory-scan + atomic) |
 | `SH4_template-extension-upgrade.md` | SH4 — kzen-project extension point + upgrade | shell/launcher | static cousin of R5; no ordering constraint |
@@ -47,7 +47,8 @@ reality rather than a prediction):
 - **J4** (after J3), **J9** (after J4, same files), **J8** (after J3; prefer after AE3+AE5)
 - **FL5** (AE1 first — master rule 5), **FL6** (decision gate after FL3)
 - **S8b** (AE3+AE5 first — master rule 4)
-- **AE4** (after AE3), **AE5** (after AE4), **AE6** (optional, after 1–5 land smoothly)
+- **AE4** (AE3 landed 2026-07-20 — plannable now), **AE5** (after AE4), **AE6** (optional, after
+  1–5 land smoothly)
 - **SH5** (docs-to-truth over whatever SH2–SH4 changed)
 - ~~**R2**~~ ✅ **done 2026-07-20** (executed straight from the constituent plan, no elaboration
   needed), **R5** (after the B5 ratification)
@@ -70,7 +71,8 @@ Gated or not implementable by an autonomous session:
 ## Suggested pick order (matches master-plan priorities)
 
 Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · ~~AE2~~ ·
-~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed. Then backlog stage openers by appetite: **AE3** (B1), **J2 → J3**
+~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed, as is B1's opener **~~AE3~~**. Then backlog stage
+openers by appetite: **AE4** (B1 — now plannable, AE3's prerequisite is in), **J2 → J3**
 (B2; J5/J7 slot around, J6 last), **FL3 · FL4** (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
 
 ## Standing rules for every implementation session

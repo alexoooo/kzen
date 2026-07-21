@@ -48,7 +48,23 @@
 >   `[by, editor, values, is]`, `editor = SelectValuesEditor`, all 7 entries in enum order with
 >   em-dashes intact end-to-end (first non-ASCII bytes in bundled notation; file is UTF-8, no
 >   BOM). Browser smoke (render/select/no-echo-write) still owed — needs the user.
-> - [ ] Phase 3 — shared commit primitive (`DebouncedSubmitter` / `AttributeCommitter`) + field-local error capture
+> - [x] Phase 3 — shared commit primitive (`DebouncedSubmitter` / `AttributeCommitter`) + field-local
+>   error capture — **done 2026-07-20**, as planned across all 8 adopters. Two shape corrections the
+>   elaboration had already flagged: `KotlinExpressionEditor` is scalar-shaped (the map-shaped submit
+>   in the table above is `TargetSpecEditor`), and `JobChannelNumberField` is **not** "same swap as
+>   Text" — its four command shapes (`Remove`/`Upsert`/`UpdateIn`/`InsertMapEntry`) can't route
+>   through `editCommand`, so it takes `DebouncedSubmitter` + a shared
+>   `CommonEditUtils.applyCommand(store, command): String?` helper (added this phase; it is where the
+>   `message ?: toString()` extraction lives, so `AttributeCommitter` and command-shaped editors share
+>   one implementation). `commitNow` carries an explicit-value overload for event-carried values
+>   (Boolean/Select toggles, reference insertion) that aren't yet readable from React state.
+>   `muiAutocompleteField` gained an additive `error: Boolean = false`. `TargetSpecEditor` dropped its
+>   local `submitDebounceMillis` const — the kernel's `defaultDelayMillis` owns the 1000 ms.
+>   Verified by full `./gradlew build` (green, zero warnings) + 5 new `AttributeCommitterTest` cases
+>   passing under ChromeHeadless. Residue after the phase is exactly the expected non-adopters:
+>   `AttributePathValueEditor` (Phase 4 deletes it — the last `// TODO: handle error`), 4 Report-seam
+>   debounces, 2 `ClientLogicGlobal` transport debounces. Manual browser matrix still owed —
+>   needs the user.
 > - [ ] Phase 4 — merge `AttributePathValueEditor` into `DefaultAttributeEditor`, composing the leaf editors
 > - [ ] Phase 5 — select-of-reference family on a shared base (5 editors, identities preserved)
 > - [ ] Phase 6 (optional) — hygiene: manager-lookup helper; rename-editor scaffolding

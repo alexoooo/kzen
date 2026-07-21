@@ -1,6 +1,30 @@
 # AE3 — shared commit primitive + field-local error capture — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from
+> **✅ DONE 2026-07-20.** Landed in one session, all 9 commits as planned; every anchor in this
+> document was still accurate at execution time and all three drift flags held exactly as
+> described. Trackers ticked in `../2026-07-14_attribute-editor-improvements.md` (Phase 3, carries
+> the as-built note), `../2026-07-16_master-plan.md` (Stage B1 + rule 4 + roadmap block) and
+> `README.md` here. AE1/AE2 having landed since this was written changed nothing in the blast
+> radius except the residue arithmetic: `AttributePathValueEditorOld` is already gone, and
+> `ClientLogicGlobal`'s third site is a `throttle`, not a `debounce` — so the post-phase
+> `lodash.debounce` residue is **7** non-adopter sites plus the kernel (4 Report-seam + 2
+> `ClientLogicGlobal` + `AttributePathValueEditor`), and `// TODO: handle error` is down to the
+> single `AttributePathValueEditor:252` that AE4 deletes.
+>
+> Deviations from the letter of this plan, both simplifications:
+> - `TargetSpecEditor`'s `submitDebounceMillis` companion const was **deleted** rather than passed
+>   as `delayMillis` — it duplicated `DebouncedSubmitter.defaultDelayMillis` (Q10's intent).
+> - `JobChannelNumberField` got a two-line private `applyCommand(command)` wrapper around
+>   `CommonEditUtils.applyCommand` + `setState`, instead of inlining that pair at both call sites.
+>
+> Q6 resolved on the happy path: MUI's `InputLabel` binding **does** expose `error`, so no
+> `NamedColor.red` fallback was needed. Verification: full `./gradlew build` green in kzen-auto,
+> zero compiler warnings on a `--rerun-tasks` recompile; the 5 new `AttributeCommitterTest` cases
+> pass under ChromeHeadless (`:kzen-auto-js:jsTest`), covering success ordering, remote failure,
+> the message-less `toString()` fallback, null-pending, and the explicit-value overload. **The
+> manual browser matrix in § Verification is still owed — it needs the user.**
+
+> **Status: superseded by the note above.** Generated 2026-07-19 from
 > `2026-07-14_attribute-editor-improvements.md` **Phase 3**. Decisions pre-made in the
 > constituent plan (esp. D3 — `onCommitted`/`onChange` on successful apply only — and D4 —
 > global banner stays authoritative, `onError` is additive; no `suppressErrorDisplay`) — do not

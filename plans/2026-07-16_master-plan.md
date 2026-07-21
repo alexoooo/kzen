@@ -161,7 +161,7 @@ wait makes it convenient.
 
 ### Stage B1 — client convergence (~7 sessions)
 
-**AE3 → AE4 → AE5 (→ AE6 optional)**, then **S8a–S8d** (8b/8d shrink once AE5 is in; 8a can go
+**~~AE3~~ (landed 2026-07-20) → AE4 → AE5 (→ AE6 optional)**, then **S8a–S8d** (8b/8d shrink once AE5 is in; 8a can go
 any time — fence with TP2/TP3 on `ScriptProgressStore`). Exit: one commit primitive, one
 select-reference base, no whole-`ClientState` stores, notation-driven branch discovery
 (SwitchStep unblocked).
@@ -229,7 +229,9 @@ retained; Windows and Linux installers ship.
    size, mime}` (kzen-lib `BinaryHandleExecutionValue`, a sibling of `binary` under the sealed
    `BinaryValue`) in addition to the existing `binary` (base64) shape.
 4. **AE3+AE5 before S8b and before J8.4** — the shared editor primitives land once, in AE;
-   the dedupe remainders build on them (hot-seam rule; notes in all three plans).
+   the dedupe remainders build on them (hot-seam rule; notes in all three plans). AE3 **landed
+   2026-07-20** (`DebouncedSubmitter` / `AttributeCommitter` / `CommonEditUtils.applyCommand`);
+   AE5 is still the outstanding half.
 5. ~~**AE1 before FL5's cleanup scope**~~ — **satisfied 2026-07-19**: AE1 landed, the
    `flow/edit/*Old.kt` package is gone, so FL5 can run without that constraint.
 6. **S8a ↔ TP2/TP3** — same file (`ScriptProgressStore`); whichever runs second skims the
@@ -347,7 +349,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
-Backlog    B1: AE3 → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
+Backlog    B1: ~~AE3~~ → AE4 → AE5 (→AE6) · S8a–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)
