@@ -17,7 +17,8 @@
 >   — **landed 2026-07-21** (see the as-built note under 8a)
 > - [x] 8b — display/editor dedup (`ScriptStepDisplayBase`, scope helper, buildGroups)
 >   — **landed 2026-07-21** (see the as-built note under 8b)
-> - [ ] 8c — notation-driven branch discovery (removes the SwitchStep blocker)
+> - [x] 8c — notation-driven branch discovery (removes the SwitchStep blocker)
+>   — **landed 2026-07-21** (see the as-built note under 8c)
 > - [ ] 8d — hygiene (`StepRowRefRegistry` scoping, TODOs, deprecated-archetype check)
 
 ## Landed context (Sprint 1) — the Script plan this sweep closes out
@@ -187,6 +188,51 @@ this sub-phase's remainder.
   a notation marker on the attribute metadata (e.g. `scope: body` on DoWhile's `condition`),
   read by both the editor and (optionally) the server scope helpers, so client/server can't
   drift.
+
+### As-built (landed 2026-07-21, post 8a/8b; elaboration: `plans/next/S8c_branch-discovery.md`)
+
+- **The post-XC4 audit's verdict held exactly**: Sprint 1 made *nesting/loop membership*
+  notation-driven but never touched branch *discovery*, so `branchAttributeNames` was still the
+  literal `[steps, then, else]` list and was the whole remainder. `ScriptNestingAnalysis`,
+  `ScriptJumpAnalysis` and `ScriptTree.read` needed **no change** — the sweep's "check and align
+  `ScriptTree.read`" resolves to *do not touch it*: its children deliberately include the
+  **binding** branches (`parameters`, ForEach's `item`) that `inScopeBindingPaths` depends on, and
+  discovery excludes those by design. Filtering happens at the consumers, never in the tree.
+- Discovery is `ScriptConventions.stepBranchAttributeNames(graphNotation, objectLocation)`:
+  merged `meta` (through the `is:` chain via `GraphNotation.mergeAttribute`) → attributes whose
+  metadata map declares scalar `is: List` **and** scalar `of: ScriptStep`. **Exact-name `of:`
+  matching is load-bearing, not merely simple** — `ParameterBinding` is itself `is: ScriptStep`,
+  so an inheritance-resolving predicate would misclassify the Script's `parameters` binding branch
+  as a body branch. `by:` is deliberately not part of the predicate.
+- `ResultStep` has a **scalar** `then:` attribute, which the old name-based probe blindly probed on
+  every step (harmless only because nothing nests objects there). Discovery is type-aware and
+  removes that collision hazard outright.
+- Scope marker: `scope: body` on DoWhileStep's `meta.condition` (script-jvm.yaml), read by
+  `ScriptConventions.isBodyScopedExpression` (`firstAttribute`, mirroring `isReRunAttribute`).
+  **No server read site was added and none should be** — `DoWhileStep.conditionScopeTypes` /
+  `FormulaStep.processorTypes` don't branch on an attribute name at all; each step class *is* its
+  own scope rule. The marker is the client-facing declaration of the semantics the class already
+  implements, exactly like `rerun`. `KotlinExpressionEditor` reads it synchronously via
+  `ClientStateGlobal.current()` at use time (no observer-ordering hazard), and its `bodyStepPaths`
+  now unions **all** discovered branches of the node rather than hardcoding `steps` — so an
+  N-branch third-party loop scopes correctly.
+- Constant centralization landed as one new `ScriptConventions.conditionAttributeName` (IfStep +
+  DoWhile displays) and `ForEachStepDisplay` switching to the existing `itemsAttributeName`;
+  `KotlinExpressionEditor`'s copy was deleted outright. **`then`/`else` deliberately did NOT move
+  to `ScriptConventions`** — once out of the analysis they live only in `IfStepDisplay`, which is
+  where the no-god-object rule wants them; both went public → `private` (zero external consumers).
+- Behavioural delta is confined to malformed/power-edited documents that nest objects under an
+  *undeclared* attribute happening to be named `steps`/`then`/`else`: previously classified, now
+  not. Server-safe via `ScriptValueReferences`' `nestedStepLists` completeness backstop (kept, KDoc
+  reworded); client-side it only omits an overlay line for a step the engine wouldn't run.
+- **SwitchStep acceptance is test-proven**: `script-branch-discovery-test.yaml` declares a
+  `TestSwitchStep` with two branches (`caseA`/`caseB`), no backing class and no entry in any kzen
+  dispatch; `ScriptBranchDiscoveryTest` asserts both branches classify, that a `caseA → caseB`
+  reference is a cross-branch edge, and that `parameters` stays excluded. **Zero shared-code edits
+  were needed to make it work** — that is the exit criterion. Verified:
+  `:kzen-auto-jvm:test` (90 suites / 458 tests), `:kzen-auto-js:build`, `:kzen-auto-test:selfTest`
+  all green. Browser smoke (drag-drop across branches, overlay lines, the DoWhile condition picker
+  offering body steps) is manual debt — see the master plan's § Manual smoke debt.
 
 ## 8d. Hygiene
 

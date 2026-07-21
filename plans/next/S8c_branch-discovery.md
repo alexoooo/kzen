@@ -1,5 +1,13 @@
 # S8c — notation-driven branch discovery — implementation plan
 
+> **✅ DONE 2026-07-21** — landed as planned. As-built notes live in the constituent plan
+> (`../2026-07-16_script-client-sweep.md`, § "8c. Notation-driven branch discovery"). Two
+> anchor drifts from this document, neither affecting the design: `KotlinExpressionEditor` had
+> moved to `script/display/edit/` and its default branch already called
+> `ScriptTree.inScopeReferencePaths` (S8b), so the default arm was left alone rather than
+> re-spelled as `predecessors + inScopeBindingPaths`. Browser smoke (§ Verification bullet 4)
+> remains outstanding manual debt.
+>
 > **Status: ready to execute.** Generated 2026-07-19 from
 > `2026-07-16_script-client-sweep.md` **8c**. Decisions pre-made in the constituent plan — do not
 > re-litigate. Every anchor below re-verified against current kzen-auto master (`ceb699d0`) on
