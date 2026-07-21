@@ -65,7 +65,35 @@
 >   `AttributePathValueEditor` (Phase 4 deletes it — the last `// TODO: handle error`), 4 Report-seam
 >   debounces, 2 `ClientLogicGlobal` transport debounces. Manual browser matrix still owed —
 >   needs the user.
-> - [ ] Phase 4 — merge `AttributePathValueEditor` into `DefaultAttributeEditor`, composing the leaf editors
+> - [x] Phase 4 — merge `AttributePathValueEditor` into `DefaultAttributeEditor`, composing the leaf editors
+>   ✅ **2026-07-20** — as-built: landed as planned (395-line editor deleted; `isValue` → `CommonEditUtils.isValueType`;
+>   `DefaultAttributeEditor` now derives the value **at render** from the `attributeNotation` it already held, so the
+>   duplicate `ClientStateGlobal` subscription and the value/values state are both gone, and the last hand-rolled
+>   `lodash.debounce` + `// TODO: handle error` copy with them). Three amendments to the phase text:
+>   **(a)** the hygiene rider went further than "trim `disabled`/`invalid`/`labelOverride`, keep `onChange`" —
+>   verified `AttributeEditorManager` sets *only* `objectLocation` + `attributeName`, so `onChange` was dead too;
+>   **`AutoAttributeEditorProps` is deleted outright** (user decision this session) and the component is typed on
+>   `AttributeEditorProps` directly. That also deleted `formattedLabel()` — with no `labelOverride` to forward, each
+>   leaf editor's own `CommonEditUtils.formattedLabel(attributePath, null)` yields the identical string (confirmed in
+>   the DOM: "Name" / "Note" / "Enabled" / "Aliases (one per line)"), and it sidesteps `BooleanAttributeEditor`
+>   having no plain `labelOverride` prop (only `true`/`falseLabelOverride`). Nothing is passed down but location,
+>   path, value and the store. **(b)** `renderValueEditor`'s `type: TypeMetadata` parameter had to be renamed
+>   **`valueType`** — inside `TextAttributeEditor::class.react { … }`, `type = …` resolves to the shadowing `val`
+>   parameter, not the prop (val-reassignment compile error). **(c)** the dead `componentDidUpdate` →
+>   `state.init(props)` was removed: `init` was never overridden, so it called the empty `open fun` on
+>   `RPureComponent`. `AutoAttributeEditorState` renamed `DefaultAttributeEditorState`.
+>   Verified: `cd ../kzen-auto && ./gradlew build` green with zero warnings (the real gate — the whole change lives
+>   in kzen-auto-js; a cross-sibling grep confirms no other repo names these types), plus the umbrella's five
+>   `:<sibling>:build` tasks green. **Gotcha worth recording: `./gradlew build` from the umbrella root does NOT
+>   build anything** — the root has no `build` task, so Gradle abbreviation-matches it to `buildEnvironment` and
+>   exits 0 in ~11 s. Use `cd ../<sibling> && ./gradlew build`, or name the included builds explicitly.
+>   `:kzen-auto-test:selfTest` green; **headless-Chrome DOM dump** of a scratch Custom document exercising all four
+>   branches at once (`name` String → `<input type=text value=world>`, `note` multiline String → `<textarea>` with
+>   both lines, `enabled` Boolean → `<input role=switch checked>`, `aliases` List-of-String → `<textarea>`
+>   named `… - aliases` with both entries) — every field **pre-filled**, zero console errors, and the notation file
+>   byte-identical afterwards (**no echo write on mount**). Manual browser matrix still owed — needs the user:
+>   Script/Flow/Job *hosts* (their step/vertex/worker bodies only render editors once expanded, which headless
+>   can't click), the debounce race, and the D2 immediate-Boolean-commit confirmation.
 > - [ ] Phase 5 — select-of-reference family on a shared base (5 editors, identities preserved)
 > - [ ] Phase 6 (optional) — hygiene: manager-lookup helper; rename-editor scaffolding
 
@@ -162,7 +190,10 @@ All paths below are under
   class.
 - File safety: verification inspects documents under `notation/main/` **read-only**; never
   modify/delete user files there.
-- Verification baseline per phase: `./gradlew :kzen-auto-js:build -x test` (KSP + compile),
+- Verification baseline per phase — **all of these run from `../kzen-auto`, never from the umbrella**
+  (`./gradlew build` at the `kzen/` root abbreviates to `buildEnvironment` and exits 0 having compiled
+  nothing; `:kzen-auto:build` from there reaches only the source-less root project — found and
+  documented in AGENTS.md during phase 4): `./gradlew :kzen-auto-js:build -x test` (KSP + compile),
   then full `./gradlew build`; manual UI matrix via
   `./gradlew :kzen-auto-jvm:frontendDevelopment -PjsWatch` (JS has no component unit tests);
   `./gradlew :kzen-auto-test:selfTest` after phases 2, 3, 5.

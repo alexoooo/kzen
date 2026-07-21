@@ -22,20 +22,27 @@ Before finalizing any code change, review it against @docs/CODING_STANDARDS.md.
 
 ## Build & run
 
-All commands assume the working directory is `C:\Users\ostro\IdeaProjects\kzen` (or any of the included builds — Gradle resolves *artifact substitutions* either way; *task addressing* does NOT — see the gotcha below). The wrapper is Gradle 9.6.1; the Gradle daemon runs on Java 25 while the Kotlin/Java toolchain compiles to Java 26.
+**Working directory matters.** Gradle resolves *artifact substitutions* from the umbrella or from any included build alike, but *task addressing* does not: anything that actually compiles or tests must be invoked from the sibling's own directory (the two gotchas below spell out why, including a silent-success trap). The wrapper is Gradle 9.6.1; the Gradle daemon runs on Java 25 while the Kotlin/Java toolchain compiles to Java 26.
 
 ```powershell
-# Build everything (delegates into all five included builds)
-./gradlew build
+# Build one sibling for real — from ITS OWN directory (see the build-addressing gotcha below)
+cd ../kzen-auto;   ./gradlew build
+cd ../kzen-lib;    ./gradlew build
 
-# Build one included build only — root-project tasks of the included build
-./gradlew :kzen-auto:build
+# kzen-shell is single-module, so its root task IS the whole build and works from the umbrella
 ./gradlew :kzen-shell:build
 
 # Run an included build's JVM main jar (after `./gradlew jar` in that build)
 java -jar ../kzen-auto/kzen-auto-jvm/build/libs/kzen-auto-jvm-*.jar
 java -jar ../kzen-shell/build/libs/kzen-shell-*.jar
 ```
+
+**Gotcha — there is no "build everything" from the umbrella, and the two obvious attempts both exit 0 without compiling anything.** Verified 2026-07-20 with `--dry-run`:
+
+- `./gradlew build` from `kzen/` — the umbrella root has **no `build.gradle.kts` at all**, so no `build` task exists. Gradle's task-name abbreviation silently matches it to **`:buildEnvironment`**, which prints a dependency report and reports `BUILD SUCCESSFUL` in ~11 s. Nothing is compiled and no test runs. This is the dangerous one: it *looks* like a green full build.
+- `./gradlew :kzen-auto:build` from `kzen/` — resolves to the *root project's own* lifecycle tasks only (`:kzen-auto:assemble` + `:kzen-auto:check` + `:kzen-auto:build`, all of a project that holds no source). The `-common` / `-jvm` / `-js` subprojects are never reached. Same for `:kzen-lib:`, `:kzen-project:`, `:kzen-launcher:`. `:kzen-shell:build` is the one honest case — kzen-shell is single-module, so its root project *is* the module.
+
+**Do this instead:** `cd ../<sibling> && ./gradlew build`. An unqualified task name run from a sibling's own directory matches across that build's whole project hierarchy, which is what actually compiles and tests. To cover several siblings, run them in sequence; there is no aggregate.
 
 **Gotcha — composite task addressing.** From the umbrella, `./gradlew :kzen-lib:<task>` reaches the *root project* of the included `kzen-lib` build, but the umbrella does NOT flatten included builds' subprojects into its own project tree. So `./gradlew :kzen-lib-common:publishToMavenLocal` from `kzen/` fails with "project 'kzen-lib-common' not found in root project 'kzen'". To run subproject tasks (e.g. `:kzen-lib-common:publishToMavenLocal`, `:kzen-launcher-jvm:jar`), `cd` into the sibling and invoke its own `./gradlew`. The aggregating root-level task (`./gradlew :kzen-lib:publishToMavenLocal`) also fails because the kzen-lib root has no `maven-publish` plugin — only the three subprojects do. Pattern: `cd ../kzen-lib && ./gradlew publishToMavenLocal`.
 
@@ -53,7 +60,7 @@ java -jar ../kzen-shell/build/libs/kzen-shell-*.jar
 
 **Working policy:**
 - For run/debug of `KzenAutoMain`, `BackendDevelopment`, `FrontendDevelopment`, `KzenProjectMain`, `KzenLauncherMain`, `KzenShellMain` — open the relevant sibling (`kzen-auto`, `kzen-project`, `kzen-launcher`, `kzen-shell`) as its OWN IntelliJ project, not via the umbrella. Standalone resolution comes from mavenLocal at the version `Dependencies.kt` asks for; no composite involved on the consumer side, so no Provided-scope mapping.
-- The umbrella IntelliJ project is for: cross-sibling reads/greps, multi-sibling refactors driven by IntelliJ, and aggregate CLI builds (`./gradlew build`, `./gradlew :<sibling>:<root-task>`). It is NOT for IDE-launched JVM run/debug of KMP-consuming entry points.
+- The umbrella IntelliJ project is for: cross-sibling reads/greps, multi-sibling refactors driven by IntelliJ, and composite dependency resolution. It is NOT for IDE-launched JVM run/debug of KMP-consuming entry points, and — per the build-addressing gotcha above — it is NOT where you run a real build either: compile/test from each sibling's own directory.
 - Do NOT add `includeBuild("../kzen-lib")` (or any other KMP sibling) to a sibling's own `settings.gradle.kts` solely to enable umbrella workflows — it breaks that sibling's own standalone run/debug. Accept the KGP NPM coordination consequence (workaround above).
 
 ### Per-included-build dev loops
@@ -136,7 +143,7 @@ Treat the working tree as the user's. **Never delete, move, or overwrite a file 
 
 - Editing source: navigate into the relevant sibling directory (`cd ../kzen-auto` etc.) — the files under `kzen/` itself are only Gradle glue and `.gitignore`d build artifacts.
 - The `build/` directory at this root only contains aggregated reports; nothing is compiled here directly.
-- Don't run `./gradlew build` casually — the composite drags every sibling through compile + test + KMP JS bundling, which is a multi-minute operation. Prefer `./gradlew :<included-build>:<task>` when the task lives on the included build's *root* project, or `cd ../<sibling> && ./gradlew <task>` when it lives on a *subproject* (the more common case — e.g. `publishToMavenLocal`, `:kzen-launcher-jvm:jar`).
+- Build from the sibling you changed: `cd ../<sibling> && ./gradlew build` (multi-minute — compile + test + KMP JS bundling — so scope it to what you touched, e.g. `./gradlew :kzen-auto-js:compileKotlinJs` for a fast JS gate). Do **not** reach for `./gradlew build` or `./gradlew :<sibling>:build` from the umbrella: both exit 0 without compiling anything (see the build-addressing gotcha above). Subproject tasks (`publishToMavenLocal`, `:kzen-launcher-jvm:jar`) are unreachable from the umbrella entirely.
 - Logs from running launcher/project processes land under each sibling's `logs/` directory, not under `kzen/`.
 
 ### Stage new files you create
