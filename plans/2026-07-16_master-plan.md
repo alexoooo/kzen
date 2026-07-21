@@ -185,8 +185,8 @@ identical bytes); Report frozen; headless = "the same Job minus observability".
 
 ### Stage B3 — Flow capability (~3 sessions + gate)
 
-~~**FL3**~~ ✅ (capability SPI — landed 2026-07-21), **FL4** (client perf +
-Error phase), **FL5** (editing UX; AE1 first). **FL6** is a decision gate (multi-output /
+~~**FL3**~~ ✅ (capability SPI — landed 2026-07-21), ~~**FL4**~~ ✅ (client perf + Error phase —
+landed 2026-07-21), **FL5** (editing UX; AE1 first). **FL6** is a decision gate (multi-output /
 crossing / nested-loop semantics) — decisions first, possibly docs-only.
 
 ### Stage B4 — platform trio (4 sessions)
@@ -404,7 +404,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
 Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · ~~S8b~~ · ~~S8c~~ · ~~S8d~~ ✅ (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
-           B3: ~~FL3~~ → FL4 → FL5 · FL6 gate   (Flow capability)
+           B3: ~~FL3~~ → ~~FL4~~ → FL5 · FL6 gate   (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)
            B5: (~~R1~~ → ~~R2~~ pre-work done) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
            B6: DA1 spike (gate) → DA2 → DA3 → DA4 → DA5   (desktop distribution)

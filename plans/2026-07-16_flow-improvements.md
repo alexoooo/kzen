@@ -27,8 +27,11 @@
 >   production archetypes; `Map<String, String>` through the default `StructuralAttributeDefiner`
 >   worked as predicted, no `FlowArgumentsDefiner` needed. Browser smoke of the `RunLogic2` ribbon
 >   tool + arguments editor is manual debt)
-> - [ ] Phase 4 — client render performance + error visibility: compute-once routing,
+> - [x] Phase 4 — client render performance + error visibility: compute-once routing,
 >   consumed-subset state, Error phase rendered, refetch scoping, display hygiene
+>   — landed 2026-07-21 (as-built below: refetch was **mostly already fixed by E5/TP4** — only the
+>   per-document involvement gate was added; two required server-side `FlowRun` additions came with
+>   the Error phase; browser smoke is manual debt)
 > - [ ] Phase 5 — editing UX: move commands, auto-pipe routing tool, row/column shifting
 > - [ ] Phase 6 — decision gate: expressiveness (multi-output, pipe crossing, nested-loop
 >   semantics) — decide, then build or document
@@ -265,6 +268,59 @@ on: card turns red with the message visible, fix + resume clears it; React DevTo
 highlight-updates: editing one vertex's attribute no longer flashes every card; a Script
 running in another tab doesn't cause continuous Flow refetching (network tab).
 `:kzen-auto-js:build` green; jvm tests green.
+
+### As-built (landed 2026-07-21)
+
+Executed from `kzen/plans/next/FL4_flow-client-perf-errors.md`, which pre-resolved the phase's
+"check first" items. All four deliverables landed as designed; three things are worth recording.
+
+- **Refetch scoping — the finding had mostly expired.** As this phase's own design note
+  anticipated, E5/TP4 had already replaced the `logicStatus.time` keying with
+  `ClientLogicState.traceVersion()` (version-gated, so an idle or paused run stops re-fetching
+  entirely) plus a 1 s publish throttle. The **residual** gap was narrow and real: `traceVersion()`
+  is global to the single active run, so an **unrelated** run's per-emit advance re-keyed every
+  visible Flow tab ~1/s and re-fetched its settled snapshot for that run's whole duration. Fixed
+  with a three-mode fetch key in `FlowController.refreshVisualModelIfNeeded` — *involved* (this
+  document is in the run's frame tree, via the already-present `LogicRunFrames.frameForDocument`)
+  → per-emit `traceVersion()`; *other run active* → keyed on run id alone (one refetch at that
+  run's start, since starting a run clears the retained trace and the display must repaint);
+  *no active run* → `structureVersion()` (one refetch on settle; preserves the "Clear all traces"
+  repaint). `FlowProgressStore` needed no change. A value-equal guard on the fetched
+  `VisualFlowModel` was added alongside, since each fetch allocates a fresh instance.
+- **The Error phase required two server-side `FlowRun` changes** beyond this phase's "js + one
+  common enum fix" framing — both latent bugs the phase's verification would otherwise have
+  failed on:
+  1. `snapshotVisual` passed `model.error` through despite its KDoc claiming it reads only
+     message-presence/hasNext/epoch/running. Once `phase()` reads `error`, that would have made
+     **server routing** skip errored vertices: a live edit during an error park carries the error
+     into the rebuilt run (`FlowMigrationState.activeVertices`), and a multi-vertex layer would
+     then skip that vertex forever — the flow stalling instead of re-running it. Now passes `null`,
+     so the phase change is provably display-only and the KDoc is enforced rather than aspirational.
+  2. `ActiveVertexModel.error` was **never cleared** — the only two writers set it on failure. The
+     phase's own "fix + resume clears it" was therefore unimplementable as written. Added
+     `FlowRun.clearStaleError`, called on both vertex paths (in-line and logic-host) after their
+     `recoverable` block returns normally, forcing the follow-up trace so the red card subsides
+     past the free-running throttle. Pinned by a new `FlowNotationTest`
+     (`errorClearsOnResumeAfterTransientFailure`) driving a fail-once test vertex through
+     park → resume → success, plus a traced-error assertion added to the existing park test.
+- **`FlowUtils.nextInLayer`'s single-vertex shortcut needed an Error-only guard.** It returns
+  `layer.first()` unconditionally, so the phase check alone would have left an errored vertex
+  selected as next-to-run in the very common single-vertex-layer shape. The guard is deliberately
+  Error-only — the shortcut's skipping of `inputsReady` is load-bearing (a mid-stream vertex
+  re-executes without fresh inputs) and pinned by
+  `inProgressSingleVertexLayerSelectedWithoutInputCheck`. Server-inert given the `snapshotVisual`
+  fix above. Both layer shapes now have a structure-suite case.
+
+Rides-along: `CellController`'s `ExecutionIntentGlobal` subscription was pure waste (its `render()`
+read none of its state, so every intent publish re-rendered every cell) and is gone —
+`VertexController` keeps its own, genuinely-used one. `EdgeController`'s `graphStructure` prop went
+with the deleted `FlowUtils.next` overload. The card's error colour is a light tint (`#ffcdd2`) so
+the black-text attribute editors stay legible, with the strip carrying the saturated red.
+
+**Manual smoke is debt** (needs the user at a browser): FizzBuzz Flow Loop highlighting/tinting
+unchanged under compute-once; the scratch-document error card (red + strip + tooltip, clearing on
+fix + resume); React DevTools highlight-updates during an unrelated run; the Network tab's refetch
+count during an unrelated run.
 
 ---
 

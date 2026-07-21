@@ -1,6 +1,19 @@
 # FL4 — Flow client: render performance, error visibility, display hygiene — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from `2026-07-16_flow-improvements.md`
+> **Status: ✅ DONE 2026-07-21.** Landed as planned, after FL3 — the predicted `FlowRun` overlap was
+> a purely textual rebase (the two `recoverable` blocks and `snapshotVisual` survived FL3's
+> capability-interface rewrite verbatim), and `VertexController.renderAttributes` still filters
+> `row`/`column` as expected. Both scope corrections (§ Q2/Q3) were confirmed necessary, and Q1's
+> verdict held exactly: E5/TP4 had already delivered the bulk of the refetch fix, leaving only the
+> involvement gate. Three deviations, all mechanical: (1) the flaky fixture uses `@Reflect` + the JVM
+> reflective mirror (R1 having landed), so steps 3b/3c collapse to one class and no
+> `FlowVertexTestModule` / `register()` call; (2) `FlowOutput` names its component `result:`, not
+> `parameter:` — the fixture in step 3d says otherwise; (3) the clear-on-success of steps 2b/2c is a
+> shared `FlowRun.clearStaleError` helper called from both vertex paths rather than duplicated
+> inline, which also lets the logic-host path force its trace instead of relying on resume timing.
+> The as-built note lives in the constituent plan. Manual browser smoke (§ Verification 3) is debt.
+>
+> Generated 2026-07-19 from `2026-07-16_flow-improvements.md`
 > Phase 4 (decisions pre-made there — compute-once routing, consumed-subset state, Error phase
 > rendered with strip + tooltip, involvement-scoped refetch, display hygiene; do not re-litigate).
 > All anchors verified against current code 2026-07-19, post SER2–SER5 / Y / G5 / G7 / TP1 / TP3 /
