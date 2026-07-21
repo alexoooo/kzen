@@ -24,7 +24,7 @@
 | `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job | retain=false extractable as micro-session |
 | `FL3_vertex-capability-spi.md` | FL3 — vertex capability SPI | flow | B3 opener; FL6 gate needs it |
 | `FL4_flow-client-perf-errors.md` | FL4 — Flow client perf + Error phase | flow | independent of FL3 (same-file adaptation note inside); **refetch mostly landed by E5/TP4** — residual = involvement gate; two required jvm `FlowRun` additions |
-| `S8a_script-hot-paths.md` | S8a — Script client hot paths | script sweep | post-TP3/TP4 anchors |
+| ~~`S8a_script-hot-paths.md`~~ ✅ **done 2026-07-21** | S8a — Script client hot paths | script sweep | landed as planned; **four** analyze consumers share one `Component` extension (not four inlined lookups); browser smoke is manual debt |
 | `S8c_branch-discovery.md` | S8c — notation-driven branch discovery | script sweep | unblocks SwitchStep |
 | `S8d_script-hygiene.md` | S8d — Script client hygiene | script sweep | one AE5-conditional item inside |
 | ~~`AE1_retire-old-fork.md`~~ ✅ **done 2026-07-19** | AE1 — delete flow/edit/*Old.kt fork | attribute-editor | landed as planned (yaml block was :57–81); FL5's scope now unblocked |

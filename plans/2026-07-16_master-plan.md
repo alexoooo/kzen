@@ -161,8 +161,8 @@ wait makes it convenient.
 
 ### Stage B1 — client convergence (~7 sessions)
 
-**~~AE3 → AE4 → AE5 → AE6~~ (all landed 2026-07-20 — the AE plan is COMPLETE)**, then **S8a–S8d** (8b/8d shrink now that AE5 is in; 8a can go
-any time — fence with TP2/TP3 on `ScriptProgressStore`). Exit: one commit primitive, one
+**~~AE3 → AE4 → AE5 → AE6~~ (all landed 2026-07-20 — the AE plan is COMPLETE)**, then
+**~~S8a~~ (landed 2026-07-21, post-TP3/TP4) · S8b–S8d** (8b/8d shrink now that AE5 is in). Exit: one commit primitive, one
 select-reference base, no whole-`ClientState` stores, notation-driven branch discovery
 (SwitchStep unblocked).
 
@@ -246,8 +246,9 @@ retained; Windows and Linux installers ship.
    recorded under the AE plan's Phase 3.
 5. ~~**AE1 before FL5's cleanup scope**~~ — **satisfied 2026-07-19**: AE1 landed, the
    `flow/edit/*Old.kt` package is gone, so FL5 can run without that constraint.
-6. **S8a ↔ TP2/TP3** — same file (`ScriptProgressStore`); whichever runs second skims the
-   other's as-built.
+6. ~~**S8a ↔ TP2/TP3** — same file (`ScriptProgressStore`); whichever runs second skims the
+   other's as-built.~~ — **satisfied 2026-07-21**: TP3/TP4 ran first (TP2 skipped), S8a landed
+   against the reshaped file and left TP4's executions cache as-is.
 7. **J3 → J4 → J9**; **J8 after J3**.
 8. **G4 measurement gate** — measure per-keystroke define cost post-G1 before building; record
    the number either way.
@@ -384,7 +385,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
-Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · S8a–d   (client convergence)
+Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · S8b–d   (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)

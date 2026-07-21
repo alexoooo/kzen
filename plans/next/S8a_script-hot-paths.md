@@ -1,5 +1,12 @@
 # S8a — Script client hot paths — implementation plan
 
+> **✅ DONE 2026-07-21** — landed as planned in kzen-auto-js. As-built notes live in the
+> constituent plan (`../2026-07-16_script-client-sweep.md`, § "8a. Hot paths"). One deviation:
+> the lookup-or-fallback of step A is a single shared `Component` extension
+> (`script/model/ScriptDependencyAnalysisLookup.kt`) rather than inlined at each of the four
+> consumer sites — same mechanism, one copy. Browser smoke (§ Verification bullet 3) and
+> `selfTest` remain outstanding manual debt.
+>
 > **Status: ready to execute.** Generated 2026-07-19 from `2026-07-16_script-client-sweep.md`
 > **8a** (decisions pre-made — do not re-litigate; this document only concretizes them). Every
 > anchor re-verified against current kzen-auto master (`ceb699d0`) on 2026-07-19 — i.e. **post

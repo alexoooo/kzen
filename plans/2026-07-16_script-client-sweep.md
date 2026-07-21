@@ -13,7 +13,8 @@
 > as-built first to avoid colliding); `2026-07-16_master-plan.md` (sequencing).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] 8a — hot paths (`ScriptDependencyAnalysis` memo, timeline append, incremental representatives)
+> - [x] 8a — hot paths (`ScriptDependencyAnalysis` memo, timeline append, incremental representatives)
+>   — **landed 2026-07-21** (see the as-built note under 8a)
 > - [ ] 8b — display/editor dedup (`ScriptStepDisplayBase`, scope helper, buildGroups)
 > - [ ] 8c — notation-driven branch discovery (removes the SwitchStep blocker)
 > - [ ] 8d — hygiene (`StepRowRefRegistry` scoping, TODOs, deprecated-archetype check)
@@ -66,6 +67,35 @@ implementations. 8b *enforces* it structurally instead of relying on hand-copied
 **Coordination fence:** TP2/TP3 (trace-payload plan) modify `ScriptProgressStore`'s fetch shape
 (binary-thin settle fetch / binary-by-handle). The changes are orthogonal (fetch shape vs
 processing cost) but same-file — whichever runs second skims the other's as-built first.
+
+### As-built (landed 2026-07-21, post TP3/TP4; elaboration: `plans/next/S8a_script-hot-paths.md`)
+
+- **Four `analyze` consumers, not two**: `ScriptBranchDisplay` and `ScriptDependencyOverlay` as
+  planned, plus `LogicSignatureEditor` (parameter gutter) and `ScriptMoveToArrow` (pointer-down,
+  cold) — both landed after this plan was drafted. All four now share one memo.
+- **Memo key is the `GraphDefinitionAttempt` REFERENCE + `documentPath`**, not the planned
+  `documentNotationChanged` signal: self-keying is ordering-free (a reactive invalidation would race
+  the consumers' own `onClientState`) and also catches cross-document drift that leaves this
+  document's notation untouched. During a run the attempt reference is stable, so the hot path
+  always hits. Never key on `successful()` — it allocates a fresh `GraphDefinition` per call.
+- Consumers reach it through the existing `DocumentBridge` + `ScriptStoreKey` via one shared
+  `Component` extension, `scriptDependencyAnalysis(clientState, documentPath)` (new file
+  `script/model/ScriptDependencyAnalysisLookup.kt` — the elaboration inlined the lookup at each of
+  the four sites; one helper avoids four copies and keeps the direct-`analyze` fallback in one
+  place). The three non-branch components gained `installContextType(DocumentBridgeContext)`.
+- A value-equality (`==`) skip-guard was added to `ScriptBranchDisplay.onClientState` — the memo
+  alone only makes the wasted render cheap. **8b subsumes this structurally** in its shared base.
+- **Latent duplicate-append bug fixed**: the old `addAll` + `sortedBy` did not dedupe, so two
+  overlapping `refresh()` coroutines both appended the same delta (duplicate film-strip frames).
+  Appending strictly above the watermark drops the re-delivery; the monotonicity check is a
+  `console.warn` + one-shot repair sort (a `check()` would surface as an unhandled async error over
+  a cosmetic timeline), and a repair forces the full representative rebuild.
+- Ownership + representatives are memoized/folded; the two reset sites are unified into
+  `resetRunAccumulators(newRunId)`. A live-edit migration deliberately does **not** reset — the
+  engine preserves history, sequence and runId across it.
+- TP4's structureVersion-gated executions cache is untouched (item 3 only reads `lastExecutions`).
+  Verified: `:kzen-auto-js:build` + full `kzen-auto` build green. Browser smoke (React DevTools
+  highlight-updates, film-strip duplicates) is manual debt — see the elaboration's Verification.
 
 ## 8b. Display/editor dedup
 
