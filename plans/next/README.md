@@ -22,7 +22,7 @@
 | `J5_perf-headless.md` | J5 — benchmark-first perf + headless mode | job | **serve-gate rescoped** (literal skip unsatisfiable; headless stamps synthesized duplex channels non-external instead) |
 | `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job | **demand-driven — lowest J priority** |
 | `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job | retain=false extractable as micro-session |
-| `FL3_vertex-capability-spi.md` | FL3 — vertex capability SPI | flow | B3 opener; FL6 gate needs it |
+| ~~`FL3_vertex-capability-spi.md`~~ ✅ **done 2026-07-21** | FL3 — vertex capability SPI | flow | landed as planned; fixtures took the **reflective-mirror** path (R1 had landed) instead of `FlowVertexTestModule`, and got their own callee document so `LinkedLogicDocumentsTest` stays about the three production paradigms. FL6 gate unblocked |
 | `FL4_flow-client-perf-errors.md` | FL4 — Flow client perf + Error phase | flow | independent of FL3 (same-file adaptation note inside); **refetch mostly landed by E5/TP4** — residual = involvement gate; two required jvm `FlowRun` additions |
 | ~~`S8a_script-hot-paths.md`~~ ✅ **done 2026-07-21** | S8a — Script client hot paths | script sweep | landed as planned; **four** analyze consumers share one `Component` extension (not four inlined lookups); browser smoke is manual debt |
 | ~~`S8c_branch-discovery.md`~~ ✅ **done 2026-07-21** | S8c — notation-driven branch discovery | script sweep | landed as planned; the post-XC4 audit held exactly, so `ScriptTree`/nesting/jump needed no change. SwitchStep unblocked and test-proven |
@@ -45,7 +45,7 @@ Behind another remaining item (plan them after their prerequisite lands, so they
 reality rather than a prediction):
 
 - **J4** (after J3), **J9** (after J4, same files), **J8** (after J3; prefer after AE3+AE5)
-- **FL5** (AE1 first — master rule 5), **FL6** (decision gate after FL3)
+- **FL5** (AE1 first — master rule 5), **FL6** (decision gate; FL3 landed, so plannable now)
 - **S8b** (AE3+AE5 first — master rule 4)
 - **AE4** (AE3 landed 2026-07-20 — plannable now), **AE5** (after AE4), **AE6** (optional, after
   1–5 land smoothly)
@@ -73,7 +73,7 @@ Gated or not implementable by an autonomous session:
 Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · ~~AE2~~ ·
 ~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed, and **B1 is closed out** — the AE arc
 (~~AE3 → AE4 → AE5 → AE6~~) and the whole Script sweep (~~S8a · S8b · S8c · S8d~~) are done. Then
-backlog stage openers by appetite: **J2 → J3** (B2; J5/J7 slot around, J6 last), **FL3 · FL4**
+backlog stage openers by appetite: **J2 → J3** (B2; J5/J7 slot around, J6 last), **~~FL3~~ · FL4**
 (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
 
 ## Standing rules for every implementation session

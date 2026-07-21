@@ -19,8 +19,14 @@
 > cleanup that used to be a phase-5 bullet here).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 3 — vertex SPI generalization: capability interfaces replace concrete-class
+> - [x] Phase 3 — vertex SPI generalization: capability interfaces replace concrete-class
 >   special cases, message inspection on the vertex, channel contracts, multi-parameter RunLogic
+>   — landed 2026-07-21 (as-built: fixtures use `@Reflect` + the JVM reflective mirror, R1 having
+>   landed, so no `FlowVertexTestModule` and no `register()` call; the capability fixture got its
+>   own callee document so `LinkedLogicDocumentsTest`'s three-paradigm assertion stays about the
+>   production archetypes; `Map<String, String>` through the default `StructuralAttributeDefiner`
+>   worked as predicted, no `FlowArgumentsDefiner` needed. Browser smoke of the `RunLogic2` ribbon
+>   tool + arguments editor is manual debt)
 > - [ ] Phase 4 — client render performance + error visibility: compute-once routing,
 >   consumed-subset state, Error phase rendered, refetch scoping, display hygiene
 > - [ ] Phase 5 — editing UX: move commands, auto-pipe routing tool, row/column shifting

@@ -1,6 +1,17 @@
 # FL3 — vertex SPI generalization: capabilities, not classes — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from `2026-07-16_flow-improvements.md`
+> **Status: ✅ DONE 2026-07-21.** Landed as planned. Three deviations, all recorded in the
+> constituent plan's tracker: (1) test fixtures use `@Reflect` + the JVM reflective mirror rather
+> than extending `FlowVertexTestModule` — R1 landed first, which the plan's adaptation note
+> anticipated, so there is no test module and no `register()` call; (2) the capability fixture
+> hosts its own callee document (`script-capability-child-test.yaml`) instead of the shared
+> `script-engine-child-test.yaml`, because `LinkedLogicDocumentsTest.everyParadigmsHostingArchetypeYieldsTheSameEdge`
+> pins exactly which documents call that one and is about the three production paradigms;
+> (3) the browser smoke (RunLogic2 ribbon insert + arguments editor round-trip) is unrun —
+> manual debt. The `Map<String, String>` risk did not materialize: the default
+> `StructuralAttributeDefiner` handles it, so no `FlowArgumentsDefiner` and no kzen-lib change.
+>
+> Generated 2026-07-19 from `2026-07-16_flow-improvements.md`
 > **Phase 3** (master plan Stage B3 opener; FL6 depends on it). Decisions pre-made in the
 > constituent plan — do not re-litigate. Every anchor re-verified against current kzen-auto
 > master (`ceb699d0`) on 2026-07-19; the FL-plan anchors had drifted (SER2–SER5/Y/G5/G7/TP

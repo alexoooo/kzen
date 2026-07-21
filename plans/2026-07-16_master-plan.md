@@ -185,7 +185,7 @@ identical bytes); Report frozen; headless = "the same Job minus observability".
 
 ### Stage B3 — Flow capability (~3 sessions + gate)
 
-**FL3** (capability SPI — the third-party proof is the acceptance), **FL4** (client perf +
+~~**FL3**~~ ✅ (capability SPI — landed 2026-07-21), **FL4** (client perf +
 Error phase), **FL5** (editing UX; AE1 first). **FL6** is a decision gate (multi-output /
 crossing / nested-loop semantics) — decisions first, possibly docs-only.
 
@@ -254,7 +254,8 @@ retained; Windows and Linux installers ship.
 7. **J3 → J4 → J9**; **J8 after J3**.
 8. **G4 measurement gate** — measure per-keystroke define cost post-G1 before building; record
    the number either way.
-9. **FL6 after FL3** (capability interfaces are the pre-work); **FE gates closed** (see below).
+9. **FL6 after ~~FL3~~** ✅ (capability interfaces landed 2026-07-21, so FL6 is unblocked);
+   **FE gates closed** (see below).
 10. **R1 → R2 → R5** — R2 and R5 both consume R1's reflective mirror (R1 publishes kzen-lib to
     mavenLocal first); **R5 only after the B5 ratification** (its R5-G classloader-lifecycle
     gate is decided there, together with D1). R3/R4 float freely. **R is independent of SH
@@ -403,7 +404,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
 Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · ~~S8b~~ · ~~S8c~~ · ~~S8d~~ ✅ (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
-           B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
+           B3: ~~FL3~~ → FL4 → FL5 · FL6 gate   (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)
            B5: (~~R1~~ → ~~R2~~ pre-work done) → EXT ratify (+R5-G) → D1 arc incl. R5   (extensibility)
            B6: DA1 spike (gate) → DA2 → DA3 → DA4 → DA5   (desktop distribution)
