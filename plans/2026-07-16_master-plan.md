@@ -26,7 +26,7 @@
 | Y | `2026-07-10_yaml-parser-strings-and-comments.md` | YamlParser bare strings/comments/`\|-` | ✅ **COMPLETE 2026-07-18** | W1–W8 landed in one session; **before G7b** |
 | J | `2026-07-16_job-improvements.md` | Job flavour + Report subsumption | J2–J9 | J7 rescoped post-E7 |
 | FL | `2026-07-16_flow-improvements.md` | Flow flavour | FL3–FL6 | FL6 = decision gate |
-| S8 | `2026-07-16_script-client-sweep.md` | Script client sweep | S8d (S8a ✅, S8b ✅, S8c ✅ done 2026-07-21) | — |
+| S8 | `2026-07-16_script-client-sweep.md` | Script client sweep | ✅ COMPLETE (S8a–S8d all landed 2026-07-21) | — |
 | AE | `2026-07-14_attribute-editor-improvements.md` | kzen-auto-js editor consolidation | ✅ **COMPLETE 2026-07-20** | AE1–AE6 all landed; AE6's item 2 dropped on a finding |
 | SH | `2026-07-16_shell-launcher-improvements.md` | Shell/launcher/project trio | SH2–SH5 | SH5 last (docs-to-truth) |
 | EXT | `2026-07-06_custom-plugin-extensibility-analysis.md` | Custom/Plugin/Registry/DataFormat | hygiene S1–S10 (−S7) + decisions D1–D7 | **needs ratification session** |
@@ -162,7 +162,8 @@ wait makes it convenient.
 ### Stage B1 — client convergence (~7 sessions)
 
 **~~AE3 → AE4 → AE5 → AE6~~ (all landed 2026-07-20 — the AE plan is COMPLETE)**, then
-**~~S8a~~ (landed 2026-07-21, post-TP3/TP4) · ~~S8b~~ · ~~S8c~~ (both landed 2026-07-21) · S8d** (8d shrinks now that AE5 is in). Exit: one commit primitive, one
+**~~S8a~~ (landed 2026-07-21, post-TP3/TP4) · ~~S8b~~ · ~~S8c~~ · ~~S8d~~ (all landed 2026-07-21 — the S8
+sweep is COMPLETE; 8d shrank as predicted, AE5 having already owned its RPureComponent item)**. Exit: one commit primitive, one
 select-reference base, no whole-`ClientState` stores, ~~notation-driven branch discovery
 (SwitchStep unblocked)~~ — the last of these landed with S8c, proven by a two-branch
 `TestSwitchStep` fixture that required zero shared-code edits.
@@ -400,7 +401,7 @@ Sprint 2   Track T:  TP1 → TP3 → TP4                      ─┐
            Track W:  ~~SER2~~ → ~~SER3(gate: PROCEED)~~ → ~~SER4~~ → ~~SER5~~ ✅ DONE   ├─ interleave freely
            Track N:  ~~Y~~ → ~~G7~~ · ~~G5~~ · G6 · ~~G3~~ · (G4 if measured) ─┘
            Fillers:  ~~AE1~~ · ~~AE2~~ · EXT-hygiene · ~~R1~~ → ~~R2~~ · ~~R3~~ · ~~R4~~ · smoke-debt session
-Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · ~~S8b~~ · ~~S8c~~ · S8d   (client convergence)
+Backlog    B1: ~~AE3~~ → ~~AE4~~ → ~~AE5~~ → ~~AE6~~ ✅ · ~~S8a~~ · ~~S8b~~ · ~~S8c~~ · ~~S8d~~ ✅ (client convergence)
            B2: J2 → J3 → J4 → J9 · J5 · J6 · J7 · J8   (Report subsumption)
            B3: FL3 → FL4 → FL5 · FL6 gate       (Flow capability)
            B4: SH2 → SH3 → SH4 → SH5            (platform trio)

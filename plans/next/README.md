@@ -26,7 +26,7 @@
 | `FL4_flow-client-perf-errors.md` | FL4 — Flow client perf + Error phase | flow | independent of FL3 (same-file adaptation note inside); **refetch mostly landed by E5/TP4** — residual = involvement gate; two required jvm `FlowRun` additions |
 | ~~`S8a_script-hot-paths.md`~~ ✅ **done 2026-07-21** | S8a — Script client hot paths | script sweep | landed as planned; **four** analyze consumers share one `Component` extension (not four inlined lookups); browser smoke is manual debt |
 | ~~`S8c_branch-discovery.md`~~ ✅ **done 2026-07-21** | S8c — notation-driven branch discovery | script sweep | landed as planned; the post-XC4 audit held exactly, so `ScriptTree`/nesting/jump needed no change. SwitchStep unblocked and test-proven |
-| `S8d_script-hygiene.md` | S8d — Script client hygiene | script sweep | one AE5-conditional item inside |
+| ~~`S8d_script-hygiene.md`~~ ✅ **done 2026-07-21** | S8d — Script client hygiene | script sweep | AE5 had already landed, so the conditional RPureComponent item was **skipped** (gate fired positive); `stateOrNull` **kept** per the elaboration's adjusted verdict. **S8 sweep now complete** |
 | ~~`AE1_retire-old-fork.md`~~ ✅ **done 2026-07-19** | AE1 — delete flow/edit/*Old.kt fork | attribute-editor | landed as planned (yaml block was :57–81); FL5's scope now unblocked |
 | ~~`AE2_select-values-editor.md`~~ ✅ **done 2026-07-20** | AE2 — SelectClosePolicy → SelectValues | attribute-editor | landed as planned; `values:` proven through the `meta.ref` path; label renders "ClosePolicy" (D7 prediction corrected) |
 | ~~`AE3_commit-primitive.md`~~ ✅ **done 2026-07-20** | AE3 — shared commit primitive | attribute-editor | landed as planned, all 8 adopters; the elaboration's three drift flags all held. **AE4 unblocked** |
@@ -71,9 +71,10 @@ Gated or not implementable by an autonomous session:
 ## Suggested pick order (matches master-plan priorities)
 
 Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · ~~AE2~~ ·
-~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed, as is B1's opener **~~AE3~~**. Then backlog stage
-openers by appetite: **AE4** (B1 — now plannable, AE3's prerequisite is in), **J2 → J3**
-(B2; J5/J7 slot around, J6 last), **FL3 · FL4** (B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
+~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed, and **B1 is closed out** — the AE arc
+(~~AE3 → AE4 → AE5 → AE6~~) and the whole Script sweep (~~S8a · S8b · S8c · S8d~~) are done. Then
+backlog stage openers by appetite: **J2 → J3** (B2; J5/J7 slot around, J6 last), **FL3 · FL4**
+(B3), **SH2 · SH3 · SH4** (B4), **DA1** (B6).
 
 ## Standing rules for every implementation session
 

@@ -19,7 +19,8 @@
 >   — **landed 2026-07-21** (see the as-built note under 8b)
 > - [x] 8c — notation-driven branch discovery (removes the SwitchStep blocker)
 >   — **landed 2026-07-21** (see the as-built note under 8c)
-> - [ ] 8d — hygiene (`StepRowRefRegistry` scoping, TODOs, deprecated-archetype check)
+> - [x] 8d — hygiene (`StepRowRefRegistry` scoping, TODOs, deprecated-archetype check)
+  — **landed 2026-07-21** (see the as-built note under 8d)
 
 ## Landed context (Sprint 1) — the Script plan this sweep closes out
 
@@ -244,6 +245,88 @@ this sub-phase's remainder.
   AE5 has landed. Delete the commented debug line StepDisplayManager.kt:114.
 - Grep-check the deprecated `ArgumentStep`/`ForEachItemStep` archetypes for user-notation
   references; retire them (+ their yaml) only if unreferenced, else leave with a dated comment.
+
+### As-built (landed 2026-07-21, post 8a/8b/8c + AE5; elaboration: `plans/next/S8d_script-hygiene.md`)
+
+Landed as planned, with two deviations, both anticipated by the elaboration:
+
+- **The RPureComponent TODO item was skipped — AE5 owned it.** The gate fired positive:
+  `SelectReferenceEditorBase` exists, `SelectLogicEditor` extends it (so it is already an
+  `RPureComponent`), the `:59` TODO is gone, and the base's `setOptions()` carries exactly the
+  content-compare guard the elaboration specified. Nothing left to do.
+- **`stateOrNull` kept, not removed** (elaboration's adjusted verdict). `StepImageFullscreen`
+  reads it from `render()` *and* from a window-`keydown` handler, i.e. outside the observer flow
+  where the throwing `state()` is unsafe; `CustomStore.stateOrNull()` is the same pattern.
+  Resolution was comment-only.
+
+Two shape choices worth recording:
+
+- **The bridge lookup is a shared `Component` extension, not four private helpers.**
+  `StepRowRefRegistryKey.kt` holds the key *and* `fun Component<*, *>.stepRowRefRegistry()`,
+  following 8a's `scriptDependencyAnalysis` precedent (same four consumers, same contextType
+  slot). `scriptGutterRow` still takes the registry as a parameter — it is a plain function with
+  no context slot. All three overlay/arrow/signature consumers already installed
+  `DocumentBridgeContext` (8a put it there), so item 3 added no new contextType installs.
+- **The DAG guard is document-level, callee-closure, metadata-driven.** `callerDocuments()` in
+  `SelectLogicEditor` builds a reverse edge map from every attribute whose *metadata* declares
+  `is: ObjectLocation` and whose value resolves into another `isLogic` document — a client-local
+  mirror of `LinkedLogicDocuments` (kzen-auto-jvm, unreachable from JS), BFS'd in the shape of
+  `SelectObjectEditor.computeAncestors`. Flavour-agnostic, so RunStep / RunLogic / RunWorker are
+  all covered without naming a step type. Suggestion-filter only: an already-set recursive value
+  is re-prepended to the option list so it still renders (a selection whose document no longer
+  exists stays blank, as before).
+
+Retirement went clean: `ArgumentStep` + `ForEachItemStep` yaml blocks, the `ArgumentStepTool`
+ribbon entry, both JVM classes, and the `FlowInputVertex` KDoc link are gone; the
+`script-tree-test.yaml` `Item` row is now a `BooleanLiteralStep` and `ScriptTreeTest` passes
+unchanged. Only historical prose mentions remain (`ParameterBinding`, `ForEachItemBinding`).
+
+**Found, not fixed (pre-existing, predates AE5 — verified against `b75341ba`):**
+`SelectLogicEditor.onNotationEvent` returns early on a `RenamedDocumentRefactorEvent` for the
+*selected* document, so it adopts the new path into `state.selected` but never recomputes the
+option list — the field renders blank until the next notation command repairs it. One-line fix
+(drop the early return, fall through to `setOptions`), deliberately left out of 8d's
+no-behaviour-change scope.
+
+Gates: `:kzen-auto-js:build`, `:kzen-auto-jvm:test`, `:kzen-auto-test:selfTest` all green. The
+manual matrix (document-switch registry re-provide, ribbon, DAG-guard dropdown) is **not** run —
+browser debt, same as 8a's.
+
+#### Follow-up (landed 2026-07-21, same day, at the user's explicit ask)
+
+Both items above that 8d left open are now closed:
+
+- **The rename early-return is fixed**, in `SelectLogicEditor` *and* in `SelectObjectEditor`,
+  which carried the identical defect in both of its rename branches. Shape in both: adopt the
+  rename, then fall through to the option-list rebuild. Two things are load-bearing and
+  commented — the adopted key travels in a **local** (`setSelected` goes through `setState`, so
+  reading `state.selected` back on the next line still sees the old path), and the rebuild reads
+  `graphDefinition.graphStructure` rather than `clientStateGlobal.current()`, since the event's
+  own structure IS the post-command notation while another observer's cached copy may not have
+  caught up with this very rename. `SelectObjectEditor.refresh()` now takes the structure as a
+  parameter for the same reason.
+- **The duplicated edge definition is gone.** New `LogicCallGraph` in kzen-auto-common
+  (`tech.kzen.auto.common.paradigm.logic`) owns the edge — one private `forEachCalleeDocument` —
+  and exposes `transitiveCallees` (forward, lazily visiting only reachable documents, so the
+  server never pays a whole-graph scan) and `transitiveCallers` (reverse map, then BFS). Both
+  **exclude the seed** unless a cycle genuinely reaches it; `LinkedLogicDocuments` shrank to
+  `transitiveDigest` and adds the root back explicitly, and `SelectLogicEditor` lost
+  `callerDocuments` + `resolveLogicLink` entirely.
+  - One deliberate server behaviour change: resolution is now host-aware
+    (`ObjectReferenceHost.ofLocation`), matching kzen-lib's own definer/creator/metadata-reader.
+    A strict superset — no false positives — and the digest tests confirm the signal is intact.
+- **Tests.** New `LogicCallGraphTest` in kzen-auto-common `commonTest` (CC-13: runs on JVM and
+  JS) drives a self-contained YAML fixture with no paradigm archetype in it at all — chain,
+  inverse, seed exclusion, intra-document link, non-logic target, blank/dangling, cycle, and a
+  callees⇔callers agreement check. `LinkedLogicDocumentsTest` keeps what only kzen-auto-jvm can
+  pin, and gained a sharper one: `test/script-engine-child-test.yaml` turns out to be hosted from
+  **all three paradigms** at once (Script `RunStep`, Flow `RunLogic`, Job `RunWorker`), so
+  `transitiveCallers` over the real notation returns all three — the flavour-agnostic claim,
+  demonstrated rather than asserted.
+
+Same four gates green, plus `:kzen-auto-common:allTests`. Browser debt unchanged, and now also
+covers: rename the callee document of a `RunStep` and confirm the `instructions` field shows it
+under the new name instead of going blank.
 
 ---
 
