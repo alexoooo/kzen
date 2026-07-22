@@ -302,6 +302,11 @@ landed same-day: new `TypeAssignability` (server `objects.logic`) probe-compiles
 type pair — and `ResultSinkWorker.payloadFlow` rejects a lane whose static boundary type (new
 `WorkerLane.boundaryType()`: payload, else known-flat `Map<String, String>`, else unknown ⇒ check
 skipped) is not assignable to the declared component type, erroring on the card before running.
+The Result card now also SHOWS the kept value (2026-07-22): `ResultSinkWorker.progress()` pushes the
+value's display text under `JobConventions.progressResultValueKey` (a single-element list so the
+generic status line skips it), and a new per-type `ResultWorkerDisplay` (the SummaryWorkerDisplay
+`bodyExtra` composition) renders it in a value box — live for `keep: last`, settled on the forced
+final publish (`WorkerBase.run`).
 
 **Goal.** Close the input-side gaps: third-party format plugins, charset handling, and the
 design-time actions Job editors need (file browse, column pre-scan) — without Report's document
