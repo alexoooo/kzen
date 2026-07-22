@@ -22,7 +22,7 @@
 > repoints code-comment references here.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 2 — Job signature: parameters in, results out (composition centerpiece)
+> - [x] Phase 2 — Job signature: parameters in, results out (composition centerpiece) ✓ 2026-07-21 (see as-built note below)
 > - [ ] Phase 3 — Report subsumption A: pluggable input formats + design-time services
 > - [ ] Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path
 > - [ ] Phase 5 — performance + headless readiness (benchmark-first)
@@ -245,6 +245,34 @@ the graph plan); scoped instantiation for detached actions (G3).
 
 **Verification.** New fixture tests green; existing `JobRunWorkerTest` untouched; a Script
 `RunStep` pointing at a parameterized Job shows its parameters in the arguments editor.
+
+**As-built (2026-07-21, executed from `plans/next/J2_job-signature.md`).** Landed as planned;
+kzen-auto only, no kzen-lib change. Full `:kzen-auto-jvm:test` green (484 tests, 0 failures;
+`:kzen-auto-js:compileKotlinJs` green). Deviations / notes:
+- **Markers live in `common-job.yaml`, not `job-jvm.yaml`** (the exact `SummaryServer` precedent —
+  a common-classified semantic marker sits beside the `Worker` base it refines). File-placement
+  refinement, not a design change.
+- **Client step 4 was NOT "verify, don't rebuild".** `RunStepArgumentsEditor.onClientState`
+  dispatches on callee document type (Script `parameters` / Flow input vertices); a Job callee fell
+  into the Script branch and rendered zero rows. Added a ~15-line `else if (JobConventions.isJob)`
+  branch calling `JobSignatureCapability.signature` (untyped params badge "Any", Script parity).
+  This was the ONLY client edit — no Flow client code renders a callee's parameters (Flow's binding
+  is server-side `FlowChildLogic.firstParameterName`), and `LogicSignatureEditor`/`ResultSignatureEditor`
+  edit a Script's OWN signature, so neither applies to Job.
+- **Script round-trip fixture needs a `ResultStep` + `results` signature** — there is no last-step
+  fallback (the established Script result contract), so `job-signature-script-test.yaml` surfaces
+  the RunStep's value via a trailing `ResultStep` (the plan's fixture sketch omitted this).
+- **ParameterSource carries a claim-before-send stream cursor** (`GatedSourceWorker` precedent), and
+  **ResultSink carries its accumulation WITHOUT clearing on yield** (Sort's-buffer minus the clear) —
+  both load-bearing: the migration test's exact-list assertion `(0 until 50)` fails on either a
+  source restart (overshoot) or an accumulation loss (shortfall). Proven by `JobSignatureMigrationTest`.
+- **Findings routed onward (NOT fixed here — behavioural, out of J2's pre-made scope):**
+  `EngineJobControl.host` still uses the engine defaults `retainTrace = true` (a long streaming
+  RunWorker retains one node per element) and passes no `callerStableId` (RunWorker invocations lack
+  the call-site attribution a Script `RunStep` supplies). Route to **J7** (bounding) / **J8**
+  (hygiene). The new frame-trace pin (`JobSignatureTest.hostedChildInvocationsAreDistinctRetainedExecutions`)
+  asserts the CURRENT behaviour (distinct, retained) and must be updated if J7/J8 change the default.
+- **Blank-parameter authoring** stays visible, not a crash (Flow parity; a J8 structure-lint candidate).
 
 ---
 

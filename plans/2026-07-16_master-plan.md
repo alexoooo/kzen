@@ -177,7 +177,8 @@ inheritance path. **The AE3 pinned-`props` follow-up is closed** (6 adopters mov
 
 ### Stage B2 — Job: Report subsumption (~8 sessions)
 
-The strategic spine is **J2 → J3 → J4 → J9**; J5 (benchmark-first + headless), J6 (fan-out,
+The strategic spine is ~~**J2**~~ ✅ (signature: parameters in / results out — landed 2026-07-21)
+**→ J3 → J4 → J9**; J5 (benchmark-first + headless), J6 (fan-out,
 demand-driven), J7 (interactivity remainder — retain=false adoption is its first, smallest
 item and can run as a micro-session any time), J8 (client sweep — after J3, prefer after
 AE3+AE5) slot around it. Exit: composed A/B gate green (same dataset through Report and Job —

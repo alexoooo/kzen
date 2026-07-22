@@ -1,5 +1,15 @@
 # J2 — Job signature: parameters in, results out — implementation plan
 
+> ✅ **DONE 2026-07-21.** Landed as planned (kzen-auto only, no kzen-lib change); full
+> `:kzen-auto-jvm:test` green (484 tests, 0 failures), `:kzen-auto-js:compileKotlinJs` green. As-built
+> notes in the constituent plan (`kzen/plans/2026-07-16_job-improvements.md` Phase 2). Key deviations:
+> client step 4 required a real `RunStepArgumentsEditor` Job branch (not verify-only); the Script
+> round-trip fixture needed a trailing `ResultStep` (no last-step fallback); `retainTrace = true` /
+> `callerStableId = null` behaviours confirmed and routed to J7/J8 (the frame-trace pin asserts current
+> behaviour). J3 remains disjoint (re-verify `JobLogicCompiler` / `job-worker.yaml` anchors — J2 added
+> the signature derivation at `JobLogicCompiler.kt` and the `ParameterSourceWorker` / `ResultSinkWorker`
+> archetypes).
+
 > **Status: ready to execute.** Generated 2026-07-19 from `2026-07-16_job-improvements.md` Phase 2
 > (decisions PRE-MADE there — this document elaborates, it does not re-litigate). All file anchors
 > verified against current code on 2026-07-19 (post SER2–SER5, Y, G5, G7, TP1/TP3/TP4); drift from
