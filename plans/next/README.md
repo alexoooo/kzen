@@ -32,7 +32,7 @@
 | ~~`AE3_commit-primitive.md`~~ ✅ **done 2026-07-20** | AE3 — shared commit primitive | attribute-editor | landed as planned, all 8 adopters; the elaboration's three drift flags all held. **AE4 unblocked** |
 | ~~`SH2_child-exit-detection.md`~~ ✅ **done 2026-07-21** | SH2 — child exit detection + UI surfacing | shell/launcher | landed as planned; both exit callbacks use `thenAcceptAsync`, and the exited-restart test syncs on the tombstone (the two callbacks race by microseconds). DA5 later replaces the bind-failure pane. Browser smoke is manual debt |
 | ~~`SH3_registry-durability.md`~~ ✅ **done 2026-07-21** | SH3 — atomic registries + --project.home | shell/launcher | landed as planned, **rescoped to ProjectRepo only** (ArchetypeRepo already directory-scan + atomic). SH2's `MainJarProcess` seam merged cleanly; `programArgs` threaded only through the launcher-spawn path. Shell-spawn e2e smoke is manual debt |
-| `SH4_template-extension-upgrade.md` | SH4 — kzen-project extension point + upgrade | shell/launcher | static cousin of R5; no ordering constraint |
+| ~~`SH4_template-extension-upgrade.md`~~ ✅ **done 2026-07-21** | SH4 — kzen-project extension point + upgrade | shell/launcher | landed as planned; **three** samples (one per source set, forced by empty-module suppression), and the JS sample **did** need build-file edits (kotlin-wrappers on kzen-project-js's compile classpath — the elaboration predicted none). Upgrade half rebased onto SH3 cleanly. Shell-spawn upgrade e2e is manual debt |
 | ~~`R1_reflective-fallback-mirror.md`~~ ✅ **done 2026-07-20** | R1 — JVM reflective fallback mirror | reflection | landed as planned; **contingency C1 fired** — the KSP processor now skips Java-origin declarations. R2 and R5 unblocked |
 | ~~`R3_processor-hardening.md`~~ ✅ **done 2026-07-20** | R3 — KSP processor hardening | reflection | landed; **local-class guard dropped** — KSP never surfaces local declarations (see the constituent plan's as-built note) |
 | ~~`R4_service-fqn-validation.md`~~ ✅ **done 2026-07-20** | R4 — @Service FQN boot validation | reflection | landed as planned; G3c had already landed, so the "forces the lazy" caveat did not apply (`contains()` never forces providers) |
@@ -74,8 +74,8 @@ Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~
 ~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed, and **B1 is closed out** — the AE arc
 (~~AE3 → AE4 → AE5 → AE6~~) and the whole Script sweep (~~S8a · S8b · S8c · S8d~~) are done. Then
 backlog stage openers by appetite: **J2 → J3** (B2; J5/J7 slot around, J6 last), **~~FL3~~ ·
-~~FL4~~** (B3 — FL5 and the FL6 gate are both plannable now), **~~SH2~~ · ~~SH3~~ · SH4** (B4),
-**DA1** (B6).
+~~FL4~~** (B3 — FL5 and the FL6 gate are both plannable now), **~~SH2~~ · ~~SH3~~ · ~~SH4~~** (B4 —
+SH5 docs-sweep next), **DA1** (B6).
 
 ## Standing rules for every implementation session
 

@@ -13,7 +13,7 @@
 > **Progress tracker** (update as phases land):
 > - [x] Phase 2 — child exit detection, surfaced to the UI (shell + launcher UI) — **landed 2026-07-21**
 > - [x] Phase 3 — registry durability + explicit project home (launcher, + shell spawn arg) — **landed 2026-07-21**
-> - [ ] Phase 4 — kzen-project template: extension point + project upgrade path
+> - [x] Phase 4 — kzen-project template: extension point + project upgrade path — **landed 2026-07-21**
 > - [ ] Phase 5 — hygiene + conditional-GET 304s (all three, + kzen-auto one-liner)
 
 ## Landed context (Sprint 1)
@@ -202,6 +202,31 @@ API + UI (Upgrade button appears when a newer archetype version exists); docs.
 **Verification:** template test instantiates the sample object via notation on JVM; JS bundle
 boot logs its module registration; create project at 0.29.1 → publish a newer archetype →
 Upgrade → project boots on the new jar with old notation intact.
+
+**As-built (landed 2026-07-21, from `plans/next/SH4_template-extension-upgrade.md`):**
+- **Three samples, not one** (the elaboration's Q1): empty-module suppression means the `KzenProjectMain`
+  registers Jvm and JS `Main` registers Js decisions each *require* a `@Reflect` class in that source set,
+  so `SampleGreeting` (common `DetachedAction`, Custom prototype), `SampleUppercaseStep` (jvm Script step,
+  modeled on kzen-auto's test `ShoutStep`), `SampleUppercaseSummaryView` (js `AttributeView`, modeled on
+  `ControlSummaryAttributeView`). They are load-bearing: deleting a module's last `@Reflect` class un-emits
+  its module and breaks the main's compile (documented as design).
+- **Build-file edits WERE needed for the JS sample** (the elaboration predicted none). kzen-auto-js declares
+  the kotlin-wrappers `implementation`, so react/emotion don't reach kzen-project-js's compile classpath — a
+  real client extension needs them added (`kzen-project-js/build.gradle.kts` + the wrappers catalog in
+  `kzen-project/settings.gradle.kts`, pinned to 2026.7.1). A downstream client-extension author does the same.
+- **Bundled notation** under `notation/{auto-common,auto-jvm,auto-js}/kzen-project/`; the `dist` task narrowed
+  to copy only `notation/main/` loose (the `auto-*` docs are classpath read-only). `SampleExtensionTest`
+  (3 tests: classpath discovery, detached execution, Script run) is green.
+- **Upgrade half rebased onto SH3** (which had landed): `ProjectRepo` was already load-once + `projectHome`-
+  injectable, so B3's "make the metadata path constructor-injectable" and the `get()` copy-paste-message fix
+  were both already done — only the additive `archetype`/`version` fields, `add` overload, and
+  `recordArchetype` were added. `ArchetypeInfo` gained `archetype`/`version` (no YAML — the catalogue is the
+  zip-dir scan, per SH3's redesign); `versionKey`/`compareVersions` extracted to
+  `kzen-launcher-common`'s `VersionNumbers` (client + server share it). `ProjectCreator.upgrade` uses the
+  jar-first `.old`-backup-with-rollback sequence; the Windows lock-probe test needed `java.io.FileInputStream`
+  (not NIO `Files.newInputStream`, which shares delete and does not reproduce the lock).
+- **Manual smoke debt**: the end-to-end shell pass (create 0.29.1 → Upgrade to 0.30.0-SNAPSHOT; 409 while
+  running) needs the user at the browser — the dev loop's `simulateShell` can't reproduce the running lock.
 
 ## Phase 5 — hygiene + conditional-GET 304s
 
