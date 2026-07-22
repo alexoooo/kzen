@@ -9,7 +9,7 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — `JobMessage` carrier (payload + flat part) replaces `DataRecord` (landed 2026-07-21; as-built below)
-> - [ ] Phase 2 — typed parameters, parameter scope, FormulaSource as THE parameterized source
+> - [x] Phase 2 — typed parameters, parameter scope, FormulaSource as THE parameterized source (landed 2026-07-22; as-built below)
 > - [ ] Phase 3 — payload formulas + type inference flowing through the graph
 > - [ ] Phase 4 — performance: benchmark-gated reuse (folds into job-improvements phase 5)
 
@@ -332,6 +332,61 @@ and findings beyond the spec:
 
 **Verification.** Full suites + manual: a Script passes a typed parameter, the Job's editors
 show the typed signature, expressions reference it bare.
+
+**As built (2026-07-22).** All six steps landed; full `./gradlew build` green. Deltas and decisions
+beyond the spec (two user-confirmed up front: name collisions are a descriptive error; the binding
+concept relocates fully):
+
+- **Relocation (flavour-neutral)**: `ParameterBinding` class → `tech.kzen.auto.server.objects.logic`
+  (still extends `ScriptValueBinding` — the Script validation/execution contract, inert for Job);
+  `TypeMetadataDefiner` + `ParameterDefaultDefiner` → new commonMain package
+  `tech.kzen.auto.common.objects.document.logic`; their archetypes (incl. `TypeMetadata`) moved from
+  `script-jvm.yaml` to `common-document.yaml`. `ParameterDefaultDefiner` gained
+  `resolve(location, graphNotation)` (extracted from `ScriptLogicCompiler.parameterDefault`, now the
+  single default-resolution path for Script AND Job). The previously-unused
+  `LogicConventions.parametersAttributeName/Path` became the shared constant;
+  `ScriptConventions.parameters*` are aliases.
+- **Expression facility extended IN PLACE** (no new class): `CalculatedColumnEval`'s
+  `validate`/`create` take an optional `parameters: TupleDefinition` (default empty — Report call
+  sites untouched); the generated class gets bare TYPED parameter accessors reading a values list
+  injected post-instantiation via new `CalculatedColumn.setParameters` (values never in the source,
+  so the compile cache keys on parameter TYPES only); new `CalculatedColumn.evaluateRaw` returns the
+  expression's value unwrapped (the payload lane — `evaluate` now wraps it in `ColumnValue`);
+  a parameter whose escaped name collides with a column fails BEFORE compile with
+  "Parameter 'X' collides with a column name - rename one of them".
+- **Runtime seam**: `JobControl` gained `parameters(): TupleDefinition` (declared inputs, default
+  empty — the extension-rule hook any 3rd-party worker can use); `parameter(name)` now falls back to
+  the declared default (Script parity). Threaded via a new run-constant `JobParameters` holder
+  (declarations + defaults): `JobLogicCompiler` → `JobLogic` → `JobRun` → `WorkerLogic` →
+  `EngineJobControl`.
+- **Signature**: `JobSignatureCapability` inputs read the `parameters` branch
+  (`TypeMetadataDefiner.parse`, document order, archetype default → Any); the `Role` enum collapsed
+  to `isResultSink()`. The client `RunStepArgumentsEditor` Job branch needed NO code change (typed
+  badges now show the real declared types).
+- **FormulaSourceWorker**: switched from `StepExpressionCompiler` to the shared engine; runtime
+  dispatch is `is Iterable<*>` → stream, else single emit (incl. null; matches phase 3's future
+  static rule — note this is Iterable, wider than ParameterSource's old `Collection` trigger);
+  blank `code` → empty stream; claim-before-send cursor ported (guard: `code` equality; resume
+  re-evaluates and skips the delivered prefix — stable re-evaluation order documented).
+- **Retired**: `ParameterSourceWorker` class, the `ParameterSource` marker (common-job.yaml), its
+  archetype (job-worker.yaml), `ParameterSourceTool` (job-js.yaml),
+  `JobConventions.parameterSource*`/`parameterAttribute*`.
+- **Client**: `LogicSignatureEditor` mounted in `JobController` AS-IS (the Script-only dependency
+  gutter degrades: `isScript` guard + null row registry); `JobChannelDefaults` stacked beneath the
+  Parameters control (`top: 2.75em`, the ResultSignatureEditor stacking convention).
+- **Rename-rewrite**: `KzenAutoCodeReferenceRewriter` gained a Job dispatch — a renamed `parameters`
+  declaration rewrites every lexical candidate in the document (parameters are in scope of all
+  Worker expressions); any other Job rename rewrites nothing (Script docs keep ScriptTree scope).
+- **Fixtures**: `job-signature-child-test` declares `items` as NULLABLE Any — a non-nullable
+  accessor NPEs on `null as T`, and the bare-run "streams a single null" contract must survive;
+  `job-message-parameter-test` declares `number: Double`; `job-signature-capability-test` rebuilt
+  around declarations (untyped / String / generic `List<Int>`) with a `TypedResultSink` subtype
+  replacing `TypedParamSource` as the CC-17 + `of:`-typing net; new `job-parameter-scope-test`
+  (Filter `where: value.number > threshold` — declared default 2 on a bare run, bound argument 3
+  wins). `JobSignatureMigrationTest`'s exactness guarantee green via the FormulaSource cursor.
+- **Out-of-repo migration note**: any notation outside the repos using `is: ParameterSourceWorker`
+  needs a hand edit to a `parameters` declaration + `FormulaSourceWorker` (the Feature→Target
+  precedent).
 
 ## Phase 3 — payload formulas + type flow
 
