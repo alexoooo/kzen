@@ -8,7 +8,7 @@
 > (Opus-class, one phase per session).
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 1 — `JobMessage` carrier (payload + flat part) replaces `DataRecord`
+> - [x] Phase 1 — `JobMessage` carrier (payload + flat part) replaces `DataRecord` (landed 2026-07-21; as-built below)
 > - [ ] Phase 2 — typed parameters, parameter scope, FormulaSource as THE parameterized source
 > - [ ] Phase 3 — payload formulas + type inference flowing through the graph
 > - [ ] Phase 4 — performance: benchmark-gated reuse (folds into job-improvements phase 5)
@@ -269,6 +269,47 @@ Explicit requirement: a HIGH performance ceiling. Position:
 
 **Verification.** `cd ../kzen-auto && ./gradlew :kzen-auto-jvm:test`; manual: Script-2 → Job-3
 runs clean, Display shows `13`.
+
+**As built (2026-07-21).** All six steps landed as designed; full `./gradlew build` green. Deltas
+and findings beyond the spec:
+
+- `JobMessage` API: `ofPayload` / `ofFlat` constructors, `ensureFlat()` plus total accessors
+  `flatHeader()` / `flatRecord()` (so consumers avoid `!!` noise), `boundaryValue()` hosts the
+  boundary rule (payload wins → flat-only ordered `Map<String, String>` keyed by `render()` →
+  empty = null). The framework conversion is `WorkerBase.receiveMessage` (descriptive
+  IllegalStateException naming the worker + offending element); `Emitter` / `SourceWorker` /
+  `TransformWorker` / `SinkWorker` lost their generics entirely.
+- FormulaWorker forwards the RECEIVED message (appends to the flat record in place and swaps
+  `element.header` to the augmented ref) — zero new carrier allocations, payload rides through.
+- Null payload flattens to `"null"` (ColumnValue.toText's canonical rendering), not `""` —
+  PreviewWorkerTest's null-lane expectation updated accordingly; scalar Preview rendering now goes
+  through toText (`13.0` shows `13`, previously `toString` showed `13.0`).
+- Typed-channel fixtures rebuilt around PAYLOAD types (the `DataRecord` type object is gone from
+  job-jvm.yaml): `job-channel-type-mismatch-test.yaml` = Int-typed 3rd-party source port vs String
+  channel (genuine mismatch preserved), `job-typed-channel-test.yaml` = matching Int-typed
+  source/sink ports (clean definition), `job-signature-capability-test.yaml`'s TypedParamSource
+  retyped `of: String`. Base-type objects (`Int`, `String`) carry `class:` in kzen-base.yaml, so
+  scalar `elementType:` refs resolve.
+- New coverage: `JobMessageTest` (flatten + boundary rules), `JobElementModelTest` on the engine
+  over three new `test/` fixtures — `job-message-parameter-test.yaml` (the Script-2→Job-3 mirror;
+  yields the payload `13.0`), `job-message-flatten-test.yaml` (Double stream → Filter over the
+  `value` column → CsvWriter), `job-message-map-flatten-test.yaml` (Map payload → keyed columns).
+- **Root-cause fix beyond scope, forced by a discovered latent bug**: a Job run failing in one
+  worker cancels the others, and a compile interrupted mid-flight made `CachedKotlinCompiler`
+  PERSIST the spurious error (`ClosedByInterruptException`, even bogus `Unresolved reference`
+  messages) to its durable `code-cache` — permanently poisoning that expression until the work dir
+  was cleared. `tryCompileNew` now skips `writeErrorFile` when the thread is interrupted, leaving
+  the partial dir to the existing recompile-partial branch. (Two poisoned entries from the
+  discovery run were deleted from `kzen-auto/work/code-cache/`.)
+- **Follow-up (2026-07-22): `FlatView`.** The nullable-as-a-pair `header`/`flat` fields collapsed
+  into one object — `FlatView(var header: HeaderListing, val record: FlatFileRecord)`, own file —
+  so the pair invariant lives in the type instead of a kdoc contract. `JobMessage` is now
+  `(payload, flat: FlatView?)`; `ensureFlat()`/`flatHeader()`/`flatRecord()` replaced by the single
+  materializing accessor `flatView()` (workers grab the view once and read `.header`/`.record`);
+  `ofFlat(header, record)` keeps its signature and wraps internally, so producers were untouched.
+  Cost: one extra 2-field allocation per flat-lane element (next to the record's own arrays —
+  phase 4's benchmark guards it); FormulaWorker's zero-extra-allocation in-place forward survives
+  (appends to `flat.record`, swaps `flat.header`).
 
 ## Phase 2 — typed parameters + FormulaSource as THE parameterized source
 
