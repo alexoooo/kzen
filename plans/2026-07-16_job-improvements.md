@@ -295,7 +295,13 @@ parity. The declared outputs reach the sink at run time via new `JobControl.resu
 free-text `result` field is hidden (signature-managed; notation-only for multi-result Jobs), and the
 Job stage gained the ResultSignatureEditor stacked under Parameters (channel defaults moved down).
 The migration proof pivoted from exact-list order to exact seen-count + kept-last (order stays
-pinned by `JobMigrationTest`'s CSV lane).
+pinned by `JobMigrationTest`'s CSV lane). The initially-deferred declared-vs-inferred type check
+landed same-day: new `TypeAssignability` (server `objects.logic`) probe-compiles
+`fun probe(value: <inferred>): <declared>` via `CachedKotlinCompiler` — Kotlin's own assignability
+(subtyping, generics, nullability), `ResultStep`'s forced-return-type mechanism transposed to a
+type pair — and `ResultSinkWorker.payloadFlow` rejects a lane whose static boundary type (new
+`WorkerLane.boundaryType()`: payload, else known-flat `Map<String, String>`, else unknown ⇒ check
+skipped) is not assignable to the declared component type, erroring on the card before running.
 
 **Goal.** Close the input-side gaps: third-party format plugins, charset handling, and the
 design-time actions Job editors need (file browse, column pre-scan) — without Report's document
