@@ -10,9 +10,13 @@
 >
 > Companion plans: `2026-07-16_graph-improvements.md` (graph layers; G4 would make
 > `JobChannelSynthesis`'s per-compile define cheap), `2026-07-16_script-client-sweep.md`
-> (sibling flavour's client sweep), and `2026-07-14_attribute-editor-improvements.md` (shared
+> (sibling flavour's client sweep), `2026-07-14_attribute-editor-improvements.md` (shared
 > editor plumbing — commit primitive, select-reference base; phase 8 item 4 builds on it, see
-> the note there). This plan deliberately does **not** duplicate their items.
+> the note there), and `2026-07-21_job-element-model.md` (channel element data model — typed
+> `JobMessage` payloads + flat part replacing `DataRecord`, typed parameters, expression scope,
+> type flow; fixes the untyped-lane→record-worker ClassCastException; SUPERSEDES phase 2's
+> ParameterSource half and interacts with phases 3/5/6/8 — see its interactions section). This
+> plan deliberately does **not** duplicate their items.
 >
 > The original build plan (`2026-06-23_job-paradigm.md`, the P4*/M* milestones referenced from
 > code comments) is a **historical record in git history only** (recover via
@@ -247,7 +251,10 @@ the graph plan); scoped instantiation for detached actions (G3).
 `RunStep` pointing at a parameterized Job shows its parameters in the arguments editor.
 
 **As-built (2026-07-21, executed from `plans/next/J2_job-signature.md`).** Landed as planned;
-kzen-auto only, no kzen-lib change. Full `:kzen-auto-jvm:test` green (484 tests, 0 failures;
+kzen-auto only, no kzen-lib change. **Partially superseded same-day**: `2026-07-21_job-element-model.md`
+(phase 2) replaces ParameterSourceWorker + the signature's Parameter-marker derivation with typed
+parameter declarations (Script `ParameterBinding` style); ResultSink, `JobControl.parameter`/
+`yieldResult`, and the client signature branch carry forward. Full `:kzen-auto-jvm:test` green (484 tests, 0 failures;
 `:kzen-auto-js:compileKotlinJs` green). Deviations / notes:
 - **Markers live in `common-job.yaml`, not `job-jvm.yaml`** (the exact `SummaryServer` precedent —
   a common-classified semantic marker sits beside the `Worker` base it refines). File-placement
@@ -545,7 +552,9 @@ boilerplate, and clear the documentation debt.
 5. **`WorkerDisplayManager` degrades instead of throwing** on an unknown `display:` name
    (WorkerDisplayManager.kt:73-74): warn + fall back to `WorkerDisplayDefault` (a typo'd
    3rd-party marker shouldn't kill the document view).
-6. **Hygiene**: fix stale `JobExecution` references (DuplexJobChannel.kt:25-27,
+6. **Hygiene** (note: `2026-07-21_job-element-model.md` phase 1 rewrites the
+   TransformWorker/SinkWorker/ChannelTypeDefiner cast-safety kdocs — skip those here if it has
+   landed): fix stale `JobExecution` references (DuplexJobChannel.kt:25-27,
    JobConventions.kt:67-76, WorkerBase.kt:88, CsvReaderWorker.kt:130+163,
    MultiFileReaderWorker.kt kdoc, job-jvm.yaml:30-32); fix the ExploreWorker YAML comment
    contradicting the persistent output dir (job-worker.yaml:381-387 vs ExploreWorker.kt:30-39);
