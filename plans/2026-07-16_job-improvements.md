@@ -281,9 +281,21 @@ parameter declarations (Script `ParameterBinding` style); ResultSink, `JobContro
   asserts the CURRENT behaviour (distinct, retained) and must be updated if J7/J8 change the default.
 - **Blank-parameter authoring** stays visible, not a crash (Flow parity; a J8 structure-lint candidate).
 
----
-
-## Phase 3 — Report subsumption A: pluggable input formats + design-time services
+**Typed Result follow-on (2026-07-22).** The output half of the signature moved to Script parity:
+the Job document now declares a typed `results` signature map (same `ResultSignatureDefiner` /
+`ResultSignatureEditor` as Script — the definer + `results` conventions moved to the flavour-neutral
+`document.logic` / `LogicConventions` home), and `JobSignatureCapability` derives outputs from it
+instead of scanning ResultSink markers (the sink-input-port `of:` typing is gone). `ResultSinkWorker`
+no longer collects the stream into a list: `keep: first|last` (default `last`, Script's
+last-Result-wins parity) keeps a single element in constant memory; an empty stream is a run failure
+unless the declared type is nullable (then the result is null); a sink whose `result` component is
+undeclared is a validation error on its card (`payloadFlow`) and a run failure — strict Script
+parity. The declared outputs reach the sink at run time via new `JobControl.results()` (threaded
+`JobLogic` → `JobRun` → `WorkerLogic` → `EngineJobControl`, mirroring `parameters()`). The card's
+free-text `result` field is hidden (signature-managed; notation-only for multi-result Jobs), and the
+Job stage gained the ResultSignatureEditor stacked under Parameters (channel defaults moved down).
+The migration proof pivoted from exact-list order to exact seen-count + kept-last (order stays
+pinned by `JobMigrationTest`'s CSV lane).
 
 **Goal.** Close the input-side gaps: third-party format plugins, charset handling, and the
 design-time actions Job editors need (file browse, column pre-scan) — without Report's document

@@ -10,7 +10,7 @@
 > **Progress tracker** (update as phases land):
 > - [x] Phase 1 — `JobMessage` carrier (payload + flat part) replaces `DataRecord` (landed 2026-07-21; as-built below)
 > - [x] Phase 2 — typed parameters, parameter scope, FormulaSource as THE parameterized source (landed 2026-07-22; as-built below)
-> - [ ] Phase 3 — payload formulas + type inference flowing through the graph
+> - [x] Phase 3 — payload formulas + type inference flowing through the graph (landed 2026-07-22; as-built below)
 > - [ ] Phase 4 — performance: benchmark-gated reuse (folds into job-improvements phase 5)
 
 ## Problem
@@ -407,6 +407,81 @@ concept relocates fully):
 
 **Verification.** Suites + manual: the Job-3 rework — `payload: foo`-style expression returns
 the computed value to Script-2's Display.
+
+**As built (2026-07-22).** All four steps landed; full `./gradlew build` green. One user-confirmed
+decision up front: stream-vs-single dispatch is **strict static** — the inferred type alone decides
+(Iterable-typed streams; everything else, including untyped `Any`, single-emits). Deltas and
+findings beyond the spec:
+
+- **Engine (probe form + typed receiver)**: `CalculatedColumnEval.validate/create`'s `modelType`
+  widened `ClassName` → `TypeMetadata` (nullability + generics; Report call sites wrap their data
+  type unchanged); the generated user-code body became the lambda-valued `probe` property
+  (`{ payload: T -> with(payload) { run { … } } }` — the parameter IS the `payload` alias, `with`
+  makes a non-nullable model's members bare and, by innermost-receiver, SHADOW same-named columns;
+  a lambda so a `Nothing`-typed expression compiles under K2), `evaluateRaw` delegates to it, and
+  new `inferredReturnKType(column)` exposes the inferred type. ONE compile serves validation, the
+  walk, and execution. `create` returns `CalculatedColumn<Any?>` now (payloads are nullable).
+- **Inference relocated + generalized**: `StepReturnTypeInference` →
+  `tech.kzen.auto.server.objects.logic.ExpressionReturnTypeInference` (flavour-neutral, the phase-2
+  relocation precedent); it OWNS `probePropertyName` (StepExpressionCompiler references it), reads
+  the probe's LAST type argument (Function0 and receiver-Function1 alike), and gained the
+  strict-static classifiers `isIterable` / `iterableElementType` (Iterable-supertype projection:
+  `List<T>` → `T`, `IntRange` → `Int`, one level of type-parameter substitution for custom
+  Iterables) beside the visibility-approximating `toTypeMetadata`.
+- **The walk is a WorkerBase capability, not a switch**: `internal open
+  WorkerBase.payloadFlow(input: WorkerLane, context): WorkerLaneAttempt`, default IDENTITY — which
+  is already correct for Filter/Sort/Summary/Pivot/Preview/ValueSet, sinks (a sink's "output" = its
+  displayed input), AND the CSV readers (identity of the unknown source lane). Overrides:
+  FormulaSource (validate + infer, stream rule), Formula (payload/formula validation + re-typing),
+  Filter (`where` validation only), RunWorker (callee's declared main result: Script `results` /
+  Job signature / else Any — the RunStep flavour precedent). `WorkerLane` =
+  `(payloadType: TypeMetadata?, flatColumns: HeaderListing?)` — flatColumns null = statically
+  UNKNOWN (CSV lanes: expression validation skipped, errors still surface at run time — recorded
+  limitation), empty = no flat part; `consumerFlatColumns()` encodes the auto-flatten view (a
+  concrete non-Map payload → the shared `value` header; Map/untyped → unknown).
+- **JobValidator + cache**: `JobValidator` (`@Reflect DetachedAction`, job-jvm.yaml archetype,
+  `JobConventions.jobValidatorLocation`) mirrors ScriptValidator — synthesize channels +
+  `filterTransitive` + `createGraph`, fold lanes along `JobChannelDerivation` connections in
+  document order (manual wires contribute none → unknown lanes; a pruned Worker gets NO entry —
+  pruned ≠ broken). Result: common `JobValidation` = `Map<ObjectPath, StepValidation>`, with
+  `StepValidation` RELOCATED to `tech.kzen.auto.common.objects.document.logic` (the shared
+  per-object unit). Cache: the digest-key builder extracted from ScriptValidationCache into shared
+  `LogicValidationDigest.documentClosureKey` (linked-callee closures + registry scan);
+  `JobValidationCache` is a thin mirror, registered in KzenAutoContext and added to
+  `LogicCompilerServices` (ServerLogicController + every test call site).
+- **Runtime threading**: `JobRun` (which already instantiates the graph) runs the same walk
+  cache-shared with the editor, derives each Worker's INPUT lane, and threads
+  `inputPayloadType` → `WorkerLogic` → `EngineJobControl`; new SPI `JobControl.payloadType()`
+  (default null) is the receiver scope any expression-compiling Worker — incl. 3rd-party — reads,
+  so runtime compiles always match the editor's display.
+- **FormulaWorker `payload:`**: new scalar attribute (archetype + `meta` String); the expression's
+  column scope is the flat part AS RECEIVED (captured before the formulas' `flatView()`, and it
+  never materializes one — so a pure-payload lane forwards with `flat` null and downstream
+  auto-flatten sees the NEW payload, while the flat-promotion idiom `payload: Amount.number` works
+  where columns exist). Both lanes evaluate against the INCOMING message (formulas see the original
+  payload and columns), then formula values append and the payload swaps. Filter/Formula
+  expressions now pass `element.payload` as the model with receiver
+  `control.payloadType() ?: nullable Any` (was `Unit` + `Any`).
+- **Strict-static consequences pinned by test**: `job-signature-child-test`'s `items` re-declared
+  nullable `List<Any?>` — a bound List streams, a bare run's null is an EMPTY stream (was "streams
+  a single null"), and a scalar bound to the List-typed parameter FAILS the run at the typed
+  accessor's cast (a type violation named at evaluation — never a silent wrong-shaped stream; found
+  in test: the generated accessor's checkcast fires before any dispatch). The scalar-in/scalar-out
+  and bare-run-null contracts moved to a new SCALAR fixture (`job-signature-scalar-child-test`,
+  `item: Any?` single-emits), which the RunWorker-per-element nested fixture now hosts. An untyped
+  (`Any`) parameter bound to a List single-emits the WHOLE list.
+- **Client**: `JobValidationStore` (detached fetch, store-less JobController shape) refreshed on
+  own-document notation change (reference compare — the ScriptStore split, same accepted
+  callee-edit limitation); threaded as `StepValidation?` through `WorkerDisplayPropsCommon` /
+  `JobObjectSlot` (value-cache extended); `WorkerDisplayDefault` renders the error icon + tooltip
+  and the inferred-payload-type Chip beside the outcome chip (the StepHeader right-cluster
+  precedent; null type = no chip). No new canvas affordances.
+- **New coverage**: `JobValidatorTest` (typed chain all-Int lanes; broken expression = error entry
+  not crash; RunWorker typed by Script callee's declared `results`; manually-wired CSV lane skips
+  with no false errors), `job-payload-formula-test` engine fixture (FormulaSource `(1..3)` →
+  `payload: payload * 10` → `where: payload > 15` → `[20, 30]`), shadowing pinned on the engine
+  (String receiver's `length` beats a `length` column), `payload` alias, strict-static
+  FormulaSourceWorker lanes (untyped-single / nullable-Iterable-null-empty).
 
 ## Phase 4 — performance (benchmark-gated)
 
