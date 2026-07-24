@@ -436,9 +436,10 @@ findings beyond the spec:
   Filter (`where` validation only), RunWorker (callee's declared main result: Script `results` /
   Job signature / else Any — the RunStep flavour precedent). `WorkerLane` =
   `(payloadType: TypeMetadata?, flatColumns: HeaderListing?)` — flatColumns null = statically
-  UNKNOWN (CSV lanes: expression validation skipped, errors still surface at run time — recorded
-  limitation), empty = no flat part; `consumerFlatColumns()` encodes the auto-flatten view (a
-  concrete non-Map payload → the shared `value` header; Map/untyped → unknown).
+  UNKNOWN (CSV lanes: expressions are parsed for syntax via `KotlinSyntaxValidator` but not
+  compiled, so only errors a header would settle — unresolved columns, type mismatches — still
+  surface at run time), empty = no flat part; `consumerFlatColumns()` encodes the auto-flatten view
+  (a concrete non-Map payload → the shared `value` header; Map/untyped → unknown).
 - **JobValidator + cache**: `JobValidator` (`@Reflect DetachedAction`, job-jvm.yaml archetype,
   `JobConventions.jobValidatorLocation`) mirrors ScriptValidator — synthesize channels +
   `filterTransitive` + `createGraph`, fold lanes along `JobChannelDerivation` connections in
