@@ -1,86 +1,61 @@
-# plans/next — detailed implementation plans for the independent backlog
+# plans/next — execution elaborations for the independent backlog
 
-> Generated 2026-07-19 by a batch of parallel planning sessions (one per work item), each
-> elaborating its constituent plan's phase into an execution-ready document verified against the
-> current code. **The constituent plans remain the authority on design rationale**; these
-> documents are the execution elaboration — anchors refreshed, "check first" questions
-> pre-resolved. Executor: Opus, one plan per session, any order (all items here are
-> hard-independent of every other *remaining* backlog item).
+> Detailed, execution-ready elaborations of individual constituent-plan phases: anchors refreshed,
+> "check first" questions pre-resolved. **The constituent plans remain the authority on design
+> rationale**; these documents are the execution layer. Executor: Opus-class, one plan per session.
 >
-> Source of truth for sequencing: `../2026-07-16_master-plan.md`. When a plan here lands, tick
-> the tracker in its constituent plan (as always) and strike it in the master plan; then delete
-> the plan file here (or mark it done at the top).
+> Source of truth for sequencing: `../2026-07-25_master-plan.md`. When a plan here lands, tick the
+> tracker in its constituent plan **and** set the Status in the master-plan ledger; then **delete
+> the file here.** (Do not delete the *constituent* plan — convert it to an as-built record in the
+> sprint archive. Sprint 2 lost three plans' worth of deferred scope by deleting the wrong layer.)
+>
+> **All five were re-validated 2026-07-25** against the post-Sprint-2 codebase — they were written
+> 2026-07-19, before J2, before the typed element model, and before the `RestHandler` split, so
+> every one of them had stale anchors. See each file's re-validation note.
 
-## The independent set (planned here)
+## The live set
 
-| Plan | Item | Constituent plan | Notes |
-|---|---|---|---|
-| ~~`G3_scoped-instantiation.md`~~ ✅ **done 2026-07-19** | G3 — scoped instantiation + instance caching | graph | kzen-lib + kzen-auto; **3a rescoped** (premise already landed — test-pin + measurement only) |
-| ~~`G6_error-surface.md`~~ ✅ **done 2026-07-19** | G6 — structured definition/creation failures | graph | landed post-G3; client bullet rescoped (see the constituent plan's as-built note) |
-| ~~`J2_job-signature.md`~~ ✅ **done 2026-07-21** | J2 — Job parameters in / results out | job | landed as planned; **client step 4 was NOT verify-only** (added the `RunStepArgumentsEditor` Job branch); Script round-trip fixture needed a `ResultStep` (no last-step fallback); `retainTrace`/`callerStableId` findings routed to J7/J8. J3 spine unblocked |
-| `J3_report-subsumption-a.md` | J3 — pluggable input formats + design-time services | job | no hard dep on J2 (per J plan header); **two steps rescoped down** (file-browse route + sync driver already exist) |
-| `J5_perf-headless.md` | J5 — benchmark-first perf + headless mode | job | **serve-gate rescoped** (literal skip unsatisfiable; headless stamps synthesized duplex channels non-external instead) |
-| `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job | **demand-driven — lowest J priority** |
-| `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job | retain=false extractable as micro-session |
-| ~~`FL3_vertex-capability-spi.md`~~ ✅ **done 2026-07-21** | FL3 — vertex capability SPI | flow | landed as planned; fixtures took the **reflective-mirror** path (R1 had landed) instead of `FlowVertexTestModule`, and got their own callee document so `LinkedLogicDocumentsTest` stays about the three production paradigms. FL6 gate unblocked |
-| ~~`FL4_flow-client-perf-errors.md`~~ ✅ **done 2026-07-21** | FL4 — Flow client perf + Error phase | flow | landed as planned, post-FL3 (the `FlowRun` rebase was textual, as predicted). Both jvm `FlowRun` additions were required; the flaky fixture took the **reflective-mirror** path (R1) so no test module. Manual browser smoke is debt |
-| ~~`S8a_script-hot-paths.md`~~ ✅ **done 2026-07-21** | S8a — Script client hot paths | script sweep | landed as planned; **four** analyze consumers share one `Component` extension (not four inlined lookups); browser smoke is manual debt |
-| ~~`S8c_branch-discovery.md`~~ ✅ **done 2026-07-21** | S8c — notation-driven branch discovery | script sweep | landed as planned; the post-XC4 audit held exactly, so `ScriptTree`/nesting/jump needed no change. SwitchStep unblocked and test-proven |
-| ~~`S8d_script-hygiene.md`~~ ✅ **done 2026-07-21** | S8d — Script client hygiene | script sweep | AE5 had already landed, so the conditional RPureComponent item was **skipped** (gate fired positive); `stateOrNull` **kept** per the elaboration's adjusted verdict. **S8 sweep now complete** |
-| ~~`AE1_retire-old-fork.md`~~ ✅ **done 2026-07-19** | AE1 — delete flow/edit/*Old.kt fork | attribute-editor | landed as planned (yaml block was :57–81); FL5's scope now unblocked |
-| ~~`AE2_select-values-editor.md`~~ ✅ **done 2026-07-20** | AE2 — SelectClosePolicy → SelectValues | attribute-editor | landed as planned; `values:` proven through the `meta.ref` path; label renders "ClosePolicy" (D7 prediction corrected) |
-| ~~`AE3_commit-primitive.md`~~ ✅ **done 2026-07-20** | AE3 — shared commit primitive | attribute-editor | landed as planned, all 8 adopters; the elaboration's three drift flags all held. **AE4 unblocked** |
-| ~~`SH2_child-exit-detection.md`~~ ✅ **done 2026-07-21** | SH2 — child exit detection + UI surfacing | shell/launcher | landed as planned; both exit callbacks use `thenAcceptAsync`, and the exited-restart test syncs on the tombstone (the two callbacks race by microseconds). DA5 later replaces the bind-failure pane. Browser smoke is manual debt |
-| ~~`SH3_registry-durability.md`~~ ✅ **done 2026-07-21** | SH3 — atomic registries + --project.home | shell/launcher | landed as planned, **rescoped to ProjectRepo only** (ArchetypeRepo already directory-scan + atomic). SH2's `MainJarProcess` seam merged cleanly; `programArgs` threaded only through the launcher-spawn path. Shell-spawn e2e smoke is manual debt |
-| ~~`SH4_template-extension-upgrade.md`~~ ✅ **done 2026-07-21** | SH4 — kzen-project extension point + upgrade | shell/launcher | landed as planned; **three** samples (one per source set, forced by empty-module suppression), and the JS sample **did** need build-file edits (kotlin-wrappers on kzen-project-js's compile classpath — the elaboration predicted none). Upgrade half rebased onto SH3 cleanly. Shell-spawn upgrade e2e is manual debt |
-| ~~`R1_reflective-fallback-mirror.md`~~ ✅ **done 2026-07-20** | R1 — JVM reflective fallback mirror | reflection | landed as planned; **contingency C1 fired** — the KSP processor now skips Java-origin declarations. R2 and R5 unblocked |
-| ~~`R3_processor-hardening.md`~~ ✅ **done 2026-07-20** | R3 — KSP processor hardening | reflection | landed; **local-class guard dropped** — KSP never surfaces local declarations (see the constituent plan's as-built note) |
-| ~~`R4_service-fqn-validation.md`~~ ✅ **done 2026-07-20** | R4 — @Service FQN boot validation | reflection | landed as planned; G3c had already landed, so the "forces the lazy" caveat did not apply (`contains()` never forces providers) |
-| ~~`EXTH_hygiene.md`~~ ✅ **done 2026-07-20** | EXT-H — extensibility hygiene S1–S10 (−S7) | extensibility analysis | D1–D7 untouched as planned; **C7 rename pin is half-red** — object rename green, document rename `@Ignore`d against a kzen-lib root-objects-only limitation (finding recorded under C7) |
-| `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-app | closes gate D1; gates DA2+ |
+| Plan | Item | Constituent plan | Ledger row | Notes |
+|---|---|---|---|---|
+| `J3_report-subsumption-a.md` | J3 — pluggable input formats + design-time services | job · P3 | 1–2 | Sized **L with a split point**: steps 1+4 (reader + charset) ship independently of steps 2+3 (design-time services). Two steps were already rescoped down at plan time — the file-browse route and the sync driver exist |
+| `J5_perf-headless.md` | J5 — benchmark-first perf + headless mode | job · P5 | 5–6 | **Session A = steps 1–3, Session B = steps 4–8.** Also executes the element model's phase-4 reuse gate. Carries a pre-recorded rescope: the headless serve-gate as literally specified is unsatisfiable (finding F5) — headless stamps synthesized duplex channels non-external instead |
+| `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job · P7 | 7 | Five lettered items with verdicts pre-resolved. Item (a) `retain=false` is **extractable as a micro-session**; item (d)'s client half is the deferrable tail |
+| `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job · P6 | 27 | ⚠️ **DEMAND-DRIVEN — lowest priority.** The J3→J4→J9 spine must not wait on it, and nothing depends on it |
+| `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-and-hosting · DA1 | 15 | **Closes engine gate D1; gates DA2–DA5.** Scratch branch only — nothing merges as-is |
 
-## Excluded from this batch — and why
+## Not elaborated — and why
 
-Behind another remaining item (plan them after their prerequisite lands, so they elaborate
-reality rather than a prediction):
+Behind another item, or better planned once their prerequisite lands (so they elaborate reality
+rather than a prediction):
 
-- **J4** (after J3), **J9** (after J4, same files), **J8** (after J3; prefer after AE3+AE5)
-- **FL5** (AE1 first — master rule 5), **FL6** (decision gate; FL3 landed, so plannable now)
-- **S8b** (AE3+AE5 first — master rule 4)
-- **AE4** (AE3 landed 2026-07-20 — plannable now), **AE5** (after AE4), **AE6** (optional, after
-  1–5 land smoothly)
-- **SH5** (docs-to-truth over whatever SH2–SH4 changed)
-- ~~**R2**~~ ✅ **done 2026-07-20** (executed straight from the constituent plan, no elaboration
-  needed), **R5** (after the B5 ratification)
-- **DA2–DA5** (after the DA1 spike closes gate D1; DA6 macOS deferred)
+- **J4** (after J3), **J9** (after J4 — same files), **J8** (after J3)
+- **E2–E6** — all behind the **E1 ratification session**, which is the user's call and reshapes
+  them. E4's C7 half is the exception: settled finding, `@Ignore`d test already committed, runnable
+  any time
+- **DA2–DA5** — behind the DA1 spike closing gate D1; DA6 (macOS) deferred outright
+- **SH5, FL5, FL6, C1–C4** — each is a single self-contained phase already carrying its own steps
+  and anchors in its constituent plan; a separate elaboration would just duplicate it
 
-Gated or not implementable by an autonomous session:
+Needs the user, not an autonomous session:
 
-- **G4** — measurement-gated by its own plan: measure per-keystroke define cost post-G1 first,
-  build only if it still hurts. The measurement is cheap (micro-session); the graph plan holds
-  the full design if the verdict is "build". Deliberately not pre-planned here so the gate stays
-  honest.
-- **EXT decision session (D1–D7 + R5-G)** — needs the user to ratify; the analysis doc holds the
-  recommendations. After ratification, promote the analysis to a standard plan and then plan the
-  D-arc build sessions.
-- **Manual smoke debt** — needs the user at the browser; the checklist lives in the master plan
-  § "Manual smoke debt (one session, needs the user)".
-- **R6** — effectively already done: the client-plugin verdict is recorded in both the R plan
-  (Phase R6) and EXT D7; only the R-plan tracker checkbox needs ticking. No session required.
+- **E1** — the extensibility ratification (D1–D6 + gate R5-G). The plan holds the recommendations
+- **C2** — the consolidated manual smoke debt; the checklist lives in
+  `../2026-07-25_core-and-verification.md`
 
-## Suggested pick order (matches master-plan priorities)
+Gated, deliberately not pre-planned so the gate stays honest:
 
-Sprint-2 remainder (~~G6 → G3~~, both landed 2026-07-19) is done; fillers **~~AE1~~ · ~~AE2~~ ·
-~~R1~~ · ~~R3~~ · ~~R4~~ · ~~EXT-H~~** are all landed, and **B1 is closed out** — the AE arc
-(~~AE3 → AE4 → AE5 → AE6~~) and the whole Script sweep (~~S8a · S8b · S8c · S8d~~) are done. Then
-backlog stage openers by appetite: **~~J2~~ → J3** (B2; J5/J7 slot around, J6 last), **~~FL3~~ ·
-~~FL4~~** (B3 — FL5 and the FL6 gate are both plannable now), **~~SH2~~ · ~~SH3~~ · ~~SH4~~** (B4 —
-SH5 docs-sweep next), **DA1** (B6).
+- **C1 → C3** — measure per-keystroke define cost first, build only if it still hurts, record the
+  number either way
 
 ## Standing rules for every implementation session
 
 - The constituent plan's decisions are pre-made; these documents elaborate, never override.
-- If a sibling from this directory has landed since a plan was written, re-verify its anchors in
-  the overlap areas (each plan's "Dependencies & coordination" section names the known seams).
-- Tick trackers (constituent plan + master plan) when a phase lands; append as-built notes on
-  deviation.
+- **Re-verify anchors before editing.** If a sibling has landed since a plan was written, re-check
+  the overlap areas (each plan's "Dependencies & coordination" section names the known seams). The
+  2026-07-22 `RestHandler` split is the cautionary case — it deleted a 1303-line file that four
+  plans were still anchored on, silently.
+- Tick trackers (constituent plan + master-plan ledger row) when a phase lands; append as-built
+  notes on deviation.
+- Build from the sibling's own directory (`cd ../kzen-auto && ./gradlew …`). **Never `./gradlew build`
+  from the umbrella** — it abbreviation-matches `buildEnvironment` and exits 0 having compiled
+  nothing.

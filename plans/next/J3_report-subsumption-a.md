@@ -1,14 +1,54 @@
 # J3 — Report subsumption A: pluggable input formats + design-time services — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from `2026-07-16_job-improvements.md`
-> **Phase 3** (master plan Stage B2). Decisions pre-made in the constituent plan — do not
-> re-litigate. Every anchor below re-verified against current kzen-auto master (`ceb699d0`) on
-> 2026-07-19; drift from the constituent plan (written pre-SER4/SER5) is called out inline —
+> **Status: ready to execute.** Generated 2026-07-19 from the Job plan's **Phase 3**; the live
+> constituent plan is now `../2026-07-25_job-improvements.md` (ledger rows 1–2). Decisions
+> pre-made there — do not re-litigate. Anchors were first verified against `ceb699d0`
+> (2026-07-19); drift from the constituent plan (written pre-SER4/SER5) is called out inline —
 > notably: **the file-browse half of "design-time services" already landed** (the document-agnostic
 > `/file-listing` route + `MultiFileInputEditor` browse, SER3 era), and **the "synchronous plain
 > loop over reused event objects" driver already exists** (`ReportInputChain`) — both rescope their
 > steps down, not up. Sized L (one full session); a natural split point is defined at the end of
 > § Step-by-step. kzen-auto only; kzen-lib untouched.
+>
+> ## ⚠️ Re-validated 2026-07-25 — read this before using any anchor below
+>
+> This document was written **before** J2, before the typed `JobMessage` element model, and before
+> the `RestHandler` split. Two structural changes invalidate anchors throughout; both are mechanical
+> but pervasive. **Inline references have been updated, but any line number quoted from before
+> 2026-07-22 should be re-checked, not trusted.**
+>
+> **1. `DataRecord` no longer exists — `JobMessage` is the only element crossing Job channels.**
+>
+> | Was | Now |
+> |---|---|
+> | `DataRecord(header, record)` | `JobMessage.ofFlat(header, record)` — or `JobMessage.ofPayload(v)` |
+> | `SourceWorker<DataRecord>(output, selfLocation)` | `SourceWorker(output, selfLocation)` — **the framework SPI lost its generics entirely**; `ChannelOutput<Any?>` |
+> | `emit.send(DataRecord(...))` | `emit.send(JobMessage.ofFlat(...))` — `Emitter.send(element: JobMessage)` |
+> | `record.header` / `record.value` fields | `message.flatView()` → `FlatView(header, record)`; materializes on demand |
+> | `of: DataRecord` in notation | **dropped** — a port's `of:` / `elementType` now describes the message's *payload* type (see the comment above `ChannelTypeDefiner` in `job-jvm.yaml`) |
+> | ownership contract at `DataRecord.kt:20-23` | same contract, now in `JobMessage`'s kdoc — receiver owns and MAY mutate in place |
+>
+> A reader emits **flat-part messages with a null payload**. This is the mechanical change the
+> element model predicted for `PluginReaderWorker`; the A/B comparison below compares **flat parts**.
+>
+> **2. `RestHandler.kt` (1303 lines) was DELETED 2026-07-22 and split into handler services.**
+>
+> | Was | Now |
+> |---|---|
+> | `RestHandler.fileListing(parameters)` | **`FileListingHandler.fileListing(parameters): List<DataLocationInfo>`** |
+> | `RestHandler.jobDownload(parameters)` | **`DetachedActionHandler.jobDownload(parameters): ExecutionDownloadResult`** (route in `KzenAutoMain`, ~:728) |
+> | `RestHandler` detached-action surface | `DetachedActionHandler` |
+> | `RestHandler` notation commands | `server/api/handler/command/Notation{Attribute,Object,Refactor,Document,Resource}Commands` + `NotationCommandHandler` |
+> | `RestHandler` logic/run surface | `LogicHandler` |
+> | `RestHandler` ctor params (e.g. adding `columnListingAction`) | **the specific handler's** ctor — for the column pre-scan that is a new method on `FileListingHandler` (its natural sibling) or a small new handler; `RestParams` holds the shared `getParam`/`getParamOrNull` helpers |
+> | `RestHandler` construction at `KzenAutoContext.kt:195-206` | `KzenAutoContext` now constructs each handler — still a **single construction site**, so the fan-out conclusion below is unchanged |
+>
+> **3. Also landed since, and relevant to step 3.** `WorkerLane = (payloadType, flatColumns)` and
+> `WorkerBase.payloadFlow` now carry static schema through the graph (null `flatColumns` = statically
+> unknown), with `JobValidator` + `JobValidationCache` as the caching seam. **`JobUpstreamSchema`'s
+> fallback should extend that result, not introduce a parallel schema path** — this is a design
+> refinement on step 3, not a mechanical fix. `KotlinSyntaxValidator` already exists for the
+> unknown-header case.
 
 ## Scope & goal
 
@@ -17,7 +57,8 @@ loop:
 
 1. **`PluginReaderWorker`** — a SourceWorker that reads file(s) through the existing plugin SPI
    (`ReportDefiner` / `DataFramer` / segment steps in kzen-auto-plugin), driven synchronously
-   (no Disruptor inside a Worker), emitting the same `DataRecord` stream the native readers emit.
+   (no Disruptor inside a Worker), emitting the same flat-part `JobMessage` stream the native
+   readers emit.
    Third-party format plugins (e.g. `../kzen-sample-plugin`) become usable in a Job.
 2. **Design-time column pre-scan service** — a flavour-neutral REST route over the existing
    `ColumnListingAction`, so a Job document (which has no `DetachedAction` surface —
@@ -37,17 +78,21 @@ pattern), never a class-name or archetype-name check.
 
 - **No hard prerequisite** (J-plan header: only J4-on-J3 and J9-after-J4 are hard). J4 builds on
   this phase's outcomes; J8 consumes step 3's editor fallback ("J8 after J3").
-- **J2 is being planned/executed in parallel** (`next/J2_job-signature.md`). Overlap surface:
-  `JobControl` (J2 adds `parameter(name)` / `yieldResult(component, value)`), job-worker.yaml /
-  job-js.yaml (J2 adds ParameterSource/ResultSink archetypes + tools), and test fakes. J2's
-  design says the new `JobControl` members get default (no-op/null) implementations — if so, J3's
-  new test fakes (copies of `NoOpJobControl`, MultiFileReaderWorkerTest.kt:184-192) compile
-  unchanged. **If J2 lands first with abstract members instead, add no-op overrides to the fakes
-  and re-sync yaml insertion points; nothing else here touches J2's files.**
+- ~~**J2 is being planned/executed in parallel**~~ — **J2 landed 2026-07-21, and the typed element
+  model landed 2026-07-22 on top of it.** `JobControl` now carries `parameter(name)`,
+  `parameters()`, `yieldResult(...)`, `results()` and `payloadType()`; `ParameterSourceWorker` was
+  **retired** (typed `parameters` declarations + `FormulaSourceWorker` replaced it), so there is no
+  ParameterSource archetype to sync against. **Re-derive the test fakes against the current
+  `JobControl` surface** — copies of `NoOpJobControl` (`MultiFileReaderWorkerTest.kt`) will need
+  overrides for whatever is abstract today; check before writing them.
 - **SER4/SER5 landed** — the constituent plan's REST anchors are stale. The current
   action-routing pattern is re-derived in Current-state findings § C below; this plan's route
   additions follow it (typed kotlinx DTO + `respondJson`), not the old Jackson shapes.
-- **AE plan**: `SortSpecEditor` is one of the editors J8.4 later dedupes (prefer after AE3+AE5).
+- **AE plan**: `SortSpecEditor` is one of the editors J8.4 later dedupes. **AE3–AE6 all landed
+  2026-07-20**, so build on `DebouncedSubmitter` / `AttributeCommitter` /
+  `SelectReferenceEditorBase` / `AttributeWrapperLookup` rather than a parallel set — and note the
+  commit path now also reports edit-pending through `DocumentEditActivity` (2026-07-23); keep that
+  wiring intact.
   Step 3 deliberately makes the smallest self-contained change to it (add a column-source +
   dropdown branch), mirroring `ValueSetFilterEditor`'s existing shapes so the later dedupe sees
   two-of-a-kind, not a new one-off.
@@ -100,8 +145,8 @@ pattern), never a class-name or archetype-name check.
   (`model/data/FlatDataHeaderDefinition.kt:16-26`). `FlatDataLocation` =
   `(DataLocation, DataEncodingSpec)` (`model/data/FlatDataLocation.kt`).
   `DataBlockBuffer.defaultBytesSize = 64 * 1024` (`DataBlockBuffer.java:14`).
-- Copy-out semantics: chain event objects are reused buffers, and Job's `DataRecord` contract is
-  fresh-allocation ownership-transfer (`job/worker/DataRecord.kt:20-23`). `FlatFileRecord
+- Copy-out semantics: chain event objects are reused buffers, and Job's `JobMessage` contract is
+  fresh-allocation ownership-transfer (`job/worker/JobMessage.kt` kdoc). `FlatFileRecord
   .prototype()` returns a compact fresh copy (`FlatFileRecord.java:561-564`) — it's what
   `CsvReportDefiner.literal` uses for exactly this purpose.
 
@@ -145,15 +190,16 @@ pattern), never a class-name or archetype-name check.
 
 ### C. Post-SER5 REST pattern (anchor drift — re-derived)
 
-- The constituent plan's "`jobDownload` pattern, RestHandler.kt:1142-1164" has moved
-  (`jobDownload` now at RestHandler.kt:1220, route at KzenAutoMain.kt:735-744) **and is the
-  wrong precedent anyway** — it's a raw-bytes download. The right precedent is the
-  **document-agnostic `/file-listing` route that already landed** (SER3 listFiles DTO work):
+- The constituent plan's "`jobDownload` pattern" has moved twice: it is now
+  `DetachedActionHandler.jobDownload(parameters): ExecutionDownloadResult` (route in
+  `KzenAutoMain`, ~:728) — **and it is the wrong precedent anyway**, being a raw-bytes download.
+  The right precedent is the **document-agnostic `/file-listing` route that already landed**
+  (SER3 listFiles DTO work), which the 2026-07-22 split promoted to its own service:
   - Constant + params: `CommonRestApi.fileListing` / `paramDirectory` / `paramFilter`
     (`CommonRestApi.kt:139-143`).
-  - Handler: `RestHandler.fileListing(parameters): List<DataLocationInfo>`
-    (`RestHandler.kt:967-981`) — `getParam`/`getParamOrNull` helpers at :1398-1424,
-    `runBlocking` around suspend service calls.
+  - Handler: **`FileListingHandler.fileListing(parameters): List<DataLocationInfo>`**
+    (`server/api/handler/FileListingHandler.kt:19`) — the `getParam`/`getParamOrNull` helpers now
+    live in `server/api/handler/RestParams.kt`; `runBlocking` around suspend service calls.
   - Route: `routeFileListing` (`KzenAutoMain.kt:251-257`) — `get(...) {
     call.respondJson(restHandler.fileListing(call.parameters)) }`; installed at
     `KzenAutoMain.kt:210`. `respondJson` pre-encodes with the stock `serverJson`
@@ -172,9 +218,9 @@ pattern), never a class-name or archetype-name check.
   Wrapper `@Service restClient: ClientRestApi` :103-120) — so the constituent plan's
   "`FileListingAction` … what moves is the REST/action routing" is **already landed for the
   file-browse half**. Step 2 rescopes to the **column pre-scan route only**.
-- `RestHandler` construction: `KzenAutoContext.kt:195-206` (it already receives
-  `fileListingAction`; it does **not** yet receive `columnListingAction` or
-  `definitionRepository`).
+- Handler construction: `KzenAutoContext` (post-split it constructs each handler individually —
+  still a **single construction site**). `FileListingHandler` already receives
+  `fileListingAction`; nothing yet receives `columnListingAction` or `definitionRepository`.
 
 ### D. Job readers + worker framework
 
@@ -200,8 +246,10 @@ pattern), never a class-name or archetype-name check.
   as-is). Body defaults present for every attribute (the palette-insert gotcha). Ribbon tools in
   `notation/auto-js/document/job-js.yaml` — Sources group :134-155 (`CsvReaderTool` :140-143 is
   the template). `Worker` base archetype + `display:` marker in
-  `notation/auto-common/common-job.yaml:8-27`; `Channel`/`DataRecord` type objects in
-  `notation/auto-jvm/job/job-jvm.yaml` (DataRecord :58-60).
+  `notation/auto-common/common-job.yaml:8-27`; `Channel` / `DuplexChannel` type objects in
+  `notation/auto-jvm/job/job-jvm.yaml` (:22, :40 — **the `DataRecord` type object is gone**; the
+  comment above `ChannelTypeDefiner` there records that `of:` / `elementType` now describe the
+  message's *payload* type).
 - Notation-level test harness: `JobNotationTest` (`server/exec/job/JobNotationTest.kt`) —
   `KzenAutoContext.forTest()` + `AutoTestUtils.readNotation()` + `JobLogicCompiler.compile` +
   `RunEngine` (:122-143); fixtures under `src/test/resources/notation/test/`, relative
@@ -242,7 +290,7 @@ pattern), never a class-name or archetype-name check.
 
 | Constituent-plan premise | Reality (2026-07-19) | Consequence |
 |---|---|---|
-| "the same pattern jobDownload used, RestHandler.kt:1142-1164" | SER4/SER5 reshaped RestHandler; `/file-listing` (typed DTO + respondJson) is the live precedent | Step 2 follows § C |
+| "the same pattern jobDownload used, RestHandler.kt:1142-1164" | SER4/SER5 reshaped it, then the 2026-07-22 split **deleted `RestHandler` entirely**; `/file-listing` on `FileListingHandler` (typed DTO + respondJson) is the live precedent | Step 2 follows § C |
 | Design-time actions need extraction "so a Job document can invoke them" | File-browse half already extracted + consumed by `MultiFileInputEditor` | Step 2 = column pre-scan only |
 | "drives the plugin's framer + steps synchronously in a plain loop" (to be built) | `ReportInputChain` already is that driver | Step 1 composes, doesn't build |
 | "blank = detect via ReportUtils" | ReportUtils resolves declared encodings; no detection exists | blank = declared/UTF-8 default (steps 1, 4) |
@@ -255,12 +303,14 @@ pattern), never a class-name or archetype-name check.
 1. **Payload-type generality**: `PluginReaderWorker` emits from `ModelOutputEvent.row` (always a
    `FlatFileRecord`, filled by every terminal step — § A) and skips `event.skip` events. Works
    identically for `FlatFileRecord` definers (CSV/TSV/Text) and custom-payload definers
-   (sample plugin's `WcpRow`). The typed payload `model` is not consumed — Job's record lane is
-   `DataRecord`; that is the subsumption contract, not a loss.
+   (sample plugin's `WcpRow`). The plugin's typed payload `model` is not consumed — this reader
+   feeds Job's **flat lane** (`JobMessage.flat`, payload null); that is the subsumption contract,
+   not a loss. *(Under the element model a future variant could put the plugin's typed model in
+   `payload` instead — out of scope here, worth recording.)*
 2. **Header resolution**: a separate bounded pre-pass via `ReportHeaderReader().extract(
    FlatDataHeaderDefinition(...))` over the **first** file (opens its own chain, closes —
    exactly Report's `datasetInfo` behaviour). The resulting `HeaderListing` is shared by every
-   emitted `DataRecord` (same as the native readers). Multi-file: subsequent files run fresh
+   emitted message's flat part (same as the native readers). Multi-file: subsequent files run fresh
    chains; the definer's own skip semantics (CSV marks each file's first record skip) handle
    per-file header rows — no header=true/false attribute on this worker (the plugin owns header
    semantics).
@@ -330,7 +380,7 @@ class PluginReaderWorker(
     selfLocation: ObjectLocation,
     @Service private val definitionRepository: ReportDefinitionRepository
 ):
-    SourceWorker<DataRecord>(output, selfLocation)
+    SourceWorker(output, selfLocation)          // no generics since the element model landed
 ```
 
 Fields: `classLoaderHandle: ClassLoaderHandle?`, `openChain: ReportInputChain<*>?`,
@@ -366,7 +416,7 @@ for symmetry).
        chain.poll { event -> if (!event.skip) batch.add(event.row.prototype()) }
    }
    for (record in batch) {
-       emit.send(DataRecord(header, record))     // Emitter cadence: flush/checkpoint/publish
+       emit.send(JobMessage.ofFlat(header, record))  // Emitter cadence: flush/checkpoint/publish
        count += 1
    }
    if (!hasNext) break
@@ -383,8 +433,8 @@ gzip + BOM handled by `FileFlatDataStream`; one step ≈ one batch via `Emitter.
 
 ```yaml
 # Reads file(s) through a format plugin (the kzen-auto-plugin ReportDefiner/DataFramer SPI —
-# built-in CSV/TSV/Text or a jar-loaded third-party definer), emitting the same DataRecord
-# stream the native readers emit. `coordinate` names the plugin (e.g. CSV); `encoding` blank =
+# built-in CSV/TSV/Text or a jar-loaded third-party definer), emitting the same flat-part
+# JobMessage stream the native readers emit. `coordinate` names the plugin (e.g. CSV); `encoding` blank =
 # the plugin's declared text encoding. Gzip (.gz) input and BOM handled automatically. Live
 # edit RESTARTS the stream (plugin framers are stateful; positional resume is a follow-up).
 PluginReaderWorker:
@@ -399,7 +449,8 @@ PluginReaderWorker:
   meta:
     output:
       is: ChannelOutput
-      of: DataRecord
+      # no `of:` — this reader's messages carry no payload (flat lane only); `of:` now
+      # describes the PAYLOAD type, and the `DataRecord` type object no longer exists
       creator: JobChannelCreator
       editor: SelectChannelEditor
     paths:
@@ -459,10 +510,11 @@ const val paramTextEncoding = "encoding"
 
 (NB `paramDocumentName` already claims the wire string `"file"` — hence `"input"`.)
 
-**2c. Handler** — `RestHandler`: add ctor params `columnListingAction: ColumnListingAction` and
-`definitionRepository: ReportDefinitionRepository` (imports from
-`server/objects/report/service/` + `server/service/plugin/` — classes stay where they are; the
-constituent plan moves routing, not packages). New method next to `fileListing` (:967-981):
+**2c. Handler** — **`FileListingHandler`** (its natural home: same file-system design-time family,
+already the `/file-listing` owner). Add ctor params `columnListingAction: ColumnListingAction` and
+`definitionRepository: ReportDefinitionRepository` (imports from `server/objects/report/service/` +
+`server/service/plugin/` — classes stay where they are; the constituent plan moves routing, not
+packages). New method next to `fileListing` (`FileListingHandler.kt:19`):
 
 ```kotlin
 fun columnListing(parameters: Parameters): ColumnListingInfo {
@@ -509,11 +561,11 @@ ClassName("tech.kzen.auto.plugin.model.record.FlatFileRecord")` (the same FQN
 errors; the client degrades (2e / 3d).
 
 **2d. Route + wiring** — `KzenAutoMain.routeFileListing` (:251-257) gains
-`get(CommonRestApi.columnListing) { call.respondJson(restHandler.columnListing(call.parameters)) }`
+`get(CommonRestApi.columnListing) { call.respondJson(fileListingHandler.columnListing(call.parameters)) }`
 (update the fn's doc comment to "file-system design-time services");
-`KzenAutoContext` passes `columnListingAction` + `definitionRepository` into the `RestHandler`
-constructor (:195-206). (`KzenAutoContext.forTest()` flows through the same construction —
-compile catches any second site.)
+`KzenAutoContext` passes `columnListingAction` + `definitionRepository` into the
+`FileListingHandler` constructor. (`KzenAutoContext.forTest()` flows through the same construction
+— compile catches any second site.)
 
 **2e. Client** — `ClientRestApi`, next to `listFiles` (:808-820):
 
@@ -647,8 +699,8 @@ All in kzen-auto-jvm `src/test` unless noted; new fakes copy `NoOpJobControl` /
    with **changed** encoding closes the carried reader and restarts (assert re-read from top —
    mirror `carriesFileCursorAcrossLiveEdit...`, `MultiFileReaderWorkerTest.kt:96-148`), while
    unchanged encoding still resumes mid-file.
-4. **`RestHandler` column-listing coverage** — a focused test constructing
-   `KzenAutoContext.forTest()` and calling `restHandler.columnListing(parametersOf(...))` for:
+4. **`FileListingHandler` column-listing coverage** — a focused test constructing
+   `KzenAutoContext.forTest()` and calling `fileListingHandler.columnListing(parametersOf(...))` for:
    explicit CSV coordinate; coordinate omitted on a `.csv` (extension default); explicit
    `encoding` override on a Latin-1 file; duplicate column names → occurrence 1 in the DTO.
 5. **`JobScanCapabilityTest`** (new, `kzen-auto-jvm/src/test/.../common/objects/document/job/`,
@@ -658,7 +710,7 @@ All in kzen-auto-jvm `src/test` unless noted; new fakes copy `NoOpJobControl` /
 6. **`WireDtoSerializerTest`** (kzen-auto-common commonTest): `ColumnListingInfo` round-trip
    (runs under ChromeHeadless too — pins JS decode).
 7. **Report suites untouched-and-green**: no Report source file changes at all in this phase
-   (RestHandler / KzenAutoMain / CommonRestApi / KzenAutoContext are shared plumbing, not
+   (`FileListingHandler` / KzenAutoMain / CommonRestApi / KzenAutoContext are shared plumbing, not
    Report's); full `:kzen-auto-jvm:test` is the proof.
 
 ## Verification
@@ -686,7 +738,7 @@ All in kzen-auto-jvm `src/test` unless noted; new fakes copy `NoOpJobControl` /
    streams rows into a Preview. Proves the third-party path end-to-end with zero kzen-source
    edits. (If no wcp data file is at hand, a 3-line hand-written file in its column shape
    suffices.)
-5. Tick Phase 3 in `2026-07-16_job-improvements.md`'s tracker + as-built note; strike J3 in the
+5. Tick Phase 3 in `../2026-07-25_job-improvements.md`'s tracker + as-built note; strike J3 in the
    master plan. Docs sync per ground rules: the `/column-listing` contract is documented at its
    `CommonRestApi` constants (2b), matching how `/file-listing` is documented; architecture.md's
    § 3 route table enumerates groups, not these listing routes — no table edit required.
@@ -704,7 +756,7 @@ All in kzen-auto-jvm `src/test` unless noted; new fakes copy `NoOpJobControl` /
   forgetting it shifts the A/B by one row (the A/B test catches it). Conversely Text/literal
   header extractors emit no skip rows — don't special-case anything.
 - **Event-object reuse**: never retain `event.row` — always `prototype()` out (Job's
-  ownership-transfer contract, `DataRecord.kt:20-23`). A retained reference aliases every
+  ownership-transfer contract, now in `JobMessage`'s kdoc). A retained reference aliases every
   subsequent record in the block (manifests as "all rows identical to the last").
 - **Palette-insert gotcha** (J-plan appendix): every new archetype attribute needs a body
   default (`output: ""`, `paths: []`, `coordinate: ""`, `encoding: ""`). Never touch the
@@ -720,10 +772,11 @@ All in kzen-auto-jvm `src/test` unless noted; new fakes copy `NoOpJobControl` /
   test exists precisely because they could disagree on an edge. A disagreement is a finding,
   not a test bug; fix direction = whichever side is RFC-wrong, in its own follow-up if
   non-trivial.
-- **RestHandler ctor change** fans into `KzenAutoContext` only (single construction site,
-  :195-206); compile catches any other.
-- **J2 parallel-landing**: see Dependencies — `JobControl` test fakes and the two yaml
-  insertion points are the only expected merge friction.
+- **`FileListingHandler` ctor change** fans into `KzenAutoContext` only (single construction
+  site); compile catches any other.
+- **J2 + element model already landed**: see Dependencies — the residual friction is re-deriving
+  the `JobControl` test fakes against the current surface, and the `DataRecord` → `JobMessage`
+  translation in the re-validation header.
 - **SortSpecEditor observer rules**: keep the `objectLocation !in graphNotation.coalesce`
   guard (:152-155) intact when adding the scan-key recompute, and don't call the REST fetch
   synchronously inside `onCommandSuccess` — derive the key, then `async { }` (the

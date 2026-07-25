@@ -1,11 +1,23 @@
 # DA1 — JCEF engine spike (closes gate D1) — implementation plan
 
-> **Status:** generated 2026-07-19 from `2026-07-18_desktop-app-distribution.md` § 8 DA1.
-> Ratified decisions PRE-MADE (do not re-litigate): JCEF via **jcefmaven** as primary engine,
-> **NOT KCEF** (archived 2025-10-28); **Electron** fallback per gate D1; **native tabs**; the
-> spike drives the **real** app. Shell anchors verified against kzen-shell @ master
-> (0.30.0-SNAPSHOT, working tree clean). jcefmaven facts pinned **2026-07-19** from Maven
-> Central metadata + GitHub releases (URLs in § Pre-resolved questions).
+> **Status:** generated 2026-07-19; the live constituent plan is now
+> `../2026-07-25_desktop-and-hosting.md` (ledger row 15). Ratified decisions PRE-MADE (do not
+> re-litigate): JCEF via **jcefmaven** as primary engine, **NOT KCEF** (archived 2025-10-28);
+> **Electron** fallback per gate D1; **native tabs**; the spike drives the **real** app. Shell
+> anchors verified against kzen-shell @ master (0.30.0-SNAPSHOT, working tree clean). jcefmaven
+> facts pinned **2026-07-19** from Maven Central metadata + GitHub releases (URLs in
+> § Pre-resolved questions).
+>
+> **Re-validated 2026-07-25 — this plan aged well.** It is kzen-shell-only, so none of the Job /
+> client / `RestHandler` churn touches it. Two small things:
+> - **SH2, SH3 and SH4 have since landed** (2026-07-21). The "SH2 untouched" reasoning below still
+>   holds — the spike is a separate subproject and a separate process — but `DesktopUi` now also
+>   carries `showBindFailure`, and `kzenShellInit` a `FreePortUtil.isTcpPortFree` pre-flight. Both
+>   are marked for deletion by **DA5**, not by this spike. Expect the pre-flight to complain if you
+>   boot a second shell on 8080 during measurement.
+> - **Re-check the pinned jcefmaven version before starting** (`146.0.10`, pinned 2026-07-19) — a
+>   newer release may exist, and the natives-artifact size is a D2 decision input, so measure what
+>   you actually use.
 > Executor: one S session, high information. Spike lives on a branch in kzen-shell; **nothing
 > merges to master**; the deliverable is the closed D1 gate (verdict + measurements written
 > into the DA plan) plus the retained spike branch.
@@ -24,16 +36,17 @@ hosted by a JDK 26 JVM, driving the real kzen UI** — into a measured go/no-go:
 3. Proto-tabs: two `CefBrowser` views side by side — isolation, per-view memory, focus.
 4. Measure: natives size (jar + extracted), cold-start time, RSS with 3 views, spike-JVM
    heap/native memory (feeds DA2's shell-heap decision — shell is `-Xmx64m` today).
-5. Record the verdict + measurements into `2026-07-18_desktop-app-distribution.md`, closing
+5. Record the verdict + measurements into `../2026-07-25_desktop-and-hosting.md`, closing
    gate D1 (go = JCEF; hard failure → one mitigation round → else Electron fallback).
 
 ## Dependencies & coordination
 
-- **Gates DA2+**: no DA2–DA5 work starts until this spike closes D1 (master plan Stage B6,
-  spine rule "DA1→DA2"). Otherwise DA is independent of Sprint 2 and B1–B5.
+- **Gates DA2+**: no DA2–DA5 work starts until this spike closes D1 (master-plan rule 7).
+  Otherwise DA is independent of every other track.
 - **SH2 untouched**: the spike does **not** modify `DesktopUi` (or any shell source) — it is a
-  separate Gradle subproject and a separate OS process. SH2's bind-failure-pane plan is
-  unaffected; the DA5↔SH2 coordination note stays as written.
+  separate Gradle subproject and a separate OS process. **SH2 landed 2026-07-21**, so the
+  bind-failure pane now exists; DA5 deletes it along with the port pre-flight. Nothing for this
+  spike to do about either.
 - **Feeds DA3**: any JVM flags the spike needs (`--enable-native-access`, `--add-opens`, CEF
   switches) become jpackage launcher args — record them verbatim in the verdict.
 - **Feeds D2**: the natives-artifact jar size + extracted `jcef-bundle` size are the
@@ -475,7 +488,7 @@ All on Windows, PowerShell; record exact numbers in the verdict table.
 
 ### Phase 7 — verdict recording (closes gate D1)
 
-All edits in `C:\Users\ostro\IdeaProjects\kzen\plans\2026-07-18_desktop-app-distribution.md`:
+All edits in `C:\Users\ostro\IdeaProjects\kzen\plans\2026-07-25_desktop-and-hosting.md`:
 
 1. **Progress tracker** (top block): tick `- [x] DA1 … (closed <date>, <GO|NO-GO>)`.
 2. **§ 7 D1 bullet**: append one line —

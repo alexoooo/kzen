@@ -1,7 +1,7 @@
 # J5 — performance + headless readiness — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from `kzen/plans/2026-07-16_job-improvements.md`
-> Phase 5 (benchmark-first perf + headless mode). Decisions are PRE-MADE there (benchmark before
+> **Status: ready to execute.** Generated 2026-07-19; the live constituent plan is now
+> `../2026-07-25_job-improvements.md` Phase 5 (benchmark-first perf + headless mode). Decisions are PRE-MADE there (benchmark before
 > optimizing; no record pooling; headless = a run mode, not a fork; self-managed workers recorded,
 > not built) — this document elaborates them into execution-ready steps **verified against current
 > code** (post SER2–SER5, Y, G5, G7, TP1/TP3/TP4). Every anchor below was re-verified 2026-07-19;
@@ -9,6 +9,31 @@
 > is **rescoped with rationale** (see "Serve-gate realization" — the graph-plan-5b precedent).
 > Master plan: Stage B2; no hard prerequisite; E6 multi-run is DEFERRED, so a headless run occupies
 > the JVM's single active-run slot.
+>
+> ## ⚠️ Re-validated 2026-07-25 — read this before using any anchor below
+>
+> Written **before** the typed `JobMessage` element model and the `RestHandler` split. Inline
+> references are updated; **any line number quoted from before 2026-07-22 should be re-checked.**
+>
+> | Was | Now |
+> |---|---|
+> | `DataRecord(headers, record)` | `JobMessage.ofFlat(headers, record)`; `Emitter.send(element: JobMessage)` |
+> | `DataRecord.kt:20-22` (ownership contract) | same contract, now in `JobMessage`'s kdoc |
+> | `RestHandler.logicStart(parameters, paused)` at `RestHandler.kt:1114-1165` | **`LogicHandler.logicStart(parameters, paused): LogicStartAttempt`** (`server/api/handler/LogicHandler.kt:45`); `paramPauseOnError` at :55, `paramStepMode` at :63 — the `mode` param follows the same pattern |
+> | `RestHandler` calls the controller at `:1142` | the same call now lives in `LogicHandler` |
+>
+> **The reuse ceiling is no longer "do NOT pool" — it is "pool only if the benchmark convicts".**
+> The element model's phase 4 folds into this phase and supplies the shape: batch-bounded message
+> arenas / pooled `FlatFileRecord`s recycled after the consumer settles a batch, with
+> **copy-on-retain** for retaining operators (Preview's window, Sort's buffer); prefer
+> arena-per-batch over free-lists. ⚠️ **Hard constraint: migration carryover
+> (`JobChannel.drainBuffered`) captures live messages — a pool must transfer ownership of captured
+> messages, never recycle them.** Step 11's blanket "do NOT pool" is superseded by this gate.
+>
+> **Add a named baseline row for `FlatView`.** The element-model follow-up collapsed the nullable
+> header/flat pair into `FlatView`, costing one extra 2-field allocation per flat-lane element, and
+> **explicitly deferred the judgement to this benchmark.** Acquit or convict it here; do not carry
+> it forward as an open question.
 >
 > **Sizing: M (harness + baseline) + S (fixes + headless).** If one session doesn't fit, split:
 > **Session A** = steps 1–3 (harness, fixtures, baseline table); **Session B** = steps 4–8 (IO
@@ -46,10 +71,12 @@ retain=false progress emits (J7), deadlock-suppression removal (J7), Report free
   the interactive-suppression logic working as built, not a J7 change; the headless test covers it.
 - **J8** owns client sweep; J5 makes zero JS changes (headless is started via REST param; no UI
   affordance in this phase — record as J8/follow-up candidate).
-- If **J2 lands first**, `JobLogicCompiler.compile` will have grown signature derivation — the
-  headless flag threading (step 6) composes with it trivially (different lines of the same file).
-- Benchmark results feed **G4's** measurement gate indirectly (JobChannelSynthesis per-compile
-  define cost shows up in start latency, not steady-state rows/s — out of J5's measured window).
+- **J2 landed 2026-07-21**, so `JobLogicCompiler.compile` has already grown signature derivation
+  (and, since the element model, parameter/result threading via `JobParameters`) — the headless
+  flag threading (step 6) composes with it trivially (different lines of the same file).
+- Benchmark results feed the **C1 define-cost measurement gate** indirectly
+  (`JobChannelSynthesis`'s per-compile define cost shows up in start latency, not steady-state
+  rows/s — out of J5's measured window). See `../2026-07-25_core-and-verification.md`.
 
 ## Current-state findings (anchors verified 2026-07-19)
 
@@ -158,14 +185,14 @@ objects.
 
 - **Wire**: `GET/PUT /logic/startRun` + `/logic/startStep` (CommonRestApi.kt:110, :119; routes
   KzenAutoMain.kt:362-405 — GET + PUT twins both parse via the same `Parameters`, so a new param
-  needs **zero route changes**). `RestHandler.logicStart(parameters, paused)`
-  (RestHandler.kt:1114-1165) already parses `paramPauseOnError` (:1123-1127) and `paramStepMode`
-  (:1131-1135) — the `mode` param follows the same pattern. Param constants live at
+  needs **zero route changes**). **`LogicHandler.logicStart(parameters, paused)`**
+  (`server/api/handler/LogicHandler.kt:45`) already parses `paramPauseOnError` (:55) and
+  `paramStepMode` (:63) — the `mode` param follows the same pattern. Param constants live at
   CommonRestApi.kt:82-86.
 - **Controller**: `ServerLogicController.start(root, snapshot, pauseOnError)` — the *concrete*
   overload at ServerLogicController.kt:354-418 (the kzen-lib `LogicController` interface override
   at :345-351 delegates to it; **the interface is untouched** by adding a param to the concrete
-  overload, which is what RestHandler calls at :1142). `compileLogic`
+  overload, which is what `LogicHandler` calls). `compileLogic`
   (ServerLogicController.kt:900-912) constructs `LogicCompilerServices` (:909-911) and is called
   from **three** sites: `start` (:380), `moveTo`'s recompile (:706), and `pendingMigration`
   (:946) — so the mode must persist on `LogicState` (:105-154) to survive live-edit migration and
@@ -255,7 +282,7 @@ worker cards via the finals. Do not gate status/SSE on mode.
 
 | Question | Resolution |
 |---|---|
-| Where does `mode` ride? | New `CommonRestApi.paramRunMode = "mode"` (beside :82-86); parsed in `RestHandler.logicStart` like `paramPauseOnError`; value `interactive` (default) / `headless`. Rides both GET and PUT twins of `/logic/startRun` + `/logic/startStep` for free (same `Parameters` parse). |
+| Where does `mode` ride? | New `CommonRestApi.paramRunMode = "mode"` (beside :82-86); parsed in **`LogicHandler.logicStart`** like `paramPauseOnError`; value `interactive` (default) / `headless`. Rides both GET and PUT twins of `/logic/startRun` + `/logic/startStep` for free (same `Parameters` parse). |
 | Where does the flag live server-side? | Enum `LogicRunMode { Interactive, Headless }` in kzen-auto-common `paradigm/logic/` (commonMain, JS-visible for a later UI affordance). Concrete overload `ServerLogicController.start(root, snapshot, pauseOnError, runMode = Interactive)`; stored on `LogicState`; threaded through `compileLogic` (all 3 call sites) into `LogicCompilerServices.runMode` (default Interactive). kzen-lib `LogicController` interface untouched. |
 | How do flavours read it? | Off `LogicCompilerServices` (pre-made). Only `JobLogicCompiler` consumes it in J5; Script/Flow/Report ignore. |
 | Gate (a) publishProgress | Guard in `EngineJobControl.publishProgress` (:98): non-forced emits return early in headless; forced finals land. SPI (`JobControl`) unchanged. |
@@ -265,7 +292,7 @@ worker cards via the finals. Do not gate status/SSE on mode.
 | How does a Job run without the UI? | Engine-direct via `JobLogicCompiler` + `RunEngine` (JobNotationTest recipe) or `serverLogicController.start` (F7). |
 | Old harness shape? | Recovered (F9); rebuild to the same intent on the engine. |
 | Measurement method | Wall clock (1 warmup + 3 measured, median) → rows/s; allocation: `-XX:+UseEpsilonGC` on a bounded slice in a dedicated JVM (heap-used delta = exact total allocation) + always-on `GarbageCollectorMXBean` collection count/time deltas in normal runs. |
-| Where results recorded | As-built table in `2026-07-16_job-improvements.md` Phase 5 tracker note (per its ground rules) — the harness stays committed for re-runs. |
+| Where results recorded | As-built table in `../2026-07-25_job-improvements.md` Phase 5 tracker note (per its ground rules) — the harness stays committed for re-runs. |
 | JobControl process-neutrality check | J5 adds zero members to `JobControl`; verification step greps `import java`/`import tech.kzen.auto.server` in `kzen-auto-common/**/paradigm/job/` → must stay empty (today: JobControl.kt imports only TupleValue + ObjectLocation — verified). |
 
 ## Step-by-step implementation
@@ -375,7 +402,7 @@ New files (all under kzen-auto-jvm; stage each with `git add <path>` as written)
                block.add(record)
            }
        }
-       for (record in block) { emit.send(DataRecord(headers, record)); count += 1 }
+       for (record in block) { emit.send(JobMessage.ofFlat(headers, record)); count += 1 }
        if (block.size < n) break   // EOF inside the block
    }
    ```
@@ -407,9 +434,11 @@ New files (all under kzen-auto-jvm; stage each with `git add <path>` as written)
     `drainBuffered`'s IdentityHashMap dedup (:130-158) is untouched; `pending` stays confined to
     the worker coroutine (reassignment happens in `flush`, same confinement as before). Update the
     :189-193 comment.
-11. **Do NOT** pool `DataRecord`/`FlatFileRecord` (ownership-transfer is the simplicity win —
-    DataRecord.kt:20-22; pre-made). Do not touch `Input.receiveBatch`/`held` unless step 5 shows
-    them (they are cold/element-lane).
+11. **Do not pool `JobMessage`/`FlatFileRecord` *before* the step-5 table convicts allocation** —
+    ownership-transfer is the simplicity win (the contract is in `JobMessage`'s kdoc). If it does
+    convict, apply the element-model phase-4 shape from the re-validation header (arena-per-batch,
+    copy-on-retain, **carryover transfers ownership rather than recycling**). Do not touch
+    `Input.receiveBatch`/`held` unless step 5 shows them (they are cold/element-lane).
 
 ### Step 5 — re-measure
 
@@ -421,8 +450,8 @@ New files (all under kzen-auto-jvm; stage each with `git add <path>` as written)
 
 13. **Enum**: `LogicRunMode { Interactive, Headless }` in kzen-auto-common
     `common/paradigm/logic/LogicRunMode.kt` (commonMain; wire value = lowercase name).
-14. **Wire**: `CommonRestApi.paramRunMode = "mode"`; `RestHandler.logicStart` parses it
-    (RestHandler.kt:1123-1135 pattern; unknown value → 400 via null return or default —
+14. **Wire**: `CommonRestApi.paramRunMode = "mode"`; **`LogicHandler.logicStart`** parses it
+    (the `LogicHandler.kt:55`/:63 pattern; unknown value → 400 via null return or default —
     prefer explicit `LogicRunMode.entries.firstOrNull { it.name.equals(v, true) }` + reject
     unknown) and passes it to the controller start.
 15. **Controller**: `ServerLogicController.start(root, snapshot, pauseOnError, runMode:
@@ -485,7 +514,7 @@ New files (all under kzen-auto-jvm; stage each with `git add <path>` as written)
     only; no external serve bridge; single-run slot until E6). No logic-spec change (background
     runs are already §2's no-global-singleton requirement; headless is a kzen-auto controller
     mode, not an engine concept — note this in the as-built).
-21. Constituent plan (`2026-07-16_job-improvements.md`): tick Phase 5 in the tracker; as-built
+21. Constituent plan (`../2026-07-25_job-improvements.md`): tick Phase 5 in the tracker; as-built
     note = benchmark table (before/after), the F5 rescope rationale (serve-gate realized as
     `external: false`), the re-established S1 datum vs the historical 2.5%, and the data-driven
     follow-up list.
@@ -572,8 +601,8 @@ Must stay green (the contract net): `JobBatchingTest`, `JobChannelTest`,
 
 ## Out of scope (pre-decided; do not re-open)
 
-- **Record pooling / arena.** Ownership-transfer stays (DataRecord.kt:20-22). If (and only if)
-  the step-3/5 table convicts allocation, the follow-up uses the build-plan's pre-sketched shape:
+- **Message pooling / arena.** Ownership-transfer stays (the contract is in `JobMessage`'s kdoc).
+  If (and only if) the step-3/5 table convicts allocation, the follow-up uses the pre-sketched shape:
   reuse bounded by channel handoff, retaining operators (Preview/Sort) opt out by copying,
   arena-per-batch over free-lists — recorded in the as-built, not built.
 - **Self-managed workers** — constraint recorded (step 23), design gated on benchmark evidence.

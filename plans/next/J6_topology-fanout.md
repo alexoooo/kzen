@@ -1,15 +1,37 @@
 # J6 — topology: fan-out + non-linear ergonomics — implementation plan
 
 > **Status: planned, execution-ready.** Generated 2026-07-19 by elaborating
-> `kzen/plans/2026-07-16_job-improvements.md` **Phase 6** against current code. Design decisions are
+> `../2026-07-25_job-improvements.md` **Phase 6** against current code. Design decisions are
 > PRE-MADE there (TeeWorker, not multi-reader channels; Tee deep-copies `DataRecord`s and passes
 > other elements by reference; no 2D canvas) — do not re-litigate. Every anchor below was re-verified
 > 2026-07-19 (post SER2–SER5 / Y / G5 / G7 / TP1 / TP3 / TP4): the four headline anchors are
 > **unchanged**, and the real drift found is in *test* land and one API-naming trap (see
 > Current-state findings).
 >
-> ⚠️ **PRIORITY — DEMAND-DRIVEN.** Per the master plan (`2026-07-16_master-plan.md`, Stage B2),
-> J6 is the **lowest-priority member of the J set**: the strategic spine is **J2 → J3 → J4 → J9**
+> ## ⚠️ Re-validated 2026-07-25 — the copy rule changed shape
+>
+> Written **before** the typed `JobMessage` element model (landed 2026-07-22). The pre-made
+> decision survives in spirit but its *mechanism simplifies*, because **every element crossing a
+> Job channel is now a `JobMessage`** — there is no longer a mixed element lane to type-test.
+>
+> | Was | Now |
+> |---|---|
+> | `element is DataRecord` runtime check, copy or share accordingly | **no check** — every element is a `JobMessage`; copy the flat part **if present**, share the payload by reference |
+> | `DataRecord(element.header, element.record.prototype())` | `JobMessage(element.payload, element.flat?.let { FlatView(it.header, it.record.prototype()) })` — `FlatView(var header, val record)`; the header stays **shared by reference**, which is still correct |
+> | `of: DataRecord` on a typed tee port | `of:` now describes the **payload** type; the `DataRecord` type object no longer exists. A tee over the pure-flat lane declares no `of:` |
+> | `DataRecord.kt` kdoc (ownership contract) | same contract, now in `JobMessage`'s kdoc |
+>
+> **Payload sharing is safe and deliberate**: forwarding one payload reference to n outputs matches
+> receiver-ownership as long as no consumer mutates the payload object itself (consumers mutate the
+> *flat* part, which is what gets copied). Record that assumption in the `TeeWorker` kdoc.
+>
+> Also re-check `ChannelTypeDefiner` before touching it — the typed-flow work (`TypeAssignability`,
+> `WorkerLane`, `WorkerBase.payloadFlow`) reshaped its neighbourhood after this was written. And
+> `SelectChannelEditor` now sits on `SelectReferenceEditorBase` (AE5, landed 2026-07-20) —
+> **extend it, don't fork it.**
+>
+> ⚠️ **PRIORITY — DEMAND-DRIVEN.** Per the master plan (`../2026-07-25_master-plan.md`, ledger row 27),
+> J6 is the **lowest-priority member of the J set**: the strategic spine is **J3 → J4 → J9**
 > and it must NOT wait on this phase. Execute J6 only when fan-out demand actually materializes (or
 > as a filler session). Nothing in J2–J9 depends on J6.
 >
@@ -26,7 +48,7 @@ and **legible in the ordered-card UI**:
 1. The wiring layer (creator + type-definer) learns **list-typed channel-port attributes** —
    dispatching on attribute *type*, never on any Worker class.
 2. A built-in **`TeeWorker`** (one input, `outputs: List<ChannelOutput>`) forwards every element to
-   every output, deep-copying `DataRecord`s, passing everything else by reference.
+   every output, deep-copying each message's **flat part**, passing payloads by reference.
 3. Client: the channel-select editor gains a **list mode** (add/remove rows), and **manual
    connections render as labelled chips on both endpoint cards**, derived from the same notation
    `JobChannelDerivation` reads. Auto-wire behaviour is byte-for-byte unchanged.
@@ -41,13 +63,15 @@ appear in `JobRun` / `WorkerLogic` / `EngineJobControl` / `JobChannelDerivation`
 ## Dependencies & coordination
 
 - **Hard prerequisites: none.** All infrastructure exists (verified — see findings F5).
-- **AE plan (2026-07-14_attribute-editor-improvements.md): AE5 has NOT landed** (no
-  `SelectReferenceEditorBase` / `AttributeCommitter` anywhere in kzen-auto-js — verified by grep).
-  Step 3a therefore extends the *current* `SelectChannelEditor`. **Adaptation note:** if AE5 lands
-  first, implement the list mode on the migrated editor instead — the list-mode design below
-  (metadata-type detection, whole-list write, "(auto)" option) transfers unchanged; only the
-  commit/observe plumbing differs. Either order works (AE5 migrates the extended editor otherwise).
-- **J7 (planned in parallel) removes the `externallyServing` early-return**
+- ~~**AE plan: AE5 has NOT landed**~~ — **CORRECTED 2026-07-25: the whole AE arc (AE1–AE6) landed
+  2026-07-20.** `SelectReferenceEditorBase`, `AttributeCommitter`, `DebouncedSubmitter` and
+  `AttributeWrapperLookup` all exist, and `SelectChannelEditor` **already sits on
+  `SelectReferenceEditorBase`**. Step 3a therefore **extends the migrated editor** — the list-mode
+  design below (metadata-type detection, whole-list write, "(auto)" option) transfers unchanged;
+  only the commit/observe plumbing follows the shared primitives instead of the old bespoke ones.
+  Note the commit path also reports edit-pending through `DocumentEditActivity` (2026-07-23) —
+  keep that wiring intact. **Do not introduce a parallel commit path.**
+- **J7 removes the `externallyServing` early-return**
   (JobDeadlockMonitor.kt:70-73). Step 4's fixtures deliberately contain **no serve / external
   channels**, so `externallyServing == false` and the monitor is armed under BOTH the current
   blanket-suppression behaviour and J7's precise behaviour — the tests are valid before and after
@@ -89,13 +113,13 @@ has THREE copy-flavoured methods:
   shared-mutable-state bug the deep-copy decision exists to prevent.
 - `copy(FlatFileRecord that)` — lines 496-514 — deep content copy into an existing instance.
 - `prototype()` — lines 561-565 — allocates a fresh record and `copy`s into it: **this is the
-  deep-copy call the Tee must use.** The pre-made decision ("Tee deep-copies DataRecords") stands;
+  deep-copy call the Tee must use.** The pre-made decision ("Tee deep-copies the flat part") stands;
   cite `prototype()`, never `clone`.
-`DataRecord` (`kzen-auto-jvm/.../server/objects/job/worker/DataRecord.kt:24-27`) pairs the record
+`FlatView` (`kzen-auto-jvm/.../server/objects/job/worker/FlatView.kt`) pairs the record
 with a **shared, immutable** `HeaderListing` (`val values: List<...>` — HeaderListing.kt:7-9), so
 the tee shares the header reference and deep-copies only the record. The hazard is real:
 `FormulaWorker.onElement` **mutates the received record in place** (`record.addAll(formulaValues)`,
-FormulaWorker.kt:72-80) under the ownership-transfer contract (DataRecord.kt kdoc) — a by-reference
+FormulaWorker.kt:72-80) under the ownership-transfer contract (`JobMessage` kdoc) — a by-reference
 tee would let one branch's Formula corrupt the sibling branch.
 
 **F3 — test drift: `JobChannelTypingTest` was DELETED in the engine rewrite** (commit `4bc9bcf2`
@@ -140,7 +164,7 @@ there).
 - Nested generics ARE expressible in metadata: `NotationMetadataReader.readAttributeType` /
   `readAttributeTypeGenerics` (kzen-lib-common `service/metadata/NotationMetadataReader.kt:389-398,
   407-432`) accept `of:` as a scalar OR a map, recursively — so a third party can declare
-  `outputs: {is: List, of: {is: ChannelOutput, of: DataRecord}}` for a *typed* tee port. The
+  `outputs: {is: List, of: {is: ChannelOutput, of: <PayloadType>}}` for a *typed* tee port. The
   built-in Tee stays untyped (see step 2). `List` archetype: kzen-base.yaml:90-92
   (`class: kotlin.collections.List` = `ClassNames.kotlinList`). Precedent for `is: List` on a
   Worker: `MultiFileReaderWorker.paths` (job-worker.yaml:63-66).
@@ -192,13 +216,13 @@ need **no new test Workers** — production workers + the existing Gated* fixtur
 | Kind detection for a list port | New `JobChannelPorts.listElementKindOf(type)`: `type.className == ClassNames.kotlinList && Kind.ofClassName(type.generics[0].className)`. `kindOf` itself stays null for `List` — which is precisely what keeps auto-wire (derivation) and the card's port-hiding untouched. |
 | Type-check failure semantics | One bad list element fails the **channel's** definition (same `AttributeDefinitionAttempt.failure` on `elementType` as today), error labelled `worker.port[index]`. Concrete test in step 4 (revived `JobChannelTypingTest`). |
 | Element type of a list element | `portType.generics[0].generics.getOrNull(0)` (the `of:` under the endpoint type); null/`Any` = wildcard, exactly like scalar ports (`compatible`, ChannelTypeDefiner.kt:192-197 — unchanged). |
-| Deep-copy mechanism | `FlatFileRecord.prototype()` (NOT `clone` — F2). `DataRecord(element.header /* shared, immutable */, element.record.prototype())`. |
-| Copy count | `outputs[0]` receives the original (ownership transfers as today); `outputs[1..n-1]` receive fresh copies, taken **before** any send. Non-`DataRecord` elements: same reference to every output (pre-made decision). |
+| Deep-copy mechanism | `FlatFileRecord.prototype()` (NOT `clone` — F2). `JobMessage(element.payload, element.flat?.let { FlatView(it.header /* shared */, it.record.prototype()) })`. |
+| Copy count | `outputs[0]` receives the original (ownership transfers as today); `outputs[1..n-1]` receive fresh copies, taken **before** any send. A **null flat part copies to null**, and the payload reference is shared to every output (pre-made decision, unchanged in substance). |
 | Tee placement / registration | `src/main` + `@Reflect` (KSP main-source-set rule); archetype in job-worker.yaml; ribbon tool in job-js.yaml. |
 | Palette-insert default for `outputs` | **`outputs: []` body default is load-bearing** — the list analogue of the appendix's empty-string gotcha. Without it a palette-inserted `is: TeeWorker` has a *missing* attribute → `StructuralAttributeDefiner` fails ("Unknown attribute") → the Worker silently drops from the graph. With `[]`, definition succeeds and the creator returns an empty endpoint list. |
 | Empty `outputs` at run time | Valid: the tee drains its input and forwards to nobody (drop). Mid-edit-tolerant, documented in the kdoc. Not a definition error. |
 | Dangling list element | No reclaim possible (F6): compile-time pre-check in `JobLogicCompiler` with a message naming worker/port/index; client list editor renders the entry flagged + removable. |
-| Duplicate list elements (same channel twice) | Allowed; each is its own producer endpoint and (for DataRecords) delivers an independent copy. Pinned by the close-counting e2e test. |
+| Duplicate list elements (same channel twice) | Allowed; each is its own producer endpoint and (for flat-bearing messages) delivers an independent copy. Pinned by the close-counting e2e test. |
 | Migration across both branches | Generic already (F7); pinned by the step-4 migration test, no product code. |
 | Per-output `channels.<port>` knobs on the tee | **Do not apply.** That map only feeds *synthesis* of auto channels (JobChannelSynthesis.kt:119-129); list ports are manual-only, so batchSize/capacity are set on each manual Channel object itself (its own attributes). Note in the archetype comment. |
 | Deadlock fixture validity vs J7 | No serve/external channels in any J6 fixture ⇒ monitor armed under both pre- and post-J7 behaviour (see Dependencies). |
@@ -298,9 +322,9 @@ own drive loop, mirroring TransformWorker.kt:45-72's contract):
   element; a park mid-`flush` is captured per-producer by `drainBuffered`'s `inFlight` handling,
   JobChannel.kt:130-158).
 - `forward(element)`: if `outputs.isEmpty()` return (drain-and-drop, documented). If
-  `element is DataRecord`: **make the `n-1` copies first** —
-  `DataRecord(element.header, element.record.prototype())` (F2; header shared by reference, it is
-  immutable) — then `outputs[0].send(element)` (original, ownership transferred) and
+  **make the `n-1` copies first** — `JobMessage(element.payload, element.flat?.let {
+  FlatView(it.header, it.record.prototype()) })` (F2; header shared by reference, payload shared by
+  reference) — then `outputs[0].send(element)` (original, ownership transferred) and
   `outputs[i].send(copy_i)` for the rest. Any other element: `send(element)` to every output
   (by-reference — pre-made decision; kdoc documents that a mutable non-record element shared across
   branches is the composer's responsibility).
@@ -319,8 +343,8 @@ own drive loop, mirroring TransformWorker.kt:45-72's contract):
 
 ```yaml
 # Fan-out stage: forwards EVERY incoming element to EVERY output channel, preserving the
-# single-reader rule (fan-out = one channel per branch, never a shared-drain channel). DataRecord
-# elements are DEEP-COPIED per extra output (FlatFileRecord.prototype; the shared immutable header
+# single-reader rule (fan-out = one channel per branch, never a shared-drain channel). Each message's
+# FLAT PART is DEEP-COPIED per extra output (FlatFileRecord.prototype; the shared header
 # rides by reference) so a branch that mutates records in place (e.g. Formula) cannot corrupt its
 # siblings; other element types pass by reference. `outputs` is a LIST of manual Channel
 # references — list ports are never auto-wired; the branches' consuming Workers reference the same
@@ -351,8 +375,8 @@ TeeWorker:
 ```
 
 Untyped ports (no `of:` under `ChannelInput` / the list's `ChannelOutput`): the tee is
-element-agnostic (the DataRecord copy is a runtime `is` check, like PreviewWorker's untyped input,
-job-worker.yaml:357-378), and `compatible` treats the absent generic as a wildcard. A third party
+element-agnostic (the flat-part copy is a null check on `element.flat`, **no type test** — every
+element is a `JobMessage`), and `compatible` treats the absent generic as a wildcard. A third party
 wanting a *typed* tee declares the nested-map `of:` form (F5). — Also `job-js.yaml`: add
 `TeeTool: {is: RibbonTool, parent: JobGroup_Transforms, delegate: TeeWorker}`.
 Appendix-gotcha check: no `title:`-style additions to `Channel`/`DuplexChannel` archetypes are made
@@ -448,7 +472,7 @@ New fixtures under `kzen-auto-jvm/src/test/resources/notation/test/` (never unde
 - **`listElementTypeMismatchFailsDefinition` (the spec'd concrete test)** — new fixture
   `job-tee-list-mismatch-test.yaml`: a `String`-typed channel (`elementType: {class: kotlin.String}`)
   referenced by a **typed** list port (a test-only archetype declaring
-  `outputs: {is: List, of: {is: ChannelOutput, of: DataRecord}}` inline in the fixture — also pins
+  `outputs: {is: List, of: {is: ChannelOutput, of: <PayloadType>}}` inline in the fixture — also pins
   F5's nested-`of:` metadata form) with two elements, one pointing at a compatible channel and one at
   the String channel. Assert: the String channel fails definition, error contains `outputs[` and
   "carries"; the compatible channel defines successfully (one bad element poisons only the channel it

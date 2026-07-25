@@ -1,15 +1,38 @@
 # J7 — interactivity remainder — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from `2026-07-16_job-improvements.md` Phase 7
+> **Status: ready to execute.** Generated 2026-07-19 from `../2026-07-25_job-improvements.md` Phase 7
 > (rescoped 2026-07-16). Decisions are PRE-MADE in the constituent plan — this document elaborates
 > them into execution-ready steps; it does not re-open them. Every anchor below was re-verified
 > against current code on 2026-07-19 (post SER2–SER5 / Y / G5 / G7 / TP1 / TP3 / TP4 — drift found
 > was minor: mostly ±2-line comment shifts; one substantive discovery is that the
 > `job-missing-input-test.yaml` fixture is orphaned and ready-made for item (b), and one that the
 > carryover fixture's `signal` suppression channel is already inert under the precise monitor).
-> Master plan: Stage B2 — "retain=false adoption is its first, smallest item and can run as a
-> micro-session any time" (2026-07-16_master-plan.md:149-155). One session; if it runs long, split
-> item (a) out as that micro-session (it is fully independent) and/or defer item (d)'s client half.
+> Master plan: `../2026-07-25_master-plan.md` ledger row 7. One session; if it runs long, split
+> item (a) out as a micro-session (it is fully independent) and/or defer item (d)'s client half.
+>
+> ## ⚠️ Re-validated 2026-07-25 — three things moved under this plan
+>
+> **1. `RestHandler.kt` was deleted 2026-07-22 and split into handler services.** The one anchor
+> here — `RestHandler.logicRequest` (was :1184-1208) — is now on **`LogicHandler`**
+> (`server/api/handler/LogicHandler.kt`). No design consequence; the read-under-lock/use-off-lock
+> pattern it cites is unchanged.
+>
+> **2. `JobChannel`'s element lane is now `JobMessage`, and the buffering internals moved with it.**
+> Item (d)'s `bufferedBatches()` counter and the `drainBuffered` / `Producer.inFlight` reasoning
+> below are still structurally right, but **re-read `JobChannel` before writing the counter** — the
+> line anchors (`drainBuffered` 130-158, `inFlight` 170-171) predate the element model. The
+> carryover contract itself is unchanged: buffered batches captured at migrate are live messages
+> whose ownership transfers to the rebuilt graph.
+>
+> **3. A flavour-agnostic validation/status surface landed 2026-07-22 → 07-24 that did not exist
+> when this was written.** `LogicValidationGlobal` + `ValidationStatusDisplay` (ribbon),
+> `JobValidationStore` (Job publisher), `StageErrorIndicator` + `StageObjectLocator` (go-to-error).
+> **Survey these before building items (b) and (d)'s client half** — part of the "surface a failing
+> worker usefully" story may already be delivered, and any new client work must publish through the
+> existing global rather than adding a parallel one.
+>
+> Also worth carrying: J2's as-built routed its **`retainTrace` and `callerStableId` findings** to
+> this phase.
 
 ## Scope & goal
 
@@ -126,7 +149,8 @@ Paths are relative to `C:\Users\ostro\IdeaProjects\` (repos `kzen-auto`, `kzen-l
   external-request path. The sanctioned read-under-lock/use-off-lock pattern already exists:
   `retainedTraceAccess` 831-840 ("the caller then reads the engine off-lock (the engine has its own
   lock)"). `statusObservers` contract 197-212: listeners are cheap thread-agnostic handoffs — safe
-  to fire from (d)'s sampler thread. REST entry: `RestHandler.logicRequest` 1184-1208.
+  to fire from (d)'s sampler thread. REST entry: **`LogicHandler.logicRequest`**
+  (`server/api/handler/LogicHandler.kt` — was `RestHandler.logicRequest` 1184-1208).
 
 **Job client:**
 - `JobProgressStore` (`kzen-auto-js/.../objects/document/job/JobProgressStore.kt:33-68`): one

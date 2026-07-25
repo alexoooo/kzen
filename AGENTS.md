@@ -113,7 +113,7 @@ Each of these is a Gradle multi-module project with a fixed three-module shape:
 
 - `<name>-common` — Kotlin Multiplatform with `commonMain`, `jvmMain`, `jsMain`, `commonTest`. Shared models and APIs.
 - `<name>-jvm` — JVM-only Ktor server (uses Netty in 0.29). Exposes `tech.kzen.<name>.server.dev.{BackendDevelopment,FrontendDevelopment}` for IDE-launched dev mode.
-- `<name>-js` — Kotlin/JS browser frontend. Bundled with **esbuild** (`jsEsbuildBundle` task) for kzen-auto, kzen-launcher, and kzen-project's production bundle; the production webpack tasks are disabled. `-PjsWatch` builds the development executable (no DCE) unminified for the dev loop. kzen-project's dev loop still uses webpack-dev-server (`:kzen-project-js:run`). See `kzen/plans/2026-05-31_js-build-speedup.md`.
+- `<name>-js` — Kotlin/JS browser frontend. Bundled with **esbuild** (`jsEsbuildBundle` task) for kzen-auto, kzen-launcher, and kzen-project's production bundle; the production webpack tasks are disabled. `-PjsWatch` builds the development executable (no DCE) unminified for the dev loop. kzen-project's dev loop still uses webpack-dev-server (`:kzen-project-js:run`). The esbuild migration plan lives in git history only (`git show 16dd8b4~1:plans/2026-05-31_js-build-speedup.md`).
 
 `kzen-auto` additionally has `kzen-auto-plugin` — the SPI module that downstream plugins compile against.
 
