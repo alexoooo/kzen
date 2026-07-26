@@ -8,6 +8,10 @@ its "Deferred & resolved" section for the sprint-1 knowledge that still matters)
 directory exists for as-built detail and history; it can be deleted without losing anything
 load-bearing.
 
+> The individual plan bodies referenced below were deleted from the working tree (this README is
+> the surviving record). Recover any of them from git history:
+> `git log --oneline -- plans/sprint-1` then `git show <commit>:plans/sprint-1/<file>`.
+
 ## What landed, per plan
 
 | Plan (archived file) | Landed | Headline as-builts / reversals |

@@ -6,6 +6,10 @@ gotcha was carried into the fresh documents at `kzen/plans/` (start at
 `2026-07-25_master-plan.md`). This directory exists for as-built detail and history; it can be
 deleted without losing anything load-bearing.
 
+> The individual plan bodies referenced below were deleted from the working tree (this README is
+> the surviving record). Recover any of them from git history:
+> `git log --oneline -- plans/sprint-2` then `git show <commit>:plans/sprint-2/<file>`.
+
 Sprint 2's thesis was **general-purpose platform first** — transport, wire format, notation
 format, graph ergonomics before per-flavour features. It held: three tracks (T/W/N) plus fillers
 all closed, and the flavour work that followed (Job signature → typed element model, Flow

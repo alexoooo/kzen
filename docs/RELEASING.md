@@ -49,8 +49,8 @@ turn downloads the project archetype zip. The wiring that makes a released app f
 ## Prerequisites [OPERATOR]
 
 - **JDK 26** installed at `~/.jdks/temurin-26.*` (the Gradle toolchain target; `auto-download=false`).
-- The Gradle daemon runs on **Java 25** — set `JAVA_HOME` to `~/.jdks/temurin-25.*` for CLI Gradle, or
-  buildSrc fails with "Unresolved reference kotlinVersion".
+- The Gradle JVM must be **≥ 25** — set `JAVA_HOME` to `~/.jdks/temurin-25.*` or `temurin-26.*` for CLI
+  Gradle; on an older JVM buildSrc fails with "Unresolved reference kotlinVersion".
 - **`gh` CLI authenticated**: run `gh auth login` once (interactive — in a Claude Code session type
   `! gh auth login`). Confirm with `gh auth status`.
 - All sibling repos present at `..\<name>` and working trees clean.
