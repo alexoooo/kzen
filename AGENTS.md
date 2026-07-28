@@ -102,7 +102,7 @@ Remove-Item build/js/yarn.lock -ErrorAction SilentlyContinue
 ./gradlew kotlinUpgradeYarnLock
 ```
 
-This also floats caret-ranged *runtime* packages (`react`, `@emotion/*`, `@popperjs/core`), so smoke-test a frontend afterwards. `@mui/material` is an exact pin from the wrappers BOM and will not move.
+This also floats caret-ranged *runtime* packages (`react`, `@emotion/*`, `@popperjs/core`), so smoke-test a frontend afterwards. `@mui/material` is an exact pin from the wrappers BOM and will not move. **`jsEsbuildBundle` declares only the Kotlin compileSync dir as its input, not `node_modules`** — so after an npm-only change it stays UP-TO-DATE and a plain `build` re-jars the *old* bundle. Force it (`./gradlew :<sibling>-js:jsEsbuildBundle --rerun`) before smoke-testing, or the test is a false green. The same blind spot applies to `jsBrowserTest`: `--rerun` it, or karma reports UP-TO-DATE without touching the refreshed tree.
 
 What a refresh cannot reach is pinned in the `=== npm supply-chain pins ===` block in each `-js` build script: `versions.webpack` / `versions.webpackDevServer` for KGP's own exact devDependency pins, and `yarn.resolution(...)` for transitives whose parent pins a vulnerable range (`serialize-javascript`, `diff`, `uuid`). Verify CJS API compatibility against the *actual* consumer before adding a resolution — forcing a major can break it silently. `brace-expansion` is the standing counter-example: its advisories carry a flat `<= 5.0.7` range that numerically sweeps in the fixed 2.x maintenance line, and 5.x cannot be forced because its CJS build exports a named `expand` where minimatch/glob call the module as a bare function.
 
