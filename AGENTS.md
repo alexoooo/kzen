@@ -87,6 +87,24 @@ When bumping Kotlin (even patch versions):
 - `:kzen-auto-plugin:publishToMavenLocal` must run before any non-composite consumer picks up the new bytecode — external plugins compiled against the previous Kotlin, and any standalone (non-umbrella) build of `kzen-project`.
 - Recommended verification order: `kzen-lib` → `kzen-auto` (with `:kzen-auto-plugin:publishToMavenLocal` first) → `kzen-project` ‖ `kzen-launcher` → `kzen-shell`.
 - Run `cd ../kzen-auto && ./gradlew :kzen-auto-jvm:test --tests "*FormulaStepTest"` explicitly — the canary for `FormulaStep`'s type inference, which reads the compiler's inferred `KType` via kotlin-reflect (see `../kzen-auto/AGENTS.md` Gotchas). An inference regression surfaces as a wrong inferred type, not a hard build failure.
+- Re-validate the **npm supply-chain pin block** in each JS sibling's `-js` build script (see below) — a stale pin can hold a package *below* what the newer KGP wants.
+
+### npm supply-chain alerts (Dependabot)
+
+Every npm Dependabot alert on these repos comes from `kotlin-js-store/yarn.lock`, which is KGP's own JS toolchain — karma/mocha (browser tests) plus webpack/webpack-dev-server/source-map-loader (bundling). **None of it ships**: kzen-auto, kzen-project and kzen-launcher bundle with esbuild, and kzen-lib publishes a library. Dependabot nevertheless labels every one `scope: runtime`, because scope is read from a `package.json` manifest and only the lockfile is committed — the real dev/runtime split lives in the generated `build/js/packages/*/package.json`. Judge reachability from those, not from the alert's scope field.
+
+**Refreshing the lock actually resolves most advisories, but `kotlinUpgradeYarnLock` alone will not do it.** That task only copies `build/js/yarn.lock` over the stored one, and `kotlinRestoreYarnLock` seeds `build/js/` from the stored lock beforehand (`YarnPluginApplier` guards it with `onlyIf { lockFile.exists() }`); yarn 1 then keeps every locked version that still satisfies its range. The lock is *reconciled*, never *upgraded*. To force a fresh resolve of every range, delete both copies first — from the sibling's own directory:
+
+```powershell
+Remove-Item kotlin-js-store/yarn.lock
+Remove-Item build/js/yarn.lock -ErrorAction SilentlyContinue
+./gradlew kotlinNpmInstall
+./gradlew kotlinUpgradeYarnLock
+```
+
+This also floats caret-ranged *runtime* packages (`react`, `@emotion/*`, `@popperjs/core`), so smoke-test a frontend afterwards. `@mui/material` is an exact pin from the wrappers BOM and will not move.
+
+What a refresh cannot reach is pinned in the `=== npm supply-chain pins ===` block in each `-js` build script: `versions.webpack` / `versions.webpackDevServer` for KGP's own exact devDependency pins, and `yarn.resolution(...)` for transitives whose parent pins a vulnerable range (`serialize-javascript`, `diff`, `uuid`). Verify CJS API compatibility against the *actual* consumer before adding a resolution — forcing a major can break it silently. `brace-expansion` is the standing counter-example: its advisories carry a flat `<= 5.0.7` range that numerically sweeps in the fixed 2.x maintenance line, and 5.x cannot be forced because its CJS build exports a named `expand` where minimatch/glob call the module as a bare function.
 
 ## Architecture
 
