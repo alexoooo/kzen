@@ -134,6 +134,25 @@ BrowserCloseStep:
 
 `provides`/`requires`/`releases`/`context` stay **out of `meta:`** — inert, so not constructor-injected and not body-rendered. **[review] The mechanism, and a trap:** an attribute is defined only if it appears in the object's *metadata* — `AttributeObjectDefiner.define` iterates `objectMetadata.attributes.map` and nothing else — so a top-level notation attribute with no `meta:` entry is simply never defined. Do **not** follow the `rerun`/`scope`/`group` precedent literally when writing these: those three live *inside* `meta:` as attribute-**metadata** keys (script-jvm.yaml 170/230/261/267 are all nested under a `meta: <attr>:` block), which is a different layer. Writing `meta: { provides: … }` here would define the attribute and defeat the whole point.
 
+**[as-built 2026-07-29] Omitting `meta:` is NOT sufficient for inertness — the declarations must be written
+as LISTS.** The paragraph above is right about `AttributeObjectDefiner` and wrong about what reaches it:
+metadata is not only *declared*, it is **inferred**. `NotationMetadataReader.inferMetadata`
+(kzen-lib-common `service\metadata\`, called from `readObjectImpl` for every attribute the `meta:` blocks
+along the inheritance chain do not cover) promotes any undeclared **scalar** attribute whose value resolves
+to a graph object into a synthesized `is: <that object>` attribute — with the referenced object's `class:`
+as its type. A scalar `releases: BrowserContext` therefore becomes a real object reference, drags
+`BrowserContext` into the declaring step's definition closure, and — because a Context is `abstract` and
+names a class the graph cannot instantiate — the step is dropped from `GraphDefinitionAttempt`
+`transitiveSuccessful`, surfacing at run time as `"Not a ScriptStep: …"`. `ListAttributeNotation` is not a
+scalar, so inference skips it; that is why `requires:` (written as a list from the start) never showed the
+fault while `provides:` / `releases:` did. All three are lists now, single-entry included, and
+`LogicContextConventions` reads either shape so the list is purely a hazard-avoidance convention.
+
+**[as-built 2026-07-29] A concrete Context must also declare `abstract: true`** (as `ResourceClosePolicy`
+and `TypeMetadata` do). `class:` is kzen's *instantiation* key, so a non-abstract `BrowserContext` makes
+`GraphCreator` try to construct a `RemoteWebDriver` — `"Unknown: org.openqa.selenium.remote.RemoteWebDriver"`,
+failing the whole graph. Abstract carries the type without instantiating it, which is all a Context needs.
+
 **Kotlin readers** (kzen-auto-common, new subpackage `tech.kzen.auto.common.objects.document.logic.context` — note: the originally-planned `objects\document\common\` does not exist in kzen-auto-common (only in kzen-auto-js's client tree); `document\logic\` is the existing flavour-neutral home (StepValidation, ParameterDefaultDefiner live there), so nest under it. Usable from JVM + JS):
 - `ContextDescriptor(location, key, valueClass, title, icon, description)` + `ContextConventions` (resolve reference via `graphNotation.coalesce.locateOptional` — valid common API, `ObjectLocator.locateOptional`; read attributes via `firstAttribute` — use the **nullable `AttributePath` overload** (GraphNotation.kt:277) for optional attributes, the `AttributeName` overload throws when absent).
 - `LogicContextConventions`: `documentSlots`/`documentRequires`/`stepProvides`/`stepRequires`/`stepReleases`. **Inheritance comes free**: `GraphNotation.firstAttribute(objectLocation, attributePath)` (GraphNotation.kt:277) already walks the *linearized* inheritance chain and returns the closest ancestor's value, so a user's step object `is: BrowserClickStep` reads the archetype's `requires` with no manual walk. Note the semantics that follow from "closest wins": a concrete archetype declaring its own `requires` **replaces** an inherited list rather than extending it. That is the intended rule (there is no first-party case that needs merging), but it must be stated, since a plugin author combining two requiring mix-ins would silently get only one.
@@ -289,6 +308,63 @@ Step changes: `BrowserOpenStep` (replace-existing at BrowserOpenStep.kt:29-33, r
 
 Per-phase verification commands: `cd ../kzen-lib && ./gradlew build`; `cd ../kzen-auto && ./gradlew build` (+ `:kzen-auto-js:compileKotlinJs` as the fast JS gate).
 
+## As-built (2026-07-29)
+
+All three sessions executed. `cd ../kzen-lib && ./gradlew build` green (rewritten `RunEngineTest` slot block,
+14 tests), `publishToMavenLocal` for all four subprojects, `cd ../kzen-auto && ./gradlew build` green
+(12 `ScriptContextRuntimeTest` + 9 `ScriptContextValidationTest` + `ScriptExtensibilityTest` against the
+migrated fixtures + `SelfTestContextDeclarationsTest`), `:kzen-auto-js:compileKotlinJs` green.
+
+**`:kzen-auto-test:selfTest` — `formulaErrorIsDetected` PASSES, `fizzBuzz` fails on a PRE-EXISTING defect
+unrelated to this change.** The passing half is the more informative one: it exercises the whole feature end
+to end through a real browser — a SUT provided into the root's `SutContext` slot, a browser provided
+`manual` with no slot (the §3 Manual-escape path), `BrowserGetSutStep` reading both typed contexts, and both
+closers. `fizzBuzz` gets as far as Build Loop → Insert Range, so Open Kzen and Browser plus five Build Item
+sub-scripts plus Create Loop Script all ran green — i.e. the browser and SUT survived many sub-script
+boundaries under the new slot ownership, which is exactly what the migration had to deliver.
+
+It then fails at `Insert Range`'s `Click [add] target in script`, whose `Visual` target
+(`main/Actions/Plus Circle/~main.yaml`) matches **more than one** element. Diagnosis: that target carries
+three capture PNGs, and the stale `20260525_172137_719.png` matches the add-circle-outline buttons of
+`LogicSignatureEditor` (Parameters) and `ResultSignatureEditor` (Result) at score 1.0 — two components this
+change does not touch — as well as the intended in-script button (`20260614_235714_194.png`). Verified by
+disabling the new `ContextSignatureEditor` float and re-running: the match list drops from four to three and
+the step still fails. So the target was already ambiguous; the new float adds a third instance of the same
+glyph but is not the cause. **Fixing it means re-capturing or scoping the user's own visual-target asset —
+out of scope here, and deliberately not taken unilaterally.**
+
+Deviations from the plan as written, beyond the two notation corrections folded into §2 above:
+
+- **`ContextConventions` / `LogicContextConventions` split.** §2 named one reader; it landed as two — a
+  flavour-neutral `ContextConventions` (reads an `is: Context` object as a `ContextDescriptor`, resolves a
+  reference, enumerates the graph's Contexts for the picker) plus `LogicContextConventions` (the
+  document- and step-level declarations). The seam is real: the picker and the analysis's duplicate-key
+  check need the former without the latter.
+- **`contextDescriptor<T>()` / `contextOrNull<T>()` beside `context<T>()`.** §4 listed only `context<T>()`.
+  `BrowserGetSutStep` needs a *nullable* typed read for the SUT (it keeps its own "is there a preceding
+  Start SUT step with this name?" diagnostic, which the family-level gate cannot produce), so the reified
+  descriptor lookup was factored out and a nullable form added over it.
+- **`ScriptTree.read` gained a `GraphNotation` overload.** The analysis is notation-only by design; the tree
+  walk was already notation-only in fact, so the overload just states it rather than duplicating the walk.
+- **A `SelfTestContextDeclarationsTest` in kzen-auto-test.** §7's Session B exit criterion ("opening FizzBuzz
+  and FormulaError shows zero unexpected warnings") had no automated form. It has one now: a plain unit test
+  that runs the analysis over every `main/` document and asserts the warning set is exactly
+  `{main/Script.yaml}` — the harness warning §2(c) predicted and documented. Declarations are inert notation,
+  so nothing else in the build would have noticed them drifting.
+- **§2(c) covers 15 documents, not 13 + 2.** The sweep as specified named the leaves; the two intermediate
+  aggregators (`FizzBuzz/Item/Build Item.yaml`, `FizzBuzz/Loop/Build Loop.yaml`) also need
+  `context.requires`, because §3's hosted-requires check fires at *their* RunSteps. Pure-RunStep documents
+  are not exempt from the sweep — a document that hosts only requiring documents requires too.
+- **UI placement.** §5's context panel landed as `ContextSignatureEditor`, an absolute float in the stage's
+  top-right stack beside the Parameters and Result editors, emitted unconditionally from `renderSignature` —
+  satisfying the child-index-stability constraint with zero flow footprint. Its write path deliberately edits
+  the *raw* reference strings rather than round-tripping through resolved descriptors, so a dangling entry
+  (the thing §3's dangling-reference warning asks the user to fix) is not silently deleted by an unrelated
+  edit.
+- **Context badges are wired for leaf steps only.** `If` / `ForEach` / `DoWhile` displays pass the amber
+  warning (so their bar and header icon respond) but not the declaration props; no first-party control step
+  declares a Context. Lifting the derivation into `ScriptStepDisplayBase` is the fix if one ever does.
+
 ## Key decisions & rationale (made during design)
 
 - **Slot declaration by the Logic at run start**, not via `host(...)` params: flavour-neutral, no layering inversion (hosting side needn't read the child's notation), migration re-declaration free.
@@ -300,3 +376,42 @@ Per-phase verification commands: `cd ../kzen-lib && ./gradlew build`; `cd ../kze
   The alternative was weighed and rejected: `by: Nominal` — the same weak-reference mechanism RunStep's `instructions` uses (see `LinkedLogicDocuments`' KDoc on why the callee must not join the caller's instantiation) — *is* included in `attributeReferencesIncludingWeak`, so it would get rename-rewriting and reference validation for free, and it would not force constructor changes (`ScriptStep` meta-declares `icon`/`title`/`description`/`display` while no step class takes them as constructor params, so the creator tolerates meta-declared attributes the class ignores). It was rejected because a dangling `Nominal` fails the attribute definition, which fails the object, which turns the step **red and unrunnable** — trading a silent dangle for a hard break, in a feature whose whole enforcement stance is "advisory in the editor, strict at execution". Revisit only if untracked renames actually bite.
 - **[review] `releases:` as a third marker rather than a special case on `requires`**: it is what makes closers resolvable argument-free, keeps them out of the runtime gate and the amber path, and buys the "browser step after a Close step" diagnostic — three jobs one flag does cleanly and a `requires`-with-exemptions would not.
 - **[review] Escaping provides are slot-gated**: the static model must agree with §1's Self fallback or it certifies the exact configuration that fails at run time. Gating on the caller's own declared slot keeps the rule decidable from one document's notation, which is all the editor has.
+
+## As-built addendum (2026-07-29, second pass): inert-by-omission superseded by `by: Nominal`
+
+The "inert notation data over meta-declared" decision above was **reversed** the same day, on review
+("that seems like a very convoluted and error prone design"). The five declaration attributes are now
+declared in their archetypes' `meta:` with **`by: Nominal`** (`WeakAttributeDefiner`) — the standard kzen
+mechanism for object-naming data attributes (`Custom.exports`, `RunStep.instructions`,
+`IfStepCommander.branchArchetype`):
+
+- `ScriptStep` meta-declares `requires` (`is: List, of: ObjectLocation`) and `releases`
+  (`is: ObjectLocation, nullable: true`) with empty body defaults; `ContextProvider` meta-declares
+  `provides` likewise; `Script` meta-declares `context`
+  (`is: Map, of: [String, {is: List, of: ObjectLocation}]`); `Context` meta-declares its own
+  `key`/`title`/`icon`/`description` as `String` (closing the latent hazard of a `key:` value colliding
+  with an object name).
+- The list-shape hack is gone: `provides` / `releases` are back to scalars (`provides: BrowserContext`),
+  matching their single-valued semantics; `requires` / `context.slots` / `context.requires` stay lists.
+  `LogicContextConventions.referenceList` still reads either shape.
+- The rejection rationale recorded above was **factually wrong**: a dangling `Nominal` does *not* fail the
+  attribute definition. `WeakAttributeDefiner` emits the `ReferenceAttributeDefinition(weak = true)`
+  without resolving it, weak edges are invisible to `transitiveSuccessful`, and the creation-time hard
+  throw (`DefinitionAttributeCreator`) fires only for constructor parameters — which none of these are.
+  The only genuine definition-time failure is an *empty* reference on a non-nullable type, addressed with
+  `nullable: true` on `provides`/`releases`. So `by: Nominal` delivers everything inert-by-omission did,
+  **plus** rename propagation (`ContextRenameTest`) and reference validation, with none of the hazards.
+- Root cause hardened in kzen-lib: `NotationMetadataReader.inferMetadata` now returns null when the
+  scalar's target is `abstract: true` (`MetadataInferenceAbstractTargetTest`) — an inferred hard reference
+  to an abstract object could only ever get the host pruned, so the entire trap class behind the original
+  `Not a ScriptStep` failure is structurally gone.
+- The step-body editor skips the now-meta-declared attributes via
+  `LogicContextConventions.isContextDeclaration` (`ScriptStepDisplayDefault.renderBody`) — they are managed
+  by the header badges and `ContextSignatureEditor`.
+- Second kzen-lib fix uncovered by `ContextRenameTest`: `NotationReducerRefactor.isReferenced` located
+  the rename target in `objectDefinitions` / `failures` only — an `abstract: true` target is in neither,
+  so renaming an abstract object (every Context; also `IfBranch`-style archetypes) silently rewrote
+  nothing. It now falls back to the notation coalesce (`RenameAbstractTargetTest` in kzen-lib-jvm).
+- Known scope edge: the rename scan rewrites references held by *defined* objects only, so an
+  `abstract: true` archetype's own declaration (e.g. `RequireContextTestStep.requires`) is not rewritten —
+  irrelevant for classpath notation (never renamed), noted in `ContextRenameTest`'s KDoc.
