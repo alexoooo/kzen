@@ -61,7 +61,7 @@ everything above them and can be taken any time a change of pace helps.
 | 25 | **C2** — manual smoke debt | The consolidated browser checklist from ~15 headless sessions — **needs the user** | C · C2 | — | ☐ |
 | 26 | **C4** — housekeeping verdicts | TP2 formally closed, `NotationCodec` adoption follow-up — XS, rides along with anything | C · C4 | — | ☐ |
 | 27 | **J6** — fan-out topology | `TeeWorker` + list-typed channel ports — **demand-driven; pull only when a real flow needs it** | J · P6 | `next/J6` | ☐ |
-| 28 | **CTX** — context + slot-owned resources | First-class `Context` notation objects, engine slots replace `ResourceScope`, provides/requires validation + UI, `ResourceClosePolicy` → 3 values | — (standalone) | `next/context-and-resource` | ☐ |
+| 28 | **CTX** — context + slot-owned resources | First-class `Context` notation objects, engine slots replace `ResourceScope`, provides/requires/releases validation + UI, `ResourceClosePolicy` → 3 values — **3 sessions (A engine+runtime / B validation+notation sweep / C UI+docs)** | — (standalone) | `next/context-and-resource` | ☐ |
 
 **~28 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out.

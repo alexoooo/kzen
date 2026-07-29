@@ -9,6 +9,11 @@
 > the file here.** (Do not delete the *constituent* plan — convert it to an as-built record in the
 > sprint archive. Sprint 2 lost three plans' worth of deferred scope by deleting the wrong layer.)
 >
+> **Exception — standalone plans.** The delete rule assumes a constituent plan holds the design
+> rationale. A file here whose "Constituent plan" column reads `—` has none: it *is* the rationale,
+> so archive it to the sprint as an as-built record instead of deleting it. Same failure mode as
+> Sprint 2's, one layer up. `context-and-resource.md` is the only current case.
+>
 > **All five were re-validated 2026-07-25** against the post-Sprint-2 codebase — they were written
 > 2026-07-19, before J2, before the typed element model, and before the `RestHandler` split, so
 > every one of them had stale anchors. See each file's re-validation note.
@@ -22,7 +27,7 @@
 | `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job · P7 | 7 | Five lettered items with verdicts pre-resolved. Item (a) `retain=false` is **extractable as a micro-session**; item (d)'s client half is the deferrable tail |
 | `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job · P6 | 27 | ⚠️ **DEMAND-DRIVEN — lowest priority.** The J3→J4→J9 spine must not wait on it, and nothing depends on it |
 | `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-and-hosting · DA1 | 15 | **Closes engine gate D1; gates DA2–DA5.** Scratch branch only — nothing merges as-is |
-| `context-and-resource.md` | CTX — first-class context + slot-owned resources | — (standalone: design + elaboration in one document) | 28 | Breaking change confined to kzen-lib + kzen-auto; phases 2–4 land atomically in kzen-auto. Anchors re-verified 2026-07-28 |
+| `context-and-resource.md` | CTX — first-class context + slot-owned resources | — (standalone: design + elaboration in one document) | 28 | Breaking change confined to kzen-lib + kzen-auto. **Sized 3 sessions**: A = engine + notation/runtime (ONE commit — phase 1 alone leaves the umbrella uncompilable), B = validation + the ~21-document notation sweep, C = UI + docs + selfTest. Anchors re-verified *and design-reviewed* 2026-07-28. ⚠️ Standalone ⇒ **do not delete on landing**, archive it |
 
 ## Not elaborated — and why
 
