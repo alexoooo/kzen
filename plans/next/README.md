@@ -27,7 +27,7 @@
 | `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job · P7 | 7 | Five lettered items with verdicts pre-resolved. Item (a) `retain=false` is **extractable as a micro-session**; item (d)'s client half is the deferrable tail |
 | `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job · P6 | 27 | ⚠️ **DEMAND-DRIVEN — lowest priority.** The J3→J4→J9 spine must not wait on it, and nothing depends on it |
 | `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-and-hosting · DA1 | 15 | **Closes engine gate D1; gates DA2–DA5.** Scratch branch only — nothing merges as-is |
-| `context-and-resource.md` | CTX — first-class context + slot-owned resources | — (standalone: design + elaboration in one document) | 28 | Breaking change confined to kzen-lib + kzen-auto. **Sized 3 sessions**: A = engine + notation/runtime (ONE commit — phase 1 alone leaves the umbrella uncompilable), B = validation + the ~21-document notation sweep, C = UI + docs + selfTest. Anchors re-verified *and design-reviewed* 2026-07-28. ⚠️ Standalone ⇒ **do not delete on landing**, archive it |
+| `context-and-resource.md` | CTX — first-class context + slot-owned resources | — (standalone: design + elaboration in one document) | 28 | Breaking change confined to kzen-lib + kzen-auto. **Sized 3 sessions**: A = engine + notation/runtime + migrations incl. the 4 slot-owner files (ONE commit — phase 1 alone leaves the umbrella uncompilable), B = validation + the 17-document requires sweep, C = UI + docs + selfTest. Anchors re-verified *and design-reviewed* 2026-07-28; final-reviewed 2026-07-29 (corrections marked **[final]**). ⚠️ Standalone ⇒ **do not delete on landing**, archive it |
 
 ## Not elaborated — and why
 
