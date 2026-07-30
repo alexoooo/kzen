@@ -63,15 +63,23 @@ everything above them and can be taken any time a change of pace helps.
 | 27 | **J6** — fan-out topology | `TeeWorker` + list-typed channel ports — **demand-driven; pull only when a real flow needs it** | J · P6 | `next/J6` | ☐ |
 | 28 | **CTX** — context + slot-owned resources | First-class `Context` notation objects, engine slots replace `ResourceScope`, provides/requires/releases validation + UI, `ResourceClosePolicy` → 3 values — **3 sessions (A engine+runtime / B validation+notation sweep / C UI+docs)** | — (standalone) | `next/context-and-resource` | ☑ 2026-07-29 |
 | 29 | **CTX2** — export-chain ownership | Replaces CTX's nearest-slot binding: `context.exports` export signature (un-exported provides are private), bind-time export-chain climb, `context.slots` retired, requires-not-provided → blocking error — **3 sessions (A kzen-lib engine+spec / B analysis+runtime+notation+fixtures / C UI+docs+smoke)** | — (standalone) | `next/context-moved-ownership` | ☑ 2026-07-29 |
+| 30 | **XC-N a** — frame-addressed move target (kzen-lib) | `MoveTarget` (id + call-site path) replaces the tree-wide broadcast, `Execution.moveDescendCallSite`, per-node suffix assignment, `logic-spec` §4/§5 + `Repositionable` + `Execution.host` KDoc. **DEFECT fix, part 1** — see § XC | — (standalone) | `next/nested-frame-move-to` | ☐ |
+| 31 | **XC-N b** — nested-frame move-to (kzen-auto) | Controller gates on the *addressed frame* (liveness / addressability / loop-body / descent capability), transit-frame descend in `ScriptRunContext.restore`, client drag in any live frame, 3 new fixtures. **DEFECT fix, part 2** — straight-line + `If`-nested shapes; loop-hosted waits on the parked loop-body extension | — (standalone) | `next/nested-frame-move-to` | ☐ |
 
-**~29 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
-third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out.
+**~31 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
+third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–31 are
+a **defect fix**, not new scope — sequence them by how much the broken affordance is costing, not
+by position in this table.
 
 ### What to run right now
 
 Row 1 (**J3a**). If a change of pace is wanted, rows **20 (SH5)**, **23 (C1)**, **21 (FL5)** and
 **15 (DA1)** are all independent and can be taken at any point. Rows **9 (E1)** and **25 (C2)**
 need the user present — schedule them rather than waiting for a gap.
+
+Rows **30–31 (XC-N)** are independent of everything above and are a **defect fix** — a shipped verb
+that does not do what its spec says. Row 30 must precede row 31 (kzen-lib → `publishToMavenLocal` →
+kzen-auto). Take them whenever the broken drag-in-a-sub-Script is worth more than a spine session.
 
 ## Dependency rules (the live ones)
 
@@ -179,10 +187,27 @@ auto-step-over blasted a whole ForEach in one tick and step-out exited just the 
 bodies). The ForEach iteration-counter trace detail (`"$item (i of n)"`) stays. **Do not resurrect
 nesting-aware limits without a new UX design.**
 
-### XC (execution control) — COMPLETE, one v2 extension parked
+### XC (execution control) — NOT complete: one defect open, one v2 extension parked
 
-Move-to-step + continue/break/return all landed. **v2 extension (not scheduled):** loop-body jump
-targets via S5's `LoopCursor` carry (v1 rejects targets inside `rerun` branches).
+Move-to-step + continue/break/return all landed. Corrected 2026-07-30 (was recorded here as
+"COMPLETE"), on the finding in `next/nested-frame-move-to.md`:
+
+- **DEFECT — move-to is gated to the run-root frame** (ledger rows 30–31). Dragging the next-to-run
+  arrow inside a sub-Script does nothing: the glyph renders inert and *indistinguishable from the
+  "run is executing" state*. **No spec asserts this restriction** — `logic-spec.md` §4,
+  `kzen-auto/docs/architecture.md` and `Execution.moveTarget`'s own KDoc all describe move-to
+  frame-agnostically, and the KDoc says outright that "the root and hosted children may all read it".
+  Breakpoints already work nested and step into/over/out already cross frames, so move-to is the one
+  execution-control verb that is not frame-agnostic. The gate lives only in code, labelled "v1".
+  **Do not document this as a limitation** — it is an unfinished implementation, not a boundary.
+- **A second, independent defect in the same feature — FIXED 2026-07-30.** A backward jump past a
+  completed RunStep did not discard the abandoned sub-Script invocation's migration capture, so the
+  re-hosted child replay-short-circuited and handed back stale values. One line in
+  `ScriptRunContext.restore` + `ScriptMoveToTest` coverage; full `kzen-auto-jvm` suite green.
+- **v2 extension (genuinely parked, not a defect):** loop-body jump targets via S5's `LoopCursor`
+  carry (v1 rejects targets inside `rerun` branches — a documented, deliberate exclusion with an
+  explicit rejection path). This is what blocks the loop-hosted shape of the defect above, which is
+  why row 31 covers only the straight-line / `If`-nested shapes.
 
 ### Target (FE) — COMPLETE, gates closed
 

@@ -12,7 +12,8 @@
 > **Exception — standalone plans.** The delete rule assumes a constituent plan holds the design
 > rationale. A file here whose "Constituent plan" column reads `—` has none: it *is* the rationale,
 > so archive it to the sprint as an as-built record instead of deleting it. Same failure mode as
-> Sprint 2's, one layer up. `context-and-resource.md` is the only current case.
+> Sprint 2's, one layer up. Current cases: `context-and-resource.md`, `context-moved-ownership.md`,
+> `nested-frame-move-to.md`.
 >
 > **All five were re-validated 2026-07-25** against the post-Sprint-2 codebase — they were written
 > 2026-07-19, before J2, before the typed element model, and before the `RestHandler` split, so
@@ -28,6 +29,7 @@
 | `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job · P6 | 27 | ⚠️ **DEMAND-DRIVEN — lowest priority.** The J3→J4→J9 spine must not wait on it, and nothing depends on it |
 | `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-and-hosting · DA1 | 15 | **Closes engine gate D1; gates DA2–DA5.** Scratch branch only — nothing merges as-is |
 | `context-and-resource.md` | CTX — first-class context + slot-owned resources | — (standalone: design + elaboration in one document) | 28 | **LANDED 2026-07-29** — all three sessions; see its § As-built for the deviations. Same-day second pass replaced the inert-by-omission notation design with `by: Nominal` weak references + a kzen-lib inferMetadata hardening (§ As-built addendum). ⚠️ Standalone ⇒ **do not delete**; it is the only record of a breaking change's design. Held here until Sprint 3 closes, then archived to the sprint README's directory as an as-built record. **Partially superseded by CTX2** (nearest-slot binding → explicit export chain) |
+| `nested-frame-move-to.md` | XC-N — nested-frame move-to (Set Next Statement inside a sub-Script) | — (standalone: design + elaboration in one document) | 30–31 | ✅ **EXECUTION-READY** — every decision settled (§7), ordered step list in §12; row 30 (kzen-lib) must precede row 31 (kzen-auto) across `publishToMavenLocal`. **Filed as a DEFECT, not an extension** (§10.2, established 2026-07-30): no spec asserts the root-frame restriction, and `Execution.moveTarget`'s KDoc anticipates the opposite. Splits: **XC-N1** (straight-line / `If`-nested hops) is the defect fix, **XC-N2** (loop-hosted hops) is the genuine feature gap and needs the parked loop-body extension first. Its separable XS pre-session (§10.1 — a `discardCaptured` correctness fix in the *shipped* v1) **LANDED 2026-07-30**, independent of whether the rest is ever scheduled. Reviewed 2026-07-30: four claims about existing code corrected. ⚠️ Standalone ⇒ archive, don't delete |
 | `context-moved-ownership.md` | CTX2 — context signature with an explicit export chain | — (standalone: design + elaboration in one document) | 29 | Follow-on to CTX, replaces its ownership model: explicit `context.exports` export signature, bind-time export-chain climb, `context.slots` retired, requires-not-provided becomes a blocking error. **3 sessions (A kzen-lib engine+spec / B analysis+runtime+notation+fixtures / C UI+docs+smoke).** §4.6.1 (`main/Script.yaml`) resolved 2026-07-29: delete it. **LANDED 2026-07-29** — all three sessions; see its § As-built for the deviations. ⚠️ Standalone ⇒ archive, don't delete — its §1.1 is the only record of why consumption inference was rejected |
 
 ## Not elaborated — and why
