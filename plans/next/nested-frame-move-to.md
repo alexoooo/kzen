@@ -1,10 +1,12 @@
 # XC-N — nested-frame move-to (Set Next Statement inside a sub-Script)
 
 > **Standalone scoping document** (design rationale + elaboration in one file, like
-> `context-and-resource.md` — the "Constituent plan" column reads `—`, so on landing archive it as an
-> as-built record rather than deleting it). **Status: EXECUTION-READY, SCHEDULED** — master-plan
-> ledger rows **30** (Session A, kzen-lib) and **31** (Session B, kzen-auto). Every open decision is
-> settled (§7); the ordered step list is §12. Start at §12, not §1.
+> `context-and-resource.md` — the "Constituent plan" column reads `—`, so archive it as an as-built
+> record rather than deleting it). **Status: ✅ LANDED 2026-07-30** — both master-plan ledger rows,
+> **30** (Session A, kzen-lib) and **31** (Session B, kzen-auto). **Read §13 (As-built) first**: it
+> records two additions to the kzen-lib surface this document did not foresee — one of them a defect
+> the feature itself introduced — and the recursion case narrowed in both repos. §1–§12 are the
+> design as planned, not as built.
 >
 > Anchors captured 2026-07-29 against kzen-lib `67730a9` / kzen-auto `97543315`; re-verified
 > 2026-07-30 against kzen-lib `67730a9` / kzen-auto `a313f177` (one commit later — notation-only, so
@@ -685,3 +687,99 @@ document's own claims were wrong four times (§11).
    **nothing about a root-document restriction** (§10.2).
 9. **Gate:** `cd ../kzen-auto && ./gradlew build` green. Manual smoke per §9 (drag the arrow in a
    sub-Script opened from a parent's run, both directions).
+
+## 13. As-built — LANDED 2026-07-30 (both sessions)
+
+Gates: **kzen-lib** `./gradlew build` green, `RunEngineTest` **71/71**, published to mavenLocal at
+`0.30.0-SNAPSHOT` (matching kzen-auto's `kzenLibVersion` pin). **kzen-auto** `./gradlew build` green,
+JVM suite **634 tests, 0 failures** across 109 classes (`ScriptMoveToTest` 11/11 byte-for-byte
+unmodified, new `ScriptNestedMoveToTest` 10/10). Manual smoke (§9) **not run — the user's to perform**.
+
+### §4.1 was confirmed by observation before any design work
+
+The characterization test (`ServerLogicControllerLinkedDocumentMigrationTest`
+`editingWhileParkedInsideTheSubScriptPopsThePositionOutToTheRunStep`) reproduced the prediction
+exactly: after an edit-migrate while parked inside the sub-Script, the root frame's `position` is the
+parent's `Call` RunStep and `dependencies` is **empty** — the child is never re-hosted. So G1 was real
+and did not shrink. The test asserts position as well as the empty frame list, because a plain step
+would also leave `dependencies` empty; only the position discriminates a migrate from a step.
+
+### Two additions to the kzen-lib surface the plan did not foresee
+
+1. **`Repositionable.canDescendThrough(callSite)`** — a second interface member, symmetric with
+   `canMoveTo`. §6.2.1 specified the loop-body refusal but not where it lives; putting it in
+   `ServerLogicController` would have made a flavour-agnostic controller call `ScriptNestingAnalysis`,
+   its first flavour leak, and would have contradicted §5's own rule that the gate is "capability-based,
+   **never flavour-named**". Asking each frame about its own structure keeps the driver blind to
+   flavours: a Script alone knows a call-site inside a loop body cannot carry a descent. `logic-spec` §4
+   and the `Repositionable` KDoc were written against this shape.
+2. **A transit-frame `position` write in `RunEngine.host`** — a defect *this feature introduced*, found
+   by the new test suite, not predicted anywhere in this document. A transit frame reaches its call-site
+   with the boundary suppressed, and `Execution.checkpoint(at)` is the only writer of `Node.position`,
+   which starts null on every rebuild. So after a nested jump the hosting document reported **no**
+   next-to-run element: no step highlight, and no drag handle, since the handle *is* that marker. Fixed
+   by writing `parent.position = callerStableId` when a hosting **claims a descent hop**. Scoping it to
+   the claimed hop is load-bearing — an unconditional write in `host` would newly give a Job frame a
+   position, which `Node.position`'s own KDoc says it deliberately has none of. Covered by
+   `RunEngineTest.transitFrameTakesItsPositionFromTheDescentCallSiteItSuppressed` (mutation-verified:
+   deleting the write fails that test and only that test) and by a transit-position assertion on every
+   positive `ScriptNestedMoveToTest` case. **This is exactly what §9's manual-smoke line was watching
+   for** ("confirm the parent's next-to-run stays on its RunStep") — the automated suite caught it first.
+
+### Smaller deviations
+
+- **`ScriptRunContext.restore`'s `state` parameter became nullable.** A transit frame with no carried
+  capture must still seed its descend set; a non-null-only signature would let the descent fail silently
+  in exactly the §4.1 way. (In practice every live Script frame does capture, so this is defence, not a
+  live path.)
+- **`ScriptJumpAnalysis` gained two members, not one.** Public `descendAncestors(...)` (nullable, what a
+  transit frame calls) delegating to a private `containerAncestors(path)` that `plan` calls with the path
+  it already holds — a single extracted function would have made `plan` walk the tree twice and carry an
+  unreachable invalid-return. Plus `isDescendableCallSite(...)`, a thin named entry point so `canDescendThrough`
+  does not call something named `isValidTarget` for a question that is not about a target.
+- **`ServerLogicController.moveTo` takes `executionId` LAST, defaulted null.** Null addresses the root
+  frame, so §9's eleven-case regression holds literally — the existing tests were not touched at all.
+- **`LogicHandler` used the existing `RestParams.getParamOrNull`**, not the `getAll(...)?.singleOrNull()`
+  idiom; an absent `execution` param means the root frame.
+- **Nine fixtures, not three** (§9 counted three *scenarios*; each needs a document pair or triple). The
+  loop-hosted rejection needed **no** new fixture — `test/script/engine/script-engine-run-loop-test.yaml`
+  already has a RunStep hosting a sub-Script inside a `ForEach` body.
+- **Tests went in a new sibling `ScriptNestedMoveToTest`** rather than extending `ScriptMoveToTest`,
+  keeping the "empty call-site path ≡ today" regression story unblurred.
+- **The Flow transit hop trips the capability gate first**, not addressability: the hop's Logic is asked
+  `is Repositionable` before it is asked to carry a call-site. (`FlowRun` also hosts without a
+  `callerStableId`, so the path is unaddressable too — either refusal is correct.)
+
+### The recursion case (§9 bullet 8) — narrowed, in both repos
+
+- **kzen-lib.** The plan asked for "the root frame must see null on both surfaces". That is
+  **unsatisfiable by construction**: if the addressed frame is nested, the root *is* a transit frame and
+  must read `moveDescendCallSite` — reading null on both would mean the descent was never delivered. The
+  landed test uses a four-frame self-hosting shape with the frame two hops down addressed, so an
+  **off-path** frame sharing the same stable id is the one reading null on both. That is the G2 assertion,
+  and it is clean and deterministic.
+- **kzen-auto.** The outcome assertion the plan wanted cannot be made. Addressing the deep frame collapses
+  the tree to a single frame parked at the root's own first step, because the deep frame wins the
+  `migrationCaptured` stable-id collision and the root then rebuilds capture-less — observationally
+  identical to the root having wrongly claimed the jump. No assertion separates the two, so none was
+  written. What **is** deterministic, and is now covered by
+  `deepFrameOfASelfHostingScriptIsAddressable`, is that such a frame is *addressable*: two invocations of
+  one document are separately nameable on the wire, and a jump addressed to the deeper one clears all four
+  gates (notably `canDescendThrough` on a `SelfCall` RunStep nested in an `If` branch). The test parks the
+  deep frame **away** from the target deliberately — parking it at the target returns `Submitted` via
+  `moveTo`'s no-op short-circuit and would prove nothing.
+
+### Not done, deliberately
+
+- **Manual smoke (§9)** — the user's to run: drag the arrow in a sub-Script opened from a parent's run,
+  both directions; confirm the parent's next-to-run stays on its RunStep and the sidebar frame indicator
+  does not flicker. The transit-position defect above is precisely the class of thing this catches, so it
+  is worth doing even though the automated suite now guards that one case.
+- **XC-N2** (loop-hosted hops) — still behind the parked loop-body `LoopCursor` extension. It is now a
+  **real rejection** (`canDescendThrough` refuses, the client surfaces the existing "Can't move to this
+  step" message), not a silent no-op.
+- **Stack-derived descent** (§8, unsized) — a plain nested edit-migrate still pops the position out to the
+  parent's RunStep. The characterization test records that behaviour, so the day someone builds it, the
+  test that must change is already written and named.
+- **Invocation-keyed `migrationCaptured`** (§4.2) — out of scope, now documented as genuinely *undefined*
+  in `logic-spec` §5 rather than silently relied on.
