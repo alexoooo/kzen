@@ -9,7 +9,10 @@
 > **Design history — this document is the only record.** A first draft (2026-07-29) resolved pickup
 > by *consumption inference* (Rust NLL-style) with a `context.owns` pin as the override, and moved
 > registrations at settle time. It was rejected the same day in review; §1 records why, because the
-> reasoning is the interesting part and nothing else preserves it.
+> reasoning is the interesting part and nothing else preserves it. A second review pass (same day)
+> applied three changes: the signature key is `context.exports`, not `context.provides` (§2, §8 row
+> (e)); the legacy-`slots` delete-only chip was dropped in favour of generic unrecognized-key
+> preservation plus a warning line (§5.1); and §4.6.1 was resolved — delete `main/Script.yaml`.
 >
 > Executor: Opus-class. **Three sessions**: A = kzen-lib engine + spec, B = analysis + runtime +
 > validation + fixtures **+ shipped-notation migration** (kzen-auto), C = UI + docs + sweep.
@@ -31,9 +34,9 @@ declaring a `context.slots` entry — at **any** depth, tunneling through non-de
   an advisory amber warning at the RunStep call site.
 
 The replacement inverts the direction of the declaration. **Ownership is offered by the provider,
-not claimed by an ancestor**: a document declares `context.provides` to export what it opens, and a
+not claimed by an ancestor**: a document declares `context.exports` to export what it opens, and a
 provide it does not export is private to its own frame. Ownership travels exactly as far as an
-unbroken chain of `provides` declarations carries it, and no further.
+unbroken chain of `exports` declarations carries it, and no further.
 
 ### 1.1 Consumption inference: considered and rejected
 
@@ -68,7 +71,7 @@ provider settles.
 
 **Kept from the draft verbatim** (user decisions, not to be re-litigated):
 
-- **Export is an explicit signature.** A document declares `context.provides`; an un-exported step
+- **Export is an explicit signature.** A document declares `context.exports`; an un-exported step
   provide is private — a value only moves out if you `return` it.
 - **Strictness inversion.** Required-but-not-provided = blocking ERROR (Run disabled);
   provided-but-never-consumed = fine, **no** diagnostic.
@@ -81,8 +84,8 @@ Result):
 | Key | Status | Meaning |
 |---|---|---|
 | `context.requires` | kept | Ambient context parameters a caller must supply. Reads stay ambient — engine read-walk self→root unchanged (Kotlin `context(...)` receivers). |
-| `context.provides` | **new** | Contexts this document **exports** to its caller: offered ownership, like a Rust return move. A step provide whose Context is not listed is **private**: bound to this document's frame, disposed at its settle per closePolicy. |
-| `context.slots` | **removed** | No longer has any effect. Detected and reported as a deprecation warning, and rendered as a delete-only chip so it is visible rather than silently inert. Deliberately **not** auto-migrated to `provides`: `slots` was a *capture* declaration on the consumer, `provides` is an *export* on the provider — they sit on opposite documents, so a mechanical rewrite would move the wrong thing. |
+| `context.exports` | **new** | Contexts this document **exports** to its caller: offered ownership, like a Rust return move. A step provide whose Context is not listed is **private**: bound to this document's frame, disposed at its settle per closePolicy. |
+| `context.slots` | **removed** | No longer has any effect. Detected and reported as a deprecation warning, and surfaced as a warning line in the signature editor so it is visible rather than silently inert. Deliberately **not** auto-migrated to `exports`: `slots` was a *capture* declaration on the consumer, `exports` is an *offer* on the provider — they sit on opposite documents, so a mechanical rewrite would move the wrong thing. |
 
 **Ownership resolution — a bind-time export-chain climb.** A registration starts at the frame that
 opened it and climbs while **that frame** declares an export matching the key (exactly, or by
@@ -90,7 +93,7 @@ family), stopping at the first frame that does not, or at the root. So:
 
 - nothing exported ⇒ the resource is owned and disposed exactly where it was opened (private by
   default — the CTX behaviour for undeclared usage, now also the behaviour for *un-exported* usage);
-- one hop per `provides` declaration, and every hop is a declaration someone wrote;
+- one hop per `exports` declaration, and every hop is a declaration someone wrote;
 - the resting frame is the furthest document that *chose* to receive it, which is precisely the
   frame whose settle disposes it.
 
@@ -104,11 +107,15 @@ callee's `context.requires` is unsatisfied at the call site. CTX's escaping-prov
 is **deleted** — private-by-default makes it noise on a legitimate pattern. Its diagnostic value is
 preserved more precisely: when a requires-error fires and an earlier callee provides that Context
 *without exporting it*, the error names that document and the fix. Kept warnings: dangling context
-references, shared-key alias reports. New warnings: `context.provides` declares X but nothing in the
+references, shared-key alias reports. New warnings: `context.exports` declares X but nothing in the
 document can provide it; legacy `context.slots` present.
 
 **Pre-made implementation decisions** (do not re-open):
 
+- **The signature key is `context.exports`** (role label "Exports"), not `provides`: step-level
+  `provides` (`ContextProvider`) already means *opening* a resource into the run, and everything
+  else in the model — the spec, `declareExport`, the error messages — says export. One word, one
+  meaning; the lost `requires`/`provides` rhyme is accepted. §8 row (e).
 - **Exports are family-granular** (`ContextDescriptor.key`, i.e. the part before `':'`), matching
   today's slot matching: a `sut` export carries `sut:main` / `sut:other` as independent
   registrations.
@@ -218,7 +225,9 @@ rewrite:
 reference `kzen/plans/next/context-and-resource.md` as the prior record, and note the intended
 breaking change (undeclared consumers lose tunneled capture); (b) consumption inference considered
 and rejected, with §1.1's reasoning compressed to two sentences; (c) supersession runs the displaced
-closer, with the loop-leak motivation and the closer contract; (d) non-Script flavours cannot export.
+closer, with the loop-leak motivation and the closer contract; (d) non-Script flavours cannot
+export; (e) the signature key is `context.exports`, not `provides` — step-level `provides` already
+means opening a resource, and the model's vocabulary is export throughout.
 
 ### 3.3 Session A tests — `RunEngineTest.kt` resource section (~L1715-2300, 17 tests)
 
@@ -260,17 +269,17 @@ kzen-auto's jvmMain/jsMain variant-suffix coords resolve from mavenLocal at the 
 
 ### 4.1 Conventions (`kzen-auto-common .../logic/context/LogicContextConventions.kt`)
 
-- Add `providesSegment` / `documentProvidesAttributePath` and the reader `documentProvides`
+- Add `exportsSegment` / `documentExportsAttributePath` and the reader `documentExports`
   mirroring `documentSlots` (L71-73, retired). Retain `slotsSegment` / `slotsAttributePath` and a
-  `legacyDocumentSlotReferences` reader used **only** by the deprecation warning and the editor's
-  delete-only chip.
-- Update the file KDoc (L14-34): the document declares `context: { provides: [...], requires: [...] }`.
+  `legacyDocumentSlotReferences` reader used **only** by the deprecation warning (analysis + the
+  editor's warning line — §5.1).
+- Update the file KDoc (L14-34): the document declares `context: { exports: [...], requires: [...] }`.
 - `isContextDeclaration` (L61) already hides the whole `context` attribute from the body editor — no
   change.
 
-Note the name collision to get right: `providesAttributeName` / `providesAttributePath` (L46-47) is
-the **step-level** `provides`. The document-level path is `context.provides`. Keep the existing
-step-level names and add `documentProvidesAttributePath` alongside `documentRequiresAttributePath`.
+No name collision to manage: `providesAttributeName` / `providesAttributePath` (L46-47) remain the
+**step-level** `provides`, and the document-level key is deliberately `exports` (§2), so
+`documentExportsAttributePath` sits alongside `documentRequiresAttributePath` without overloading.
 
 ### 4.2 Analysis (`LogicContextAnalysis.kt`, rewritten in place)
 
@@ -295,28 +304,33 @@ order, conditionals still add-but-never-remove (L149-156), which stays right for
 before. What changes:
 
 1. **Availability at a RunStep** (replaces `analyzeRunStep`, L189-244). Hosting `H` adds:
-   - `documentProvides(H)` — H's *declared* export contract. This needs **no recursion**: if H
+   - `documentExports(H)` — H's *declared* export contract. This needs **no recursion**: if H
      exports X, H asserts it delivers X whether from its own step or a re-export of its own callee.
+     Availability stays sound when *this* document re-exports X too: the registration then rests
+     above this frame, but reads walk self→root, so later steps here still reach it.
    - `{X : some step of H provides X with closePolicy manual}` — today's `hostedProvides` manual flag
      (L253-273), **kept**, because Manual hand-up is real engine reach and dropping it would falsely
      error FormulaError-shaped documents. Deliberately **one level deep**, as today: a Manual
      resource opened two levels down with nothing declared is not modelled — the remedy is
-     `provides`, and the KDoc says so.
+     `exports`, and the KDoc says so.
 2. **Errors** (both were warnings): a step `requires` X ∉ availability (L130-137); a RunStep whose
    callee's `documentRequires` X ∉ availability (L237-243). Message names the real remedies —
-   declare `provides` on the providing document, or `context.requires` here when a caller genuinely
-   supplies it. **Enrichment**: track `shadowed` — Contexts an earlier callee provides via its own
-   steps but does not export (`ownStepProvides(H) − documentProvides(H)`, the existing L253-273 scan)
+   declare `context.exports` on the providing document, or `context.requires` here when a caller
+   genuinely supplies it. **Enrichment**: track `shadowed` — Contexts an earlier callee provides via
+   its own steps but does not export (`ownStepProvides(H) − documentExports(H)`, the existing
+   L253-273 scan)
    — and when an error fires for a shadowed Context, name the providing document: *"`<H>` provides it
-   but does not export it — add it to that document's `context.provides`."* This is where the deleted
+   but does not export it — add it to that document's `context.exports`."* This is where the deleted
    escaping-provide warning's value goes: at the point of failure, not as standing noise. Compute
    `shadowed` lazily, only when an error is being produced.
 3. **Warnings**: dangling + alias unchanged (`danglingAndAliasWarnings` L322-368 — the main-object
-   branch at L358-360 checks `context.provides` and `context.requires`); **new**: `context.provides`
+   branch at L358-360 checks `context.exports` and `context.requires`); **new**: `context.exports`
    declares X that this document cannot provide, where *can provide* =
-   `{X : a step of this document provides X} ∪ ⋃_{RunStep→C} documentProvides(C)` (one level, cycle-free
-   by construction since a callee's contract is a declaration, not a walk); **new**: legacy
-   `context.slots` present — "no longer has any effect; declare `context.provides` on the document
+   `{X : a step of this document provides X} ∪ ⋃_{RunStep→C} documentExports(C)` (one level, cycle-free
+   by construction since a callee's contract is a declaration, not a walk; known false-negative to
+   note in the KDoc — two documents each declaring an export backed only by a RunStep to the other
+   both pass the one-level check; warning-severity, pathological authoring, accepted); **new**: legacy
+   `context.slots` present — "no longer has any effect; declare `context.exports` on the document
    that provides the resource." **Deleted**: the escaping-provide branch (L215-235) and its
    three-reason escape test.
 4. Expose `canProvide(graphNotation, documentPath)` and `legacySlotReferences(...)` as public
@@ -338,7 +352,7 @@ change; `ScriptRunContext` and `ScriptLogicCompiler` are untouched.
 ```kotlin
 // Contexts this document EXPORTS (logic-spec §6): declared BEFORE any step runs and before any child
 // is hosted, so a provide anywhere below climbs through this frame when it is on an export chain.
-for (export in LogicContextConventions.documentProvides(
+for (export in LogicContextConventions.documentExports(
         structure.graphNotation, structure.scriptLocation.documentPath)) {
     execution.declareExport(export.key)
 }
@@ -353,6 +367,10 @@ for (required in LogicContextConventions.documentRequires(
     }
 }
 ```
+
+Implementation check at this spot: `check {}` throws `IllegalStateException` out of `Logic.run` —
+confirm it surfaces through the same failure channel as a step failure (run marked failed, message
+visible in the UI), not as an unhandled engine error.
 
 **Recorded behaviour change**: any document declaring `context.requires` becomes non-runnable
 standalone — it fails immediately instead of at its first requiring step. That is correct (it could
@@ -384,7 +402,7 @@ through the validation channel.
 
 ### 4.5 Notation comment/schema updates
 
-- `common-document.yaml` (L130-135): rewrite the `context:` comment block — `provides` (export
+- `common-document.yaml` (L130-135): rewrite the `context:` comment block — `exports` (export
   signature; un-exported provides are private) and `requires` (a caller must supply). The `context`
   map meta is open-keyed `is: Map, of: [String, {is: List, of: ObjectLocation}]` `by: Nominal`
   (L147-153), so the new key is covered by the existing weak-reference machinery including rename
@@ -404,11 +422,11 @@ Lives in Session B, not C: `SelfTestContextDeclarationsTest` runs on B's build g
 
 | File | Change |
 |---|---|
-| `FizzBuzz/Open Kzen and Browser.yaml` | Add `context: {provides: [SutContext, BrowserContext]}` on `main`. The SUT is `auto`, the browser `keepOnFailure`; both now climb to the root, which is what the root's slots used to do. |
+| `FizzBuzz/Open Kzen and Browser.yaml` | Add `context: {exports: [SutContext, BrowserContext]}` on `main`. The SUT is `auto`, the browser `keepOnFailure`; both now climb to the root, which is what the root's slots used to do. |
 | `FizzBuzz/FizzBuzz.yaml` | Drop `context.slots` entirely — it declares nothing and owns both by being the first non-exporting frame above the provider. Rewrite the header comment as the model's teaching example: *the provider offers, the root receives by saying nothing.* |
-| `FormulaError/Open Kzen and Browser.yaml` | Add `context: {provides: [SutContext]}`. The browser stays `closePolicy: manual` with **no export** — deliberate coverage of the orthogonal hand-up; say so in the comment. |
+| `FormulaError/Open Kzen and Browser.yaml` | Add `context: {exports: [SutContext]}`. The browser stays `closePolicy: manual` with **no export** — deliberate coverage of the orthogonal hand-up; say so in the comment. |
 | `FormulaError/FormulaError.yaml` | Drop `context.slots`. Rewrite the comment to explain the deliberate asymmetry with the line above. |
-| `Script.yaml` | **See §4.6.1 — decide before implementing.** |
+| `Script.yaml` | **Delete** — §4.6.1, resolved 2026-07-29. |
 | `FizzBuzz/*`, `Actions/Insert Last.yaml` | `context.requires` consumers unchanged. |
 
 Sanity trace to confirm before editing: FizzBuzz root hosts the provider first, so both resources
@@ -419,28 +437,23 @@ private to the provider and reaches the root by Manual hand-up at the provider's
 `Run and Read Error.yaml`'s `requires: [BrowserContext]` (verified: BrowserContext only) is satisfied
 by the analysis's manual-reach rule.
 
-#### 4.6.1 `main/Script.yaml` — an open decision, not a mechanical edit
+#### 4.6.1 `main/Script.yaml` — resolved (user decision, 2026-07-29 plan review): delete it
 
 `SelfTestContextDeclarationsTest` (L28-32) tolerates exactly one warning, on `main/Script.yaml`, and
 its comment states the resolution deliberately: *"Silencing it would mean weakening the analysis or
 lying in the notation; leaving it is the documented resolution."* Under the strictness inversion that
-warning becomes a blocking error, so it must be resolved — but the obvious fix (declare
+warning becomes a blocking error, so it had to be resolved — and the obvious fix (declare
 `context.requires: [BrowserContext]`) **asserts a caller that does not exist**: verified 2026-07-29
 that nothing references `main/Script.yaml` (`SmokeSelfTest` drives only `FizzBuzz.yaml` and
 `FormulaError.yaml`; the only mention in code is the tolerated-warning set itself). It is a bare
 harness around `Actions/Insert Last.yaml`.
 
-Three honest options — **ask the user, do not pick silently**:
-
-1. **Delete `main/Script.yaml`** and the expected-warning set with it. Nothing runs it; the library
-   script it wraps is exercised through FizzBuzz.
-2. **Make it real** — give it its own `Open Kzen and Browser` RunStep so it genuinely runs standalone.
-   Most work, most value if the harness is meant to be runnable.
-3. **Keep an allowance**: change the test to assert an expected *findings* set rather than zero, with
-   the existing comment carried over. Preserves the prior decision exactly; costs the "zero findings"
-   gate.
-
-The rest of §4.6 is unblocked by this — implement it either way and resolve `Script.yaml` last.
+**Decision: delete `main/Script.yaml` and the expected-warning set with it.** Nothing runs it; the
+library script it wraps is exercised through FizzBuzz, and the prior tolerated-warning call it
+memorialized stays recorded in git history and in this section. Alternatives considered and passed
+over: making it genuinely runnable (its own `Open Kzen and Browser` RunStep — effort nothing needs)
+and keeping a findings-allowance in the test (a mechanism kept alive solely to remember a decision
+the new severity model retires). After the deletion the test asserts **zero findings** over `main/`.
 
 ### 4.7 Session B tests
 
@@ -448,27 +461,27 @@ The rest of §4.6 is unblocked by this — implement it either way and resolve `
   `unsatisfiedRequiresWarns` → `…Errors`; `unslottedCrossDocumentProvideWarnsAndIsNotAvailable` →
   replaced by *un-exported hosted provide is silent at the RunStep and the downstream consumer
   errors, with the error naming the providing document*; `aCallerDeclaredSlotSilencesBothWarnings` →
-  *the callee's `context.provides` silences both*; `manualProvideEscapesWithoutASlot` → kept (manual
+  *the callee's `context.exports` silences both*; `manualProvideEscapesWithoutASlot` → kept (manual
   reach, no error); `hostedRequiresWarnsOnTheCallersRunStep` → errors. New: export makes a Context
   available after the RunStep and not before (positional); a re-export chain across two documents;
-  `provides` declaring a Context nothing in the document can provide → warning; legacy
+  `context.exports` declaring a Context nothing in the document can provide → warning; legacy
   `context.slots` → deprecation warning **and no ownership effect** (a document with `slots` and no
-  callee `provides` errors at its consumer); the manual-reach rule is one level deep (two levels ⇒
-  error, with the `provides` remedy named).
+  callee `exports` errors at its consumer); the manual-reach rule is one level deep (two levels ⇒
+  error, with the `exports` remedy named).
 - **`ScriptContextRuntimeTest.kt`**: `typedProvideInsideHostedDocumentReachesTheCallersSlot` (~L124)
   → callee exports, caller receives; new: an un-exported provide is disposed at the child's settle
   and unreadable afterwards; the upfront `documentRequires` gate fails a direct run.
 - **`ScriptExtensibilityTest.kt`** (L74-114): `script-resource-parent-scope-test.yaml` — the child
-  gains `context.provides`; the parent needs **no** declaration (it consumes via raw keys, and is the
-  first non-exporting frame). `script-resource-run-scope-test.yaml` — mid gains `context.provides`
+  gains `context.exports`; the parent needs **no** declaration (it consumes via raw keys, and is the
+  first non-exporting frame). `script-resource-run-scope-test.yaml` — mid gains `context.exports`
   so the chain reaches the root; assertions unchanged. Extend `openResourceSurvivesLiveEditMigration`
   with an exported resource: the lifted registration stays on its resting frame across the barrier
   and disposes there.
-- **`ContextRenameTest.kt`** (L75, L94): `documentSlots` → `documentProvides`; add a rename of a
-  Context named in `context.provides`.
+- **`ContextRenameTest.kt`** (L75, L94): `documentSlots` → `documentExports`; add a rename of a
+  Context named in `context.exports`.
 
 **Gate**: `cd ../kzen-auto && ./gradlew build` — green including `SelfTestContextDeclarationsTest`
-(§4.6.1 decides whether that means zero findings or a recorded allowance).
+asserting zero findings over `main/` (§4.6.1).
 
 ## 5. Session C — UI, docs, sweep
 
@@ -480,10 +493,10 @@ keeping true.
 
 - **`ScriptStepDisplayDefault.kt`** (`onClientStateExtra`, L241-302): replace
   `providesBoundToDocument` (L271-275) with `providesExported: Boolean?` — is the step's provided
-  Context in `documentProvides(stepLocation.documentPath)`? For a RunStep, add
-  `hostedExports: List<ContextDescriptor>?` (`documentProvides(hostedPath)`) and
+  Context in `documentExports(stepLocation.documentPath)`? For a RunStep, add
+  `hostedExports: List<ContextDescriptor>?` (`documentExports(hostedPath)`) and
   `hostedExportsContinuingUp: List<ContextDescriptor>?` (those also in this document's own
-  `documentProvides`). The value-compare guard (L280-290) and the `setState` block (L292-301) gain
+  `documentExports`). The value-compare guard (L280-290) and the `setState` block (L292-301) gain
   the new fields.
 - **`StepHeader.kt`** (`renderContextDeclarations`, L425-469): the provides badge tooltip becomes a
   *verified* state instead of the current unverifiable "bound to: a calling document" —
@@ -491,18 +504,20 @@ keeping true.
   calling document takes ownership (and passes it further up if it exports it too)". RunStep badges
   surface hosted exports: "hosted document exports X — owned here / passed further up by this
   document's own exports".
-- **`ContextSignatureEditor.kt`** (`.../common/signature/`): two roles, "Provides"
-  (`context.provides`) and "Needs" (`context.requires`) — `roleOptions` (L108-116) relabelled,
-  `slotRoleValue` → `providesRoleValue`, state `slots`/`addingSlot` → `provides`/`addingProvides`,
+- **`ContextSignatureEditor.kt`** (`.../common/signature/`): two roles, "Exports"
+  (`context.exports`) and "Needs" (`context.requires`) — `roleOptions` (L108-116) relabelled,
+  `slotRoleValue` → `exportsRoleValue`, state `slots`/`addingSlot` → `exports`/`addingExports`,
   `onPick`'s mutual exclusion (L207-213) and `onRemove` (L220-232) retargeted, `writeContext`
-  (L270-289) writing `provides` + `requires`. Three additions:
-  - **Legacy `slots`**: render as a muted, delete-only chip with a deprecation tooltip, and
-    **preserve it verbatim in `writeContext`** until the user deletes it — otherwise the first
-    unrelated edit silently drops a declaration the user can still see in their YAML. Do not
-    auto-convert (§2).
-  - **The two document-level warnings** (`provides` with no provider; legacy `slots`), computed
-    locally via §4.2's public helpers and rendered on the chips themselves — this is the only
-    surface document-level warnings have (§4.4).
+  (L270-289) writing `exports` + `requires`. Three additions:
+  - **Unrecognized-key preservation**: `writeContext` carries every `context.*` key it does not
+    recognize through verbatim — generic, not slots-specific, so the editor never eats a key it
+    doesn't understand and the next signature addition gets the property for free. Legacy `slots`
+    is just one such key: no delete-only chip, no dedicated rendering; the user cleans it up by
+    hand-editing the YAML. Do not auto-convert (§2).
+  - **The two document-level warnings**, computed locally via §4.2's public helpers — the
+    declared-but-unprovidable warning rendered on the offending Exports chip, the legacy-`slots`
+    deprecation as a plain warning line in the editor. This is the only surface document-level
+    warnings have (§4.4).
   - The "Needs" chip tooltip gains the standalone-run consequence: *"…a caller must already have
     provided it, so running this document directly fails immediately."*
 - Fast gate: `cd ../kzen-auto && ./gradlew :kzen-auto-js:compileKotlinJs`.
@@ -525,7 +540,7 @@ keeping true.
 
 Boot a fresh instance on a **spare port** (never the user's 8080/18081 dev servers; verify any JVM
 you stop is one you started). Open `FizzBuzz/Open Kzen and Browser.yaml`: the signature shows two
-Provides chips and "Start SUT" shows the verified **Exported** badge. Open `FizzBuzz.yaml`: the
+Exports chips and "Start SUT" shows the verified **Exported** badge. Open `FizzBuzz.yaml`: the
 RunStep for it reports the two hosted exports as owned here. Make an artificial unmet-requires edit
 and confirm Run greys out with the error on the step; revert.
 
@@ -533,7 +548,7 @@ and confirm Run greys out with the error on the step; revert.
 
 - **Strictness false positives.** Consumption invisible to the analysis (raw-key `openResource`,
   plugin steps without `requires`) now errors instead of ambering. Two escape hatches, and they are
-  the honest ones: declare `provides` on the providing document — viable when the step's archetype
+  the honest ones: declare `context.exports` on the providing document — viable when the step's archetype
   mixes in `ContextProvider` (`script-jvm.yaml:43-52`), which is why §5.2 records the plugin
   guidance — or `context.requires` here when a caller genuinely supplies it. There is deliberately
   **no** third hatch that manufactures availability: the rejected draft's `context.owns` could not do
@@ -548,11 +563,11 @@ and confirm Run greys out with the error on the step; revert.
   reviewer of §4.6's notation should still confirm no *new* provider step is introduced without it.
 - **Manual reach is modelled one level deep only** (§4.2 rule 1) — matching today's behaviour and
   today's `hostedProvides`, but now feeding a blocking error rather than a warning. A two-level
-  Manual chain that works at run time will error statically. Accepted: the remedy (`provides`) is the
+  Manual chain that works at run time will error statically. Accepted: the remedy (`exports`) is the
   behaviour we want anyway, the error names it, and FormulaError is the only shipped case and is
   one level.
-- **`main/Script.yaml` (§4.6.1) is a decision, not a task** — it blocks the B gate's exact assertion
-  and reverses a documented prior call if taken silently. Surface it.
+- **`main/Script.yaml` (§4.6.1) — resolved** (user decision, 2026-07-29): delete it and the
+  expected-warning set; the B gate asserts zero findings. No longer an open item.
 - **Two live registrations under one key** — coherent but new; spec §6 + engine test.
 - **Deferred, not planned**: whether a callee's `releases` should remove availability in the caller
   after that RunStep (mirroring L152-156's top-level rule). It would catch a consumer placed after a
