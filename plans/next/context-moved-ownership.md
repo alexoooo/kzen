@@ -572,3 +572,42 @@ and confirm Run greys out with the error on the step; revert.
 - **Deferred, not planned**: whether a callee's `releases` should remove availability in the caller
   after that RunStep (mirroring L152-156's top-level rule). It would catch a consumer placed after a
   Close RunStep, but it is new strictness feeding a now-blocking error; separate decision.
+
+## 7. As-built (2026-07-29)
+
+All three sessions landed as specified. Gates: kzen-lib `build` + `publishToMavenLocal` green (66
+`RunEngineTest` tests, every new export-chain test passing first try); kzen-auto `build` green (622
+JVM tests, `SelfTestContextDeclarationsTest` asserting **zero** findings over `main/`); smoke check
+done on a spare port (18099).
+
+Deviations and resolutions, in descending interest:
+
+- **§4.3's open verification item resolves positively.** The upfront `check {}` gate's
+  `IllegalStateException` is caught by `RunEngine`'s `catch (e: Throwable) → Outcome.Failed(...)`, so
+  a standalone run of a `context.requires` document is marked failed with
+  `"Illegal State: Requires <X>: not provided by caller"` on the same channel as a step failure — not
+  an unhandled engine error. Pinned by `documentRequiresGateFailsTheRunBeforeAnyStep`.
+- **`isRunStep` / `hostedDocumentPath` moved from `LogicContextAnalysis` to `ScriptConventions`.**
+  §5.1's RunStep badges need the same caller→callee resolution the analysis does; duplicating it
+  would have been a same-changeset duplicate (CC-12), and `ScriptConventions` is the narrowest object
+  that owns `RunStep` and `instructions`.
+- **§4.2's `shadowed` map is built from the scan rule 1 already performs**, not deferred to the error
+  path: `ownStepProvides(H)` runs at every RunStep anyway (the manual-reach rule needs it), so
+  recording the un-exported subset costs a map insert. Named `unexportedProvides` in the code, since
+  "shadowed" collides with the spec's two-live-registrations shadowing.
+- **The generic remedy names all three fixes**, not two. §4.7's "two levels ⇒ error with the `exports`
+  remedy named" is unreachable through the enriched branch — at two levels the one-level scan sees no
+  provider to name — so the fallback string itself lists adding a step, adding to a callee's
+  `context.exports`, and declaring `context.requires` here.
+- **`LogicContextFindings` is its own file** (CC-15), with an `empty` constant the tests assert
+  against; it deliberately carries no `isEmpty()` helper, since nothing needed one.
+- **The `script-context-warn-*` fixtures dropped the `warn-` prefix.** Under the severity inversion
+  four of the eight assert errors, so the old name claimed the wrong severity.
+- **Known cosmetic consequence of §6's raw-key risk, in-tree**: `script-resource-*-test.yaml` open
+  through the raw string API (`OpenResourceTestStep`), so `canProvide` cannot see the provide and
+  their `context.exports` declarations carry the declared-but-unbackable warning. Warning-severity,
+  nothing gates on it, and the raw open is the point of those fixtures — but it is exactly the shape
+  the §5.2 plugin guidance (`ContextProvider` mix-in) exists to prevent. Left as-is deliberately;
+  making the archetype declare `provides` would change what the fixtures pin.
+- **`js-architecture.md`'s badge inventory was widened** from three skins to four (the RunStep
+  hosted-export chip is filled + dotted), since the change made the existing sentence incomplete.

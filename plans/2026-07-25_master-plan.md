@@ -62,7 +62,7 @@ everything above them and can be taken any time a change of pace helps.
 | 26 | **C4** — housekeeping verdicts | TP2 formally closed, `NotationCodec` adoption follow-up — XS, rides along with anything | C · C4 | — | ☐ |
 | 27 | **J6** — fan-out topology | `TeeWorker` + list-typed channel ports — **demand-driven; pull only when a real flow needs it** | J · P6 | `next/J6` | ☐ |
 | 28 | **CTX** — context + slot-owned resources | First-class `Context` notation objects, engine slots replace `ResourceScope`, provides/requires/releases validation + UI, `ResourceClosePolicy` → 3 values — **3 sessions (A engine+runtime / B validation+notation sweep / C UI+docs)** | — (standalone) | `next/context-and-resource` | ☑ 2026-07-29 |
-| 29 | **CTX2** — export-chain ownership | Replaces CTX's nearest-slot binding: `context.exports` export signature (un-exported provides are private), bind-time export-chain climb, `context.slots` retired, requires-not-provided → blocking error — **3 sessions (A kzen-lib engine+spec / B analysis+runtime+notation+fixtures / C UI+docs+smoke)** | — (standalone) | `next/context-moved-ownership` | ☐ |
+| 29 | **CTX2** — export-chain ownership | Replaces CTX's nearest-slot binding: `context.exports` export signature (un-exported provides are private), bind-time export-chain climb, `context.slots` retired, requires-not-provided → blocking error — **3 sessions (A kzen-lib engine+spec / B analysis+runtime+notation+fixtures / C UI+docs+smoke)** | — (standalone) | `next/context-moved-ownership` | ☑ 2026-07-29 |
 
 **~29 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out.

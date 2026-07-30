@@ -310,6 +310,12 @@ Per-phase verification commands: `cd ../kzen-lib && ./gradlew build`; `cd ../kze
 
 ## As-built (2026-07-29)
 
+**Superseded in part by CTX2 (`context-moved-ownership.md`).** The nearest-ancestor-slot binding
+this plan delivered is replaced by an explicit export chain: a document declares `context.exports`
+to offer a resource upward, an un-exported provide is private to its opening frame, and
+`context.slots` is retired. Everything else here — the Context archetype, the typed step API,
+`closePolicy` as a pure disposal rule, the declaration badges — stands.
+
 All three sessions executed. `cd ../kzen-lib && ./gradlew build` green (rewritten `RunEngineTest` slot block,
 14 tests), `publishToMavenLocal` for all four subprojects, `cd ../kzen-auto && ./gradlew build` green
 (12 `ScriptContextRuntimeTest` + 9 `ScriptContextValidationTest` + `ScriptExtensibilityTest` against the
