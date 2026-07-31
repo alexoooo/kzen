@@ -23,8 +23,14 @@
 | **DA/SH** | `2026-07-25_desktop-and-hosting.md` | Desktop app distribution + the hosting trio's hygiene tail | SH5, DA1–DA5 (DA6 parked) |
 | **FL** | `2026-07-25_flow-improvements.md` | Flow flavour | FL5, FL6 |
 | **C** | `2026-07-25_core-and-verification.md` | Graph perf tail + accumulated verification debt | C1–C4 |
+| **CX** | `2026-07-31_context-improvements.md` | Context generalization — a **design-space exploration**, added mid-sprint on the first sustained use of CTX/CTX2 | CX1–CX6 |
 
 Execution-ready elaborations for the independent items live under `plans/next/` — see its README.
+
+**CX is the odd one out**: it is a *design-space exploration*, not a phase list with pre-made
+decisions. Its §3 records a verdict per axis with the argument for it, so a session starting from it
+inherits intent — but the verdicts on **auto-wire depth (§3 B)** and **naming (§3 G)** were delegated
+to the document and remain open to the user until read.
 
 ## Session ledger
 
@@ -66,11 +72,19 @@ everything above them and can be taken any time a change of pace helps.
 | 30 | **XC-N a** — frame-addressed move target (kzen-lib) | `MoveTarget` (id + call-site path) replaces the tree-wide broadcast, `Execution.moveDescendCallSite`, per-node suffix assignment, `logic-spec` §4/§5 + `Repositionable` + `Execution.host` KDoc. **DEFECT fix, part 1** — see § XC. As-built additions: `Repositionable.canDescendThrough` (keeps the driver flavour-agnostic) and a transit-frame `position` write in `RunEngine.host` | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
 | 31 | **XC-N b** — nested-frame move-to (kzen-auto) | Controller gates on the *addressed frame* (liveness / addressability / loop-body / descent capability), transit-frame descend in `ScriptRunContext.restore`, client drag in any live frame, 9 new fixtures. **DEFECT fix, part 2** — straight-line + `If`-nested shapes; ~~loop-hosted waits on the parked loop-body extension~~ **loop-hosted transit shipped in row 32** | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
 | 32 | **XC-N c** — post-smoke defect fix (kzen-auto) | The user's §9 manual smoke on `FizzBuzz Script Loop` found XC-N1 silently doing nothing. Three defects: **(a)** loop-hosted *transit* was refused on a **false** rationale — the walk already resumes mid-iteration, so `isDescendableCallSite` split off `plan` and dropped the `rerun` clause (targets keep it); **(b)** control errors were attributed to the run-root document, so nested rejections rendered on the *parent* — `controlAsync` now takes an explicit `documentPath`; **(c)** the drag handle painted valid against a guaranteed refusal — the margin now evaluates the whole frame spine. Plus rejection **reasons** end-to-end (`LogicControlReply` / `RepositionDiagnostic` / `MoveToRefusal` / `ScriptJumpRefusal`), kzen-lib untouched. See `next/nested-frame-move-to` §14 | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
+| 33 | **CX1** — context defects + the row split | `allContexts` no longer returns the abstract base (**defect** — `inheritanceChain` includes self, so `Context` matches its own filter); picker shows type + description; **Requires / Provides rows replace the Role dropdown**; the Provides row renders private opens read-only. **Depends on no design verdict — ship regardless of what happens to CX2–CX6** | CX · CX1 | — | ☐ |
+| 34 | **CX2** — identity = (type, qualifier) | **2 sessions, hard gate between.** *A (kzen-lib):* `ResourceKey` / `ResourceFamily` replace the bare `key: String` across `Execution` + `RunEngine` — behaviour-preserving, and it closes a silent always-false in `hasResourceInFamily` (a fully-qualified key passed where a family is wanted never matches). Ends published to mavenLocal. *B (kzen-auto):* `Context` becomes a concrete declaration carrying `type: TypeMetadata` + `qualifier`; `key` demoted to an optional interop alias defaulting to the class name; exact-key analysis for declared qualifiers; the shared-key alias warning becomes correct. **Breaking** — shipped notation + ~20 `test/script/context/` fixtures, and `SelfTestContextDeclarationsTest` runs on every build. **The only kzen-lib work in the CX arc** | CX · CX2 | — | ☐ |
+| 35 | **CX3** — the Contexts document | New `Contexts` archetype + document + controller + ribbon/sidebar, on the `ObjectRegistry` template; picker gains "New context…" writing into it. Closes "the set of providable things is authored in framework YAML only" | CX · CX3 | — | ☐ |
+| 36 | **CX4** — the generic step triad | `ProvideStep` / `UseContextStep` / `ReleaseStep` + `SelectContextEditor` + the `Resource` vs `Value` archetype split + a runtime type check on provide. Carries the `provides:` → `opens:` rename (§3 G). **Makes contexts usable without writing a plugin** | CX · CX4 | — | ☐ |
+| 37 | **CX5** — call-site context binding | `RunStep.contexts` — the caller supplies a callee's ambient dependency per call, so one sub-script runs against two SUTs unmodified. A **borrow** (child-frame registration, no-op closer): **zero engine change**. Spec §6 addendum for release-in-child + analysis credit | CX · CX5 | — | ☐ |
+| 38 | **CX6** — reach & polish | `context` lifted from `Script` onto `Logic` so Flow/Job/Report participate (**behaviour change** CTX2 deferred — own fixtures); quick-fix inference chips off `remedyFor` | CX · CX6 | — | ☐ |
 
-**~32 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
+**~38 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
 a **defect fix**, not new scope — sequence them by how much the broken affordance is costing, not
-by position in this table.
+by position in this table. Rows 33–38 (**CX**) are the context arc's third pass, added 2026-07-31
+on the first sustained use of CTX/CTX2 — row 33 is partly a defect fix and is independent of the
+rest of the arc.
 
 ### What to run right now
 
@@ -82,6 +96,12 @@ Rows **30–32 (XC-N)** are independent of everything above and are a **defect f
 that does not do what its spec says. Row 30 must precede row 31 (kzen-lib → `publishToMavenLocal` →
 kzen-auto); row 32 is the post-smoke follow-up and is kzen-auto-only. **All three are done** — what
 remains is the user's re-smoke, which needs a dev-server restart.
+
+Row **33 (CX1)** is the other genuinely-independent pull-forward: it carries a real defect (the
+Context picker offers the abstract base, because `inheritanceChain` includes the object itself) plus
+the Requires/Provides split, and it depends on **no** design verdict in the CX document. Rows 34–38
+should wait on the user reading `2026-07-31_context-improvements.md` — it is an exploration, and its
+§3 B (auto-wire depth) and §3 G (naming) are recommendations, not settled decisions.
 
 ## Dependency rules (the live ones)
 
