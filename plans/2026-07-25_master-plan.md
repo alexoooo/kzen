@@ -64,10 +64,11 @@ everything above them and can be taken any time a change of pace helps.
 | 28 | **CTX** — context + slot-owned resources | First-class `Context` notation objects, engine slots replace `ResourceScope`, provides/requires/releases validation + UI, `ResourceClosePolicy` → 3 values — **3 sessions (A engine+runtime / B validation+notation sweep / C UI+docs)** | — (standalone) | `next/context-and-resource` | ☑ 2026-07-29 |
 | 29 | **CTX2** — export-chain ownership | Replaces CTX's nearest-slot binding: `context.exports` export signature (un-exported provides are private), bind-time export-chain climb, `context.slots` retired, requires-not-provided → blocking error — **3 sessions (A kzen-lib engine+spec / B analysis+runtime+notation+fixtures / C UI+docs+smoke)** | — (standalone) | `next/context-moved-ownership` | ☑ 2026-07-29 |
 | 30 | **XC-N a** — frame-addressed move target (kzen-lib) | `MoveTarget` (id + call-site path) replaces the tree-wide broadcast, `Execution.moveDescendCallSite`, per-node suffix assignment, `logic-spec` §4/§5 + `Repositionable` + `Execution.host` KDoc. **DEFECT fix, part 1** — see § XC. As-built additions: `Repositionable.canDescendThrough` (keeps the driver flavour-agnostic) and a transit-frame `position` write in `RunEngine.host` | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
-| 31 | **XC-N b** — nested-frame move-to (kzen-auto) | Controller gates on the *addressed frame* (liveness / addressability / loop-body / descent capability), transit-frame descend in `ScriptRunContext.restore`, client drag in any live frame, 9 new fixtures. **DEFECT fix, part 2** — straight-line + `If`-nested shapes; loop-hosted waits on the parked loop-body extension | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
+| 31 | **XC-N b** — nested-frame move-to (kzen-auto) | Controller gates on the *addressed frame* (liveness / addressability / loop-body / descent capability), transit-frame descend in `ScriptRunContext.restore`, client drag in any live frame, 9 new fixtures. **DEFECT fix, part 2** — straight-line + `If`-nested shapes; ~~loop-hosted waits on the parked loop-body extension~~ **loop-hosted transit shipped in row 32** | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
+| 32 | **XC-N c** — post-smoke defect fix (kzen-auto) | The user's §9 manual smoke on `FizzBuzz Script Loop` found XC-N1 silently doing nothing. Three defects: **(a)** loop-hosted *transit* was refused on a **false** rationale — the walk already resumes mid-iteration, so `isDescendableCallSite` split off `plan` and dropped the `rerun` clause (targets keep it); **(b)** control errors were attributed to the run-root document, so nested rejections rendered on the *parent* — `controlAsync` now takes an explicit `documentPath`; **(c)** the drag handle painted valid against a guaranteed refusal — the margin now evaluates the whole frame spine. Plus rejection **reasons** end-to-end (`LogicControlReply` / `RepositionDiagnostic` / `MoveToRefusal` / `ScriptJumpRefusal`), kzen-lib untouched. See `next/nested-frame-move-to` §14 | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
 
-**~31 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
-third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–31 are
+**~32 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
+third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
 a **defect fix**, not new scope — sequence them by how much the broken affordance is costing, not
 by position in this table.
 
@@ -77,9 +78,10 @@ Row 1 (**J3a**). If a change of pace is wanted, rows **20 (SH5)**, **23 (C1)**, 
 **15 (DA1)** are all independent and can be taken at any point. Rows **9 (E1)** and **25 (C2)**
 need the user present — schedule them rather than waiting for a gap.
 
-Rows **30–31 (XC-N)** are independent of everything above and are a **defect fix** — a shipped verb
+Rows **30–32 (XC-N)** are independent of everything above and are a **defect fix** — a shipped verb
 that does not do what its spec says. Row 30 must precede row 31 (kzen-lib → `publishToMavenLocal` →
-kzen-auto). Take them whenever the broken drag-in-a-sub-Script is worth more than a spine session.
+kzen-auto); row 32 is the post-smoke follow-up and is kzen-auto-only. **All three are done** — what
+remains is the user's re-smoke, which needs a dev-server restart.
 
 ## Dependency rules (the live ones)
 

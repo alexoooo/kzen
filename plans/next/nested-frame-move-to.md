@@ -3,10 +3,13 @@
 > **Standalone scoping document** (design rationale + elaboration in one file, like
 > `context-and-resource.md` — the "Constituent plan" column reads `—`, so archive it as an as-built
 > record rather than deleting it). **Status: ✅ LANDED 2026-07-30** — both master-plan ledger rows,
-> **30** (Session A, kzen-lib) and **31** (Session B, kzen-auto). **Read §13 (As-built) first**: it
-> records two additions to the kzen-lib surface this document did not foresee — one of them a defect
-> the feature itself introduced — and the recursion case narrowed in both repos. §1–§12 are the
-> design as planned, not as built.
+> **30** (Session A, kzen-lib) and **31** (Session B, kzen-auto). **Read §13 and §14 (As-built)
+> first**: §13 records two additions to the kzen-lib surface this document did not foresee — one of
+> them a defect the feature itself introduced — and the recursion case narrowed in both repos. **§14
+> records the same-day post-smoke defect fix**, which found two more XC-N1-introduced defects and
+> established that this document's own loop-transit parking rationale (§5) was **false** — loop-hosted
+> *transit* shipped 2026-07-30; only loop-body *targets* remain parked. §1–§12 are the design as
+> planned, not as built, and §5 in particular is now **superseded by §14.1**.
 >
 > Anchors captured 2026-07-29 against kzen-lib `67730a9` / kzen-auto `97543315`; re-verified
 > 2026-07-30 against kzen-lib `67730a9` / kzen-auto `a313f177` (one commit later — notation-only, so
@@ -771,15 +774,116 @@ would also leave `dependencies` empty; only the position discriminates a migrate
 
 ### Not done, deliberately
 
-- **Manual smoke (§9)** — the user's to run: drag the arrow in a sub-Script opened from a parent's run,
-  both directions; confirm the parent's next-to-run stays on its RunStep and the sidebar frame indicator
-  does not flicker. The transit-position defect above is precisely the class of thing this catches, so it
-  is worth doing even though the automated suite now guards that one case.
-- **XC-N2** (loop-hosted hops) — still behind the parked loop-body `LoopCursor` extension. It is now a
-  **real rejection** (`canDescendThrough` refuses, the client surfaces the existing "Can't move to this
-  step" message), not a silent no-op.
+- **Manual smoke (§9)** — ~~the user's to run~~ **RUN 2026-07-30 by the user; it found three defects.**
+  See §14. The prediction that it was "worth doing even though the automated suite now guards that one
+  case" held: 634 green tests did not stop the flagship sample from silently doing nothing.
+- ~~**XC-N2** (loop-hosted hops) — still behind the parked loop-body `LoopCursor` extension.~~
+  **SUPERSEDED 2026-07-30 — loop-hosted *transit* shipped; see §14.** The claim that it was "a real
+  rejection, not a silent no-op" was **false in the UI**: two client defects swallowed the message
+  entirely. And the parking rationale itself was wrong — see §14.1.
 - **Stack-derived descent** (§8, unsized) — a plain nested edit-migrate still pops the position out to the
   parent's RunStep. The characterization test records that behaviour, so the day someone builds it, the
   test that must change is already written and named.
 - **Invocation-keyed `migrationCaptured`** (§4.2) — out of scope, now documented as genuinely *undefined*
   in `logic-spec` §5 rather than silently relied on.
+
+---
+
+## 14. Post-smoke defect fix — 2026-07-30 (same day)
+
+The user ran the §9 manual smoke on `notation/main/FizzBuzz/FizzBuzz Script Loop.yaml`, stepped into
+`FizzBuzz Script Item`, and reported: *"I see the drag/drop indicator, but moving the next-to-run does
+nothing. also when I look at FizzBuzz Script Loop it says 'Can't move to this step'."*
+
+Both symptoms were **one** event. Three defects, two of them introduced by XC-N1 itself.
+
+### 14.1 The loop-transit parking rationale was false
+
+`FizzBuzz Script Loop`'s only Script-to-Script call is `main.steps/Loop.steps/Run`, inside a `ForEachStep`
+body — so the flagship sample is exactly the shape XC-N1 refused. Worse, the reason it refused did not
+survive contact with the code.
+
+§5 of this plan, `kzen-auto/docs/architecture.md`, `kzen-lib/docs/logic-spec.md` §4, and the KDoc on both
+`isDescendableCallSite` and kzen-lib's `Repositionable` all justified the refusal with *"the walk cannot be
+resumed mid-iteration."* **It already could.** `ForEachStep` re-records its `LoopCursor` carry at every
+iteration start; `ScriptRunContext.restore`'s transit branch keeps carries wholesale; the resumed iteration
+skips `execution.dropReplay(bodySteps)` so its completed body prefix replay-adopts. There was already a
+passing regression test on the identical `ForEach → RunStep → sub-Script` shape —
+`ServerLogicControllerLoopMigrationTest.forEachHostedChildResumesAcrossMidChildEdit`, whose class KDoc calls
+it "the FizzBuzz Script Loop regression". And `descendAncestors`, which computes the actual descend set,
+never had a loop check at all: it would have returned the `ForEachStep` ancestor already.
+
+Two different features had been conflated under one parking notice. Loop-body **targets** genuinely need new
+machinery (which iteration do you land in? re-point the cursor at it) and stay parked. Loop-body **transit**
+inherited the refusal only because `isDescendableCallSite` delegated wholesale to `plan`, loop clause and
+all. `ScriptJumpAnalysis` now splits a private `walkedElement(...)` out of `plan`: both roles share the
+structural checks, `isValidTarget` alone keeps the `rerun` clause. **The machinery was loop-ready; only the
+gate refused.** Pinned by `ScriptNestedMoveToTest`'s ForEach / DoWhile / nested-loop transit cases (12/12,
+was 10) and unit-pinned in `ScriptJumpAnalysisTest` (10/10, was 8).
+
+> **Lesson for §11's list.** That list already recorded four wrong "already exists" claims in this document.
+> This is a fifth failure of the same kind, one level up: a *rationale* asserted without checking whether the
+> code still agreed. §11 says re-verify every claim about existing code. It should also say re-verify every
+> claim about why something is impossible — especially one this plan is about to inherit into four KDocs.
+
+### 14.2 Rejections were invisible (regression introduced by XC-N1)
+
+`ClientLogicGlobal.controlError` stamped every error with `logicStatus.active.frame`'s document — the **root**
+frame — and `StageController.renderControlError` renders only when that matches the viewed document. Correct
+while only the root could move; XC-N1 made viewed ≠ root and did not follow through. So the refusal fired,
+tagged itself with the parent, and rendered nowhere — then appeared later when the user navigated to the
+parent. That is the whole of "does nothing" *and* the confusing message on the other document.
+
+Fixed: `controlAsync` takes an explicit `documentPath`; `moveTo` passes the target's, run-wide verbs
+(pause/step/stop/continue) keep the run-root attribution the scoping existed to provide.
+
+### 14.3 The drag affordance promised the impossible (introduced by XC-N1)
+
+`ScriptExecutionMargin` gated `canDrag` on "is there a live frame for this document" but computed
+`validTargets` from `isValidTarget` against the **viewed** document only — never asking whether the transit
+hops could be descended through. Every target painted valid against a guaranteed refusal.
+
+Fixed: `LogicRunFrames.spineForDocument` + `ScriptExecutionMargin.spineRefusal` evaluate the whole spine at
+pointer-down. This was answerable **only because of the `RunEngine.host` transit-position write** added in
+§13 — the wire `LogicRunFrameInfo` carries no `callerStableId`, so `position` is the call-site proxy, and it
+is sound precisely because that write re-establishes it on a claimed descent hop. A defect fix from the
+first pass paid for a feature in the second.
+
+### 14.4 Refusals now say why
+
+The reason existed all along and was discarded: `ScriptJumpPlan.invalidReason` never left the server, because
+`canMoveTo`/`canDescendThrough` return a bare `Boolean` and `/logic/moveTo` responded with the enum name.
+
+- `LogicControlReply` (kzen-auto-common) — `(response, reason?)`, wire-identical when there is no reason;
+  only `moveTo` emits one. **kzen-lib untouched, so no republish.**
+- `RepositionDiagnostic` (kzen-auto-jvm) — reasons asked for **by capability, not concrete type**, so a
+  non-`Repositionable` Flow/Job hop gets an honest sentence naming its document instead of a fabricated cause.
+- `MoveToRefusal` (kzen-auto-common) — one source of wording for both sides, so a client-caught and a
+  server-caught refusal read identically.
+- `ScriptJumpRefusal` (kzen-auto-common) — classifies from the two public predicates, never by matching
+  `invalidReason` prose. Written as a **sibling file**: `ScriptJumpAnalysis.kt` was another agent's concurrently.
+
+In-document refusals speak too, on drop and never on hover. Dropping on `Run` inside `Loop` now reads:
+*"That step is inside Loop, which can't be sent to a different iteration. Move to Loop itself to restart it."*
+Scoped in deliberately: the top level of `FizzBuzz Script Loop` is only `Loop`/`Display`/`ForEach`/`Display 2`,
+so **every** step a user would plausibly aim at lives inside a `rerun` branch — the silent-grey path would
+have been the very next click.
+
+### 14.5 Residual hazard — traced, not guarded
+
+An edit sharing the barrier with a jump could delete-and-recreate the loop at the same object path, leaving a
+`descendSteps` claim armed while the loop restarts at iteration 0. Traced to **inert**, not dangerous: a plain
+delete is refused at the gate (the call site is absent from the recompiled tree); the delete-and-recreate case
+has iteration 0 call `dropReplay` *before* the body runs, which `discardCaptured`s the child's capture, so the
+re-hosted child reads `restored == null` and `moveDescendCallSite == null` and `ScriptLogic.run` never calls
+`restore` — the jump is silently dropped per the logic-spec §4 ignore-contract. Net effect: parks one level
+deeper. Recorded as a code note at `seedDescendThrough` rather than a speculative guard.
+
+### Still not done
+
+- **XC-N2 loop-body TARGETS** — genuinely parked, unchanged. `canMoveTo` still refuses; jump to the loop
+  step instead and it restarts at iteration 0.
+- **Flow/Job transit hops** — permanently refused until another flavour implements `Repositionable`
+  (`FlowRun` also hosts without a `callerStableId`, so its hops are unaddressable regardless). Now says so.
+- **Re-smoke** — the user's to run: `FizzBuzz Script Loop` → step into `FizzBuzz Script Item` → drag, both
+  directions. Requires a **dev-server restart**; the running instance predates all of this.
