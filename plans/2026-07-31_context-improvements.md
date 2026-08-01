@@ -7,16 +7,43 @@
 > **re-locate by symbol, not by line number** (standing rule; the 2026-07-22 `RestHandler` split is
 > the cautionary case).
 >
+> **Revised 2026-07-31 after review — see §1.1 (P9).** The first draft treated scoped disposal as a
+> *kind of* Context. It is not: ambient binding and scoped disposal are orthogonal features that
+> compose. The correction invalidated four verdicts — C2 (`Resource` / `Value` archetypes), N3 (step
+> verb `opens:`), the borrow mechanism in §3 E, and the phase list — all of which are recorded as
+> withdrawn in §6 rather than deleted, because the draft's failure mode is instructive.
+>
 > **Decisions the user took before drafting**, not to be re-litigated: the shipped CTX2 notation may
 > be **reshaped freely** provided each proposal is marked additive vs breaking; user-authored
 > contexts live in a **new "Contexts" document type**; naming and auto-wire depth were delegated to
 > this document to argue and recommend.
 >
-> **Prior art this supersedes nothing of.** CTX (`next/context-and-resource.md`) and CTX2
-> (`next/context-moved-ownership.md`) remain the authority on *ownership* — the export chain, close
-> policies, bind-time resolution. Nothing here touches that model; §3 E is the only proposal that
-> goes near it, and it is designed to need **zero** engine change. CTX2 §1.1's rejection of
-> consumption inference is **reaffirmed and generalized** in §3 F.
+> **Revised again 2026-07-31, second review pass — see §3 C.6.** Walking the user's "open a browser,
+> bind it, use it, let scope close it" scenario through the split found that it works and is
+> *inexpressible today*, corrected a wrong claim that the decomposed form loses explicit close (it
+> does not — closing is a method call on a handle, not a registry operation), and surfaced the one
+> genuine cost: a binding whose disposal is anonymous must not be exported. Also folded in: closer
+> idempotence as a load-bearing invariant (C.1), a second independent derivation of C.4, and the
+> `bind` API collision (§3 G).
+>
+> **Third pass, same day.** Walking "two browsers at once, plus a generic driver" narrowed
+> `RunStep.contexts` to a **declaration** source (§3 E.1 — the step-location form does not survive a
+> second hop), reframed §3 J as the enabler for ***parallel*** multi-instance work, and added §4.7.
+> §3 K records what keeps a future static flow overlay possible — explicitly **not** planned.
+>
+> **Concurrent ≠ parallel, and this document conflated them once already.** Two live browser sessions
+> driven by interleaved steps *is* concurrency, and a Script does it today; what a Script cannot do is
+> drive them in **parallel**, which is a Job. The first version of §3 J said "a Script cannot drive
+> two browsers concurrently" — which would send an author to a Job for something they already have.
+> Both words appear throughout; each is meant literally.
+>
+> **Prior art this supersedes nothing of *semantically*.** CTX (`next/context-and-resource.md`) and
+> CTX2 (`next/context-moved-ownership.md`) remain the authority on *ownership* — the export chain,
+> close policies, bind-time resolution — and every rule they state survives here. What changes is the
+> **shape of the primitive that implements them** (§3 C, Phase 2): one fused `resource(…)` call
+> becomes a binding plus an optional attached disposal, with the composed form reproducing today's
+> behaviour exactly. CTX2 §1.1's rejection of consumption inference is **reaffirmed and generalized**
+> in §3 F.
 >
 > Executor: Opus-class, one session per phase (§5). Phase 1 is independent of every verdict below
 > and can ship immediately.
@@ -41,30 +68,73 @@ symptoms is a plain defect.
 difference between "this concept is broken" and "this concept is narrow", and only the second is
 worth a design document.
 
+### 1.1 · P9 — the structural finding: two features wearing one name
+
+The seven above are symptoms. This one is the shape of the thing, and it was identified in review
+after the first draft of this document had already built on top of the confusion.
+
+**Ambient binding and scoped disposal are orthogonal features.** The point of a Resource is safe
+teardown; the point of a Context is that descendants can find a value by name. A resource can be
+created, used and disposed without ever touching the Context system — and *any* object can travel
+the Context system whether or not it needs disposing: a String, an Int, a domain object, a browser
+handle. The two must **compose**, and they are not the same feature.
+
+kzen fuses them, and the engine signature is the proof:
+
+```kotlin
+fun resource(key: String, policy: ClosePolicy, value: Any? = null, closer: () -> Unit)
+```
+
+**`value` is optional.** The primitive's own declaration concedes that it is a *disposal
+registration that may incidentally carry a value*. The consequences are exactly symmetrical, and
+both are bad:
+
+- **To get frame-scoped teardown for something nobody reads** — a temp file, a lock, a spawned
+  helper — you must invent a **globally-namespaced key** purely to obtain a `finally`.
+- **To pass a String down a subtree** you must pretend it is disposable: a policy that means nothing
+  and a no-op closer.
+
+It propagates outward from there. `ContextProvider` fuses `provides` and `closePolicy` into one
+mix-in, so a step cannot have either half alone. `ResourceClosePolicy`'s own notation comment defines
+the *owner* in terms of `context.exports` — disposal semantics specified by a scoping mechanism. And
+the engine calls the whole subsystem "Resources" (logic-spec §6) while notation calls it "Context".
+
+**Why they fused, which is worth stating because it is not an accident.** Handing ownership of
+something upward requires that someone up there be able to *name* it. So the moment a resource must
+outlive its opener, it needs a key — and disposal gets dragged into the naming namespace. That is a
+real dependency in one direction only, and §3 C turns it into a stated rule rather than a fusion.
+
+This finding rewrites §2, §3 C, §3 D, §3 E, §3 G and §5. It is why C2 (a `Resource` / `Value`
+archetype split) was **withdrawn**: two skins on one mechanism is the same error one level down.
+
 ## 2. The reframe
 
-One sentence carries the whole proposal:
+Two sentences carry the whole proposal, and the second is the one P9 forced:
 
 > **A Context is a typed, optionally-qualified ambient binding.**
+>
+> **A Resource is a closer registered against a frame. It is not a kind of Context.**
 
-Everything the user asked for falls out of taking that literally instead of treating `class:` as a
-comment.
+Everything asked for falls out of taking the first literally instead of treating `class:` as a
+comment, and of refusing to let the second hide inside it.
 
 | Today | Reframed | Break? |
 |---|---|---|
 | `key:` — free string, global namespace, aliasing warned about | identity is **`(type, qualifier?)`**; `key` demoted to an optional **interop alias**, defaulting to the qualified class name | breaking |
 | `class:` — documentation, read by one helper | the primary identity component, and a real `TypeMetadata` (generics, nullable) rather than a bare string | breaking |
 | qualifier — runtime only | first-class notation attribute. **Declared** qualifiers get exact-key analysis; **computed** ones keep today's family granularity | additive |
-| every provided thing is a closable resource with a `closePolicy` | **`Resource`** (closePolicy, releasable) vs **`Value`** (plain, no disposal), both `is: Context` | breaking |
+| **one primitive registers a disposal that may carry a value** | **two primitives: `bind` (naming, scope) and `onSettle` (teardown, no key). A managed resource is their composition** | breaking |
+| a Context declaration implies a lifecycle | **a Context declaration has no lifecycle axis at all** — disposal is a claim a *step* makes about the value it produced | breaking |
 | declared in framework YAML by whoever can write YAML | declared in a **Contexts document** — *plus* anywhere, discovery unchanged | additive |
-| provided only by plugin-authored steps | plus a generic **Provide / Use / Release** step triad | additive |
+| provided only by plugin-authored steps | plus a generic **Bind / Use / Release** step triad | additive |
 | a callee reads whatever is ambient | plus **call-site binding** on `RunStep` — the caller supplies the callee's ambient dependency per call | additive |
 
-Read the user's own examples against that table. *"A String that's qualified with some tag"* is a
-`Value` whose type is `kotlin.String` and whose qualifier is the tag — one declaration, no code.
-*"Two SUTs in parallel"* is either two declared qualifiers (statically distinct) or one call-site
-binding per call (dynamically distinct). Neither needs a new mechanism; both need the mechanism that
-already exists to become **declarable**.
+Read the original examples against that table. *"A String qualified with some tag"* is one
+declaration whose type is `kotlin.String` and whose qualifier is the tag — no code, **and no
+pretence that it is disposable**. *"Two SUTs in parallel"* is either two declared qualifiers
+(statically distinct) or one call-site binding per call (dynamically distinct). And a temp file that
+must be deleted at frame settle but that nobody ever reads becomes expressible for the first time —
+it needs no name, so it takes no key.
 
 ## 3. The axes
 
@@ -134,7 +204,12 @@ pick a Context from a picker; the reference is nominal, rename-refactor propagat
 dangling-reference warning rather than a silent miss. Tier 1 is the only authored string, once per
 declaration — which is exactly why deriving it (A3) closes the only real exposure.
 
-#### A.3 · A domain type for the resource key
+#### A.3 · A domain type for the context key
+
+> **Sharpened by P9.** The key belongs to **binding**, not to disposal — so it is a `ContextKey`,
+> and the disposal primitive (`onSettle`) carries no key at all. The split narrows this type's
+> surface rather than widening it: five string-taking methods become four typed ones plus one that
+> needs no identifier.
 
 `Execution` is the conspicuous odd one out in a codebase where **every** identifier is a wrapper —
 `ObjectName`, `AttributeName`, `ClassName`, `DocumentPath`, `ObjectPath`, `ObjectStableId`,
@@ -150,60 +225,66 @@ shape (`data class` over a `String`, `init { require(…) }`, companion `parse` 
 **not** `@JvmInline`, matching `ObjectName` / `AttributeName`):
 
 ```kotlin
-data class ResourceFamily(val value: String) {
+data class ContextFamily(val value: String) {
     init {
-        require(value.isNotEmpty()) { "Empty resource family" }
-        require(! value.contains(ResourceKey.qualifierDelimiter)) {
-            "Resource family must not contain '${ResourceKey.qualifierDelimiter}': $value"
+        require(value.isNotEmpty()) { "Empty context family" }
+        require(! value.contains(ContextKey.qualifierDelimiter)) {
+            "Context family must not contain '${ContextKey.qualifierDelimiter}': $value"
         }
     }
     override fun toString() = value
 }
 
-data class ResourceKey(val family: ResourceFamily, val qualifier: String?) {
+data class ContextKey(val family: ContextFamily, val qualifier: String?) {
     companion object {
         const val qualifierDelimiter = ':'
-        fun of(family: String, qualifier: String? = null): ResourceKey
-        fun parse(asString: String): ResourceKey       // splits on the FIRST delimiter
+        fun of(family: String, qualifier: String? = null): ContextKey
+        fun parse(asString: String): ContextKey        // splits on the FIRST delimiter
     }
     fun asString(): String =
         qualifier?.let { "${family.value}$qualifierDelimiter$it" } ?: family.value
 }
 ```
 
-giving:
+giving the §3 C.1 surface, fully typed:
 
 ```kotlin
-fun declareExport(family: ResourceFamily)
-fun resource(key: ResourceKey, policy: ClosePolicy, value: Any? = null, closer: () -> Unit)
-fun resourceValue(key: ResourceKey): Any?
-fun hasResourceInFamily(family: ResourceFamily): Boolean
-fun releaseResource(key: ResourceKey)
+fun declareExport(family: ContextFamily)
+fun bind(key: ContextKey, value: Any?, disposal: FrameDisposal? = null)
+fun bound(key: ContextKey): Any?
+fun unbind(key: ContextKey)
+fun hasBindingInFamily(family: ContextFamily): Boolean
+
+fun onSettle(policy: ClosePolicy, closer: () -> Unit)      // no key — see §3 C.3
 ```
 
-**Why `ResourceFamily` is a separate type is the part that actually pays.**
+**Why `ContextFamily` is a separate type is the part that actually pays.**
 `hasResourceInFamily(family: String)` today happily accepts a fully-qualified key and then never
 matches — a **silent always-false**, with no diagnostic anywhere. A distinct type converts that
 class of bug into a compile error, for free. That single call site justifies the change on its own;
 everything else is tidiness.
 
-**Sub-decision to confirm: `declareExport` takes a `ResourceFamily`.** CTX2 settled that exports are
+**Sub-decision to confirm: `declareExport` takes a `ContextFamily`.** CTX2 settled that exports are
 family-granular, and `ScriptLogic` already passes `ContextDescriptor.key` (a family) — but the engine
 KDoc says a registration matches "the exact key **or** the family", so an exact-key export is a
-tolerated, untested path. Typing the parameter as `ResourceFamily` *tightens* the contract to what is
+tolerated, untested path. Typing the parameter as `ContextFamily` *tightens* the contract to what is
 actually used and documented. Confirm rather than assume.
 
-**Shape fork, recorded.** A single `data class ResourceKey(val value: String)` with derived
+**Shape fork, recorded.** A single `data class ContextKey(val value: String)` with derived
 `family` / `qualifier` accessors would be terser and keep the wire form string-identical — but it
-cannot make `hasResourceInFamily` unmistakable, which is the whole point. Take the two-type version.
+cannot make the family parameter unmistakable, which is the whole point. Take the two-type version.
 
-**Scope: mechanical, and a behaviour-preserving refactor.** Five `Execution` methods, their
-`RunEngine` implementations plus `NodeRuntime.exports`, and on the kzen-auto side
-`StepExecution.openResource` / `resource` / `releaseResource`, `ScriptRunContext.resourceKeyOf`,
-`ScriptLogic`'s declare-and-gate calls and `JobRun`'s `"job-scratch"`. Roughly 30 call sites, **no
-semantic change** — which makes it a *de-risking precursor* to Phase 2 rather than a cost: it gives
-the family/qualifier split one owner before the analysis starts depending on it. It is a **kzen-lib**
-change, so `publishToMavenLocal` gates the kzen-auto half (§5).
+**Scope.** Five `Execution` methods, their `RunEngine` implementations plus `NodeRuntime.exports`,
+and on the kzen-auto side `StepExecution.openResource` / `resource` / `releaseResource`,
+`ScriptRunContext.resourceKeyOf`, `ScriptLogic`'s declare-and-gate calls and `JobRun`'s
+`"job-scratch"`. Roughly 30 call sites.
+
+**Note the revised risk profile.** In the draft this was a behaviour-preserving rename and therefore
+a free de-risking precursor. Under §3 C it lands inside an **API split**, which is a larger change —
+though still additive in observable behaviour, since `bind(key, value, disposal)` reproduces exactly
+what `resource(key, policy, value, closer)` does today and the two new affordances (bind-without-
+disposal, dispose-without-key) have no existing callers to disturb. It is a **kzen-lib** change, so
+`publishToMavenLocal` gates the kzen-auto half (§5).
 
 #### A.4 · Declared qualifiers should be pickable, not free text
 
@@ -263,30 +344,182 @@ Four reasons, in descending weight.
 filters picker candidates by it — the affordance B2 was reaching for, with none of the resolution
 semantics. That is one predicate in `renderPicker`, not an addressing mode.
 
-### C · Lifecycle — resource vs value
+### C · Lifecycle — and why it is not an axis of Context at all
 
 | | Option | Verdict |
 |---|---|---|
-| C1 | Uniform: every Context is a closable resource with a `closePolicy` (today) | superseded |
-| C2 | **Two concrete archetypes: `Resource` (closePolicy, releasable) and `Value` (plain), both `is: Context`** | **✅** |
-| C3 | One archetype with a `closable: true` flag | ✗ — same information, worse affordance |
+| C1 | Uniform: every Context is a closable resource with a `closePolicy` (today) | ✗ — the P9 conflation |
+| C2 | Two concrete archetypes, `Resource` and `Value`, both `is: Context` | ✗ **withdrawn** — two skins on one mechanism is the same error one level down |
+| C3 | One archetype with a `closable: true` flag | ✗ — same fusion, expressed as a boolean |
+| C4 | **Disposal is a separate feature. `Context` carries no lifecycle attribute; a step declares teardown for the value it produced, independently of whether it binds it** | **✅** |
 
-**Why C2.** The UI difference is the entire point. A String tagged `greeting` must not present a
-three-way close-policy dropdown, must not offer a Release step, and must not be reachable by a
-"nothing released this" diagnostic — because an unreleased Value is not a leak. C3 encodes the same
-fact but leaves every consumer to branch on it; C2 lets the archetype select the editor, which is
-how kzen expresses kind-distinctions everywhere else (`IfBranch` is not a `ScriptStep`;
-`ParameterBinding` is). It also gives `ContextProvider` a natural split: `closePolicy` belongs on the
-Resource-opening mix-in only.
+**Why C4.** C2 was drafted before P9 and is wrong for the reason P9 gives: it keeps *every* disposal
+routed through the naming namespace and *every* binding carrying a lifecycle slot, and merely varies
+the editor. Under C4 the two features exist separately and compose in one stated place.
+
+#### C.1 · The two primitives
+
+**Context — ambient binding.** *What values are in scope here, under what name and type?*
+Bind at a frame; reads walk self → parent → … → root; one binding per key per frame, so a nearer
+binding shadows a farther one; re-binding supersedes. **No lifetime semantics whatsoever.** Every §6
+property that is about *finding* a value survives here unchanged.
+
+**Resource — scoped disposal.** *What must be torn down, and when?* Register a closer against a
+frame with a policy; it runs when that frame settles. **No key, no namespace, no lookup** — anonymous
+is the common case and is currently inexpressible.
+
+```kotlin
+// Ambient binding. `disposal` is how the two compose — see C.2.
+fun bind(key: ContextKey, value: Any?, disposal: FrameDisposal? = null)
+fun bound(key: ContextKey): Any?
+fun unbind(key: ContextKey)
+fun hasBindingInFamily(family: ContextFamily): Boolean
+fun declareExport(family: ContextFamily)
+
+// Scoped disposal, standalone: frame-local, anonymous, no key.
+fun onSettle(policy: ClosePolicy, closer: () -> Unit)
+```
+
+Three call shapes, where today there is one:
+
+```kotlin
+execution.bind(basePathKey, "C:/work/inbox")                    // a value, not pretending to close
+execution.onSettle(ClosePolicy.auto) { tempFile.delete() }      // a finally, not pretending to be named
+execution.bind(browserKey, driver, FrameDisposal(auto) { driver.quit() })   // both, deliberately
+```
+
+**`onSettle` takes only `auto` and `keepOnFailure`.** The third value is not a disposal policy at
+all — C.4.
+
+**Closers are idempotent by contract, and the decomposition leans on that.** logic-spec §6 already
+puts two requirements on a closer: it must dispose the handle it *captured* rather than re-resolving
+its target by name, and it **must tolerate running when the resource is already gone** — the engine
+swallows a throwing or double-closing closer rather than preventing it. That is load-bearing here.
+Once disposal can be anonymous there is no registration to deregister, so "close it explicitly, then
+let the frame settle" runs the closer twice **by design** rather than by mistake. Under the contract
+that is a no-op; without it the split would be unsound. Two consequences worth stating:
+
+- The fused primitive's deregister-before-close discipline (`releaseResource` first, so the
+  auto-disposer "won't fire a second time") was always an **optimization**, not a correctness
+  requirement. Reading it as the latter is what made the decomposed form look lossy on first pass.
+- The requirement currently lives only in prose about the fused call. **Restate it at the `onSettle`
+  and `FrameDisposal` declaration sites**, where the next implementer will actually be standing.
+
+#### C.2 · The composition rule, enforced by API shape rather than by discipline
+
+When a bound value is *also* a resource, its disposal must be owned **at or above** its binding
+frame — otherwise a descendant can read a handle that has already been closed. Making `disposal` a
+**parameter of `bind`** rather than a separate call makes that structural: an attached disposal
+cannot be given a frame different from the binding's, because it is never independently placed.
+
+That is what the engine already does. It simply refuses to let you take either half alone.
+
+#### C.3 · Which feature owns the export chain — Context, and this makes it cleaner
+
+`declareExport` decides **which frame a binding lands on**. That is a *scoping* question, so it
+belongs to Context; disposal inherits the resting frame as a consequence of C.2 rather than as a
+definition. Two things improve:
+
+- `declareExport`'s contract stops mentioning ownership or disposal at all — "a binding of this
+  family made here or below climbs past this frame" — and the Rust analogy gets *better*, not worse:
+  a return move is about where a value lives, and drop follows.
+- **Anonymous disposal has no export chain, ever.** It is always frame-local. That is exactly P9's
+  "why they fused" turned into a rule: *ownership transfer requires a binding, because handing
+  upward something nobody can name is meaningless.* If you want a closer to outlive its frame, give
+  the value a name — and then the existing chain carries it.
+
+#### C.4 · `manual` is a binding-lifetime modifier, not a close policy
+
+Follow the decomposition one step further and today's three-valued `ResourceClosePolicy` splits into
+two independent axes:
+
+| Axis | Values | Belongs to |
+|---|---|---|
+| Disposal | `auto` · `keepOnFailure` | Resource — does the closer run when the owning frame settles *in failure*? |
+| Binding lifetime | `frame` · `survives` | Context — does the binding die with its resting frame, or cascade one level up? |
+
+Today's `manual` is `auto` + `survives`: the hand-up cascade is about the *binding* staying
+reachable so a later sibling can close it; the closer itself is unchanged.
+
+**A second, independent derivation lands in the same place.** Ask what `manual` would mean for an
+anonymous `onSettle`: *"the engine will not dispose this; a step will."* But a step disposes by
+**naming** — `releaseResource` today, `unbind` tomorrow — and an `onSettle` registration has no name
+by construction. There is nobody to fire it manually and nothing to deregister. The value does not
+merely go unused for anonymous disposal; it fails to typecheck as a concept. Two routes reach one
+conclusion — the 2 × 2 above, and the observation that `manual` evaporates the instant you look at
+disposal with no binding attached. `manual` is not a disposal policy.
+
+**Recommendation: model two axes in the engine, keep the three-valued enum as the notation surface.**
+`auto` / `manual` / `keepOnFailure` are the three useful points of the 2 × 2, the fourth
+(`keepOnFailure` + `survives`) has no demonstrated use, and widening the notation would be churn
+without a consumer. Record the 2 × 2 so the fourth point is a small change if a case appears.
+
+#### C.5 · What this deletes
+
+`ContextProvider` — which today fuses `provides` and `closePolicy` — splits into two mix-ins a step
+composes as needed: **`ContextBinder`** (`binds:`) and **`ResourceOwner`** (`closePolicy:`).
+`BrowserOpenStep` takes both; a step that binds a String takes only the first; a step that deletes a
+temp file at settle takes only the second and declares no Context at all.
+
+#### C.6 · Splitting the two across two steps — what it buys, and the one thing it cannot do
+
+Separate primitives mean a step can own disposal **without** binding, and a *different* step can bind
+the value it produced: an opening step registers `onSettle(auto) { … }` and returns the handle as its
+ordinary step value; a generic `BindStep` names it; action steps read it; the frame settles and the
+closer fires. Worked through in §4.6.
+
+**This is inexpressible today**, and that is the point. `resource(key, policy, value, closer)`
+demands the key and the closer in one call, so the step that opens *must* be the step that names. It
+is a sharper demonstration of the split than `DisposeAtSettleStep`, because it exercises both
+features at once rather than one in isolation.
+
+**The mechanics check out against the tree.** `ScriptRunContext.stepValues` is a
+`HashMap<ObjectStableId, Any?>` (`ScriptRunContext.kt:90` — re-locate by symbol), so a
+`RemoteWebDriver` travels the value graph like any other value; and the trace path is safe, because
+`displayOf` routes a step outcome through `TraceDisplay.truncatedToString` rather than
+`ExecutionValue.ofArbitrary` — a non-serializable handle renders as a truncated `toString()` instead
+of failing. The failure ordering is also *better* than today's: the closer is registered before any
+binding exists, whereas today a throw between constructing the driver and calling `provideContext`
+leaks the process.
+
+**Two things that look like costs and are not.**
+
+- **Explicit close still works.** A close step reads the handle through `uses:` and calls `quit()` on
+  it. Closing a browser is a method call on an object, not a registry operation — and
+  `BrowserCloseStep` is already exactly that shape (read the handle, quit it, then release).
+  `releases:` unbinds the name, so later steps' gates fail as they should.
+- **The settle-time closer then fires a second time**, since an anonymous registration cannot be
+  deregistered the way `releaseResource` deregisters a fused one. Harmless — closers are idempotent
+  by contract (C.1).
+
+**The one real cost: a binding whose disposal is anonymous must not be exported.** The binding climbs
+to the caller's frame; the frame-local closer does not; the caller is handed a handle that dies at
+the callee's settle. The fused form cannot produce this, because value and closer are one
+registration and climb together. So the decomposition **introduces a use-after-close that the fused
+model structurally prevented** — the one place in this document where the split costs something real
+rather than revealing a cost that was already there.
+
+The resolution is to name the rule rather than patch it: **anonymous disposal cannot transfer,
+therefore a binding paired with anonymous disposal cannot be exported.** That is C.3 read backwards.
+The direct case is statically checkable — `BindStep.value` names a step location, and whether that
+step is a `ResourceOwner` is right there in the notation — so the analysis can refuse the export and
+say why. Indirect cases (the handle laundered through an expression step) stay a documented hazard;
+see §7.
+
+The alternative is recorded and **not** recommended: let `onSettle` take the value it disposes
+(`onSettle(policy, subject) { … }`) and have `bind` adopt a frame-local disposal whose subject is
+identity-equal to the bound value, so it climbs with the binding. More expressive, but it makes
+ownership transfer depend on reference identity — action at a distance, for a case the fused
+`bind(…, disposal)` already expresses perfectly. Decision (o).
 
 ### D · Provision — how a value gets into the scope
 
 | | Option | Verdict |
 |---|---|---|
 | D1 | Step archetypes pin `provides:` (today) | keep — it is right for typed plugin steps |
-| D2 | **A generic `ProvideStep`**: `opens:` (Context picker) · `value` (a reference to a prior step, or a Kotlin expression as `FormulaStep` does) · `qualifier` (optional) · `closePolicy` (Resource only) | **✅** |
+| D2 | **A generic `BindStep`**: `binds:` (Context picker) · `value` (a reference to a prior step, or a Kotlin expression as `FormulaStep` does) · `qualifier` (optional) | **✅** |
 | D3 | **A generic `UseContextStep`** — reads a Context into the value graph so `FormulaStep` / `DisplayValueStep` can consume it by reference | **✅** |
-| D4 | **A generic `ReleaseStep`** — the Resource counterpart | **✅** |
+| D4 | **A generic `ReleaseStep`** — unbinds, and cancels any disposal *attached to that binding* (an anonymous `onSettle` is not attached to anything and survives — §3 C.6) | **✅** |
 | D5 | A document-level "provides to descendants" declaration, with no step | ✗ — nothing to bind; the value has to come from somewhere |
 
 **Why the triad, and why it is small.** P5 showed the notation already permits an instance-level
@@ -299,16 +532,40 @@ why the existing one cannot be reused as-is — framework Contexts are neither).
 Together the triad is what makes contexts usable **without writing a plugin**, which is the actual
 distance between "a fixed set of three" and "anything can be provided".
 
-**One runtime addition worth taking with it:** a `ProvideStep` should check the value against the
-declared type and fail with a named message. The static half is feasible too — Script steps already
-carry inferred types through `ScriptStepDefinition` — but it is a Phase-4 stretch, not a gate.
+**Note what C4 removed from D2.** The draft gave `BindStep` a `closePolicy` shown conditionally on
+the Context being a `Resource`. It has none: binding a value says nothing about disposing it. A step
+that wants both composes the two mix-ins (§3 C.5) and declares both — and a plain `BindStep` for a
+String, an Int or a domain object never sees a close-policy control, not because the editor hides it
+but because there is nothing to hide.
+
+**A fourth generic step falls out, and it is new capability rather than generalization:** a
+**`DisposeAtSettleStep`** wrapping `onSettle` — "delete this file / kill this process when the owning
+frame finishes", with no Context, no key and no namespace entry. Currently inexpressible at any
+price short of inventing a global key. Small, and the clearest single demonstration that the split
+is real.
+
+**One runtime addition worth taking with the triad:** `BindStep` must check the value against the
+declared type and fail with a named message — and it is **runtime-only in the general case**, not a
+static check deferred for convenience. The value graph is `HashMap<ObjectStableId, Any?>` and only
+expression steps carry an inferred type through `ScriptStepDefinition`, so for most `value:` targets
+there is nothing to compare against at design time. Skip the runtime check and a `String` bound to
+`BrowserContext` surfaces as a `ClassCastException` inside `BrowserTargetStep`'s
+`execution.context<RemoteWebDriver>()`, several steps away from the mistake that caused it. Treat it
+as part of D2, not as polish.
+
+**Keep `BrowserOpenStep` fused.** C.6 makes the decomposed open → bind shape available, but the
+shipped browser step should stay `is: [ScriptStep, ContextBinder, ResourceOwner]` with a single
+`bind(key, driver, disposal)` call. That is the form that supports export — the sub-script that opens
+the system under test and hands it up — and the only one for which `manual` means anything (C.4).
+The decomposed form earns its place where a resource is opened and used **locally** and the
+alternative is writing a plugin step purely to obtain a named binding.
 
 ### E · Call-site binding — the parallel-SUT answer
 
 | | Option | Verdict |
 |---|---|---|
 | E1 | Thread a qualifier through step parameters; family-granular gate (today) | keep as the dynamic escape hatch |
-| E2 | **`RunStep.contexts` — a per-call binding map**: `contexts: {SutContext: main.steps/Start A}` | **✅** |
+| E2 | **`RunStep.contexts` — a per-call binding map**: `contexts: {SutContext: Sut A}`, mapping a callee slot to a Context declared in the caller's scope (source form settled in E.1) | **✅** |
 | E3 | Call-site *qualifier* override rather than value override | folded into E2 |
 
 **This is the highest-expressiveness item in the document**, and it is nearly free.
@@ -322,19 +579,56 @@ threaded through every step of the callee.
 **Why it is nearly free.** logic-spec §6 already guarantees the three properties this needs:
 *"One registration per key **per frame**, so two live ones under one key are coherent"*; reads walk
 self → parent → … → root and stop at the first match; *"within the second child's subtree the
-private handle **shadows** the caller-held one"*. So a call-site binding is a **borrow**: register
-the named value on the *child* frame with a **no-op closer** and policy `auto`. The child's settle
-removes the borrow and runs the no-op; the owner's registration, wherever the export chain rested
-it, is untouched. **No engine change.**
+private handle **shadows** the caller-held one"*.
+
+**And C4 is what makes it clean.** The draft described a borrow as "register on the child frame with
+a **no-op closer** and policy `auto`" — a workaround forced by the fusion, since the only way to bind
+was to register a disposal. Under §3 C a borrow is simply **`bind(key, value)` on the child frame
+with no disposal attached**. Not a trick, not a sentinel closer: the plain form of the primitive.
+
+That is worth flagging as corroboration in its own right. **A feature designed independently, before
+the conflation was identified, needed a hack that the decomposition then deleted.** When removing a
+conflation makes an unrelated design fall out for free, the conflation was real.
 
 **Two consequences to state rather than discover.**
 
-- A `Release` step *inside* the callee finds the borrow first and removes it, without closing the
-  underlying resource. That reads as "stop borrowing", which is defensible — but it is a semantic
-  choice and belongs in the spec, not in an implementation detail.
+- A `Release` step *inside* the callee finds the borrow first and unbinds it. Because the borrow
+  carries no disposal, nothing is closed — "stop borrowing", exactly and without ambiguity. Under
+  the fused model this had to be argued; under the split it is what the types say.
 - The analysis must count a call-site binding as satisfying the callee's `context.requires`, or
   every parameterized call site lights up red. `LogicContextAnalysis.analyzeRunStep` is already the
   cross-document rule and is where this lands.
+
+#### E.1 · What the map's *source* side names — and why the draft's answer does not generalize
+
+`contexts: {<callee slot>: <source>}`. The target is settled: a Context the **callee** declares. The
+source was written as a **step location** (`main.steps/Start A`) and that is too narrow.
+
+| | Source | Verdict |
+|---|---|---|
+| E-s1 | A step in the caller — "pass whatever that step bound" | ✗ as the primary form |
+| E-s2 | **A Context declaration in the caller's scope** — "wire my `Browser A` into your `Browser`" | **✅** |
+
+**The argument is compositional, and one hop hides it.** At depth one the caller always has a local
+step that produced the value, so E-s1 looks sufficient. At depth two it stops being true: the value
+the caller wants to forward may have arrived through its *own* caller's `contexts:` binding, or down
+an export chain from a document it never names. **There is no local step to point at**, and E-s1 has
+nothing to write. E-s2 has the ordinary answer, because a declaration is exactly the thing that is in
+scope regardless of how the value got there.
+
+E-s2 is also the better shape for everything else in this document: it is a `by: Nominal` weak
+reference like every other Context reference (rename propagation, dangling tolerance), it is
+resolvable by the same picker, and the static analysis reads one kind of edge instead of two.
+
+**Keep E-s1 as sugar, not as the model.** "Pass what this step bound" is the concrete thing an author
+means while building the first call site, and the editor can offer it — resolving it to the
+declaration that step `binds:` at write time, so the notation stores E-s2. If a step binds a Context
+under a qualifier, the sugar resolves to *that* declaration (§4.3's shape), which is why the two
+mechanisms compose without either knowing about the other.
+
+**The asymmetry is the feature.** The caller's world may hold two qualified declarations while the
+callee's holds one unqualified slot; `contexts:` is a **mapping between namespaces**, not a shared
+name. That is what lets a generic sub-script stay generic — see §4.7.
 
 ### F · Inference
 
@@ -343,7 +637,7 @@ it, is untouched. **No engine change.**
 | F1 | None; everything explicit (today) | superseded in ergonomics only |
 | F2 | **Quick-fix affordances** — one-click chips that write the declaration | **✅** |
 | F3 | Silent inference of the document signature from its steps | ✗ |
-| F4 | **Single-attribute derivation** — for the generic steps, the one `opens:` / `uses:` attribute *is* the declaration; nothing is written twice | **✅** |
+| F4 | **Single-attribute derivation** — for the generic steps, the one `binds:` / `uses:` attribute *is* the declaration; nothing is written twice | **✅** |
 
 **The through-line, stated once and applied everywhere: inference is an affordance, never a
 semantic.** CTX2 §1.1 rejected consumption inference for *ownership*; the same reasoning covers the
@@ -373,10 +667,23 @@ Label row 2 "Provides" naively and a reader takes it to mean fact 3, which is pr
 |---|---|---|---|
 | N1 | Needs / Exports | provides · requires · releases | none — UI split only |
 | N2 | Requires / Provides | provides · requires · releases | `exports` → `provides`; **re-collides** with the step verb |
-| **N3** | **Requires / Provides** | **opens** · requires · releases | one rename: step `provides:` → `opens:` |
-| N4 | Requires / Provides | binds · uses · releases | three renames + an archetype rename |
+| N3 | Requires / Provides | opens · requires · releases | one rename: step `provides:` → `opens:` |
+| **N4** | **Requires / Provides** | **binds · uses · releases** | three renames, plus `ContextProvider` → `ContextBinder` + `ResourceOwner` |
 
-**Recommend N3 — and move the precision from the label to the chip.** The **Provides** row renders
+> **The verdict moved from N3 to N4, and P9 is why.** N3 chose `opens:` — which is **resource
+> vocabulary applied to a binding**. A step that binds a String opens nothing. Once disposal is a
+> separate feature the step verb must describe *putting a value in scope*, and `binds:` is the word
+> that survives contact with a String, an Int, a domain object and a browser handle alike. The
+> archetype split (§3 C.5) then carries the resource half under its own name, so nothing is lost.
+>
+> The second rename is worth stating separately: step `requires:` → **`uses:`**. A *document*
+> `requires` something **from its caller**; a *step* `uses` whatever is in scope. Those are different
+> claims, and giving them one word is the same overload the whole section exists to remove — so
+> having argued it for `provides`, this document should not exempt itself. Document rows keep
+> `context.requires` / `context.exports` unchanged.
+
+**Keep N3's central move regardless — the precision goes on the chip, not the label.** The
+**Provides** row renders
 *two chip skins*: solid-filled for what is handed to the caller (`context.exports`), plain-outlined
 and read-only for what is opened here and kept private (derived from the document's own steps —
 `LogicContextAnalysis.ownStepProvides`, currently `private` and needing to become `internal`).
@@ -390,6 +697,16 @@ user gets the vocabulary they asked for; `exports` keeps its precise meaning whe
 
 Keep the engine's `declareExport` unrenamed — engine vocabulary, not user-facing, and the ownership
 semantic really is an export.
+
+**One collision to walk into deliberately rather than discover.** `StepExecution` already has a
+`bind(location, value)` that records a **step value** into the value graph
+(`ScriptRunContext.kt:194` — re-locate by symbol). Adding `Execution.bind(key, value)` puts two
+unrelated `bind`s on types that a single object implements. The parameter types differ, so it
+compiles and overload resolution is unambiguous — the hazard is comprehension, and it is aggravated
+by the notation verb `binds:` pointing at only one of them. Either accept it with a cross-referencing
+comment at both declaration sites, or rename the value-graph one to **`recordValue`**, which is
+already what its private counterpart on `ScriptRunContext` is called. Cheap at Phase 2, annoying
+afterwards.
 
 **If notation churn is unwanted, N1 is the honest fallback**: split the rows, keep every word. It
 delivers P3 alone and leaves the vocabulary confusion in place.
@@ -460,6 +777,69 @@ chain, by accident of having nothing to declare; afterwards they can end it deli
 That is a behaviour change CTX2 explicitly deferred, and it should land as its own step with its own
 fixtures rather than riding along with something else.
 
+**Keep the two words apart, because they answer differently.** *Concurrent* — several resources live
+and making progress at once. *Parallel* — several **drivers** executing simultaneously.
+
+- **Concurrent multi-instance work is already a Script shape**, and needs nothing from J. Two
+  browsers both hold live sessions — pages loading, timers firing, requests in flight — regardless of
+  where the sequential spine happens to be. Interleaved steps against two live sessions is genuine
+  concurrency, and it is what a two-SUT test usually wants. §4.7.
+- **Parallel driving is not.** A Script's control set is `If` / `DoWhile` / `ForEach` / `Run` /
+  `Pause` / `Wait`, with no fork construct, and a `RunStep` awaits its child. Parallelism in
+  kzen-auto lives in **Job** (`job-worker.yaml` — "the user-composable parallel data-processing
+  stages"), and a Job worker has **no context signature today**, because `context` sits on `Script`.
+
+So J is the enabler for the **parallel** case specifically. That is a narrower claim than the one
+this section first made, and the narrowing matters: reading "a Script cannot drive two browsers
+concurrently" would send an author to a Job for something a Script already does. J is still worth
+doing on its own merits (Flow / Job / Report all gain a signature) — it is simply not what stands
+between an author and two live browsers.
+
+Two follow-on questions this raises and does **not** answer, deliberately: whether parallel workers
+get sibling frames that can each hold a private binding of the same family (§6's "same key, my own
+instance" says the frame model already supports it), and whether a worker may bind into a shared
+parent frame concurrently — which is a data race the current single-threaded frame registry has never
+had to consider. Both belong to whoever plans J, with a real Job in front of them.
+
+### K · Space held for a static flow overlay (future work — deliberately not planned)
+
+A resource-flow view overlaid on the document DAG rooted at a Logic document, computed **without
+running it**, was raised and explicitly deferred. Nothing here schedules it. What follows is the
+short list of properties that make it possible, recorded **so a later phase does not close the door
+without noticing**.
+
+- **The document signature is the abstraction boundary.** A DAG walk composes `context.requires` /
+  `context.exports`, so it never needs to descend into a callee — including one whose steps come from
+  a plugin. Any change that makes a document's contract depend on its internals breaks this.
+- **The call edge is already static.** `ScriptConventions.hostedDocumentPath` resolves a RunStep's
+  `instructions:` to a `DocumentPath` through `graphNotation.coalesce`.
+- **The whole graph is the analysis input, on both platforms.** `LogicContextAnalysis.analyze` takes
+  a `GraphNotation`; `canProvide` already reads a *hosted* document's exports and the signature editor
+  renders that client-side. The one-level-deep limit is a stated cost decision — *"accepted rather
+  than paid for with a whole-graph traversal"* — not a data limitation.
+- **C.5's split is what makes the picture legible.** Binding and ownership are different graph
+  shapes (one binding, many readers · one resource, one disposal point). While `ContextProvider`
+  fuses them, any single diagram is a superposition of two questions. `ContextBinder` /
+  `ResourceOwner` as separate predicates give two toggleable layers.
+- **E.1's declaration-source keeps the edge set homogeneous.** One kind of reference to resolve
+  rather than two.
+- **C.6's provenance check has a second consumer.** `BindStep.value` naming a `ResourceOwner` step is
+  what links an anonymous disposal back to the name it ends up under — the same analysis that powers
+  the export refusal.
+
+Four things such a view could never resolve statically, which is a **presentation** requirement, not
+a blocker: computed qualifiers (logic-spec §6 permits them, which is why the runtime gate is
+family-granular), control flow (a bind inside an `If` branch or loop body is *possible*, and a loop
+re-binds and supersedes per iteration), genuinely anonymous disposal (no name, by construction —
+§3 C.4), and raw engine calls from plugin code (the raw/typed interop §6 makes load-bearing). The
+sharp risk is that **a diagram reads as complete** in a way today's per-step warnings do not, so an
+unsound picture would mislead more than unsound text.
+
+**A cheap thing to take now that only exists because of this question:** give `DisposeAtSettleStep` an
+optional human **label** (`"temp file cleanup"`) — a display string, not a key, introducing no
+namespace and no lookup. It turns the disposal layer from unrenderable into readable, and it costs
+one attribute.
+
 ## 4. Worked examples
 
 ### 4.1 "A String qualified with some tag"
@@ -472,7 +852,7 @@ main:
   is: Contexts
 
 main.contexts/Greeting:
-  is: Value
+  is: Context
   type: { class: kotlin.String, generics: [], nullable: false }
   qualifier: greeting
   title: "Greeting"
@@ -480,7 +860,12 @@ main.contexts/Greeting:
   description: "The salutation the report header uses"
 ```
 
-Provider — computes a value and publishes it, then hands it to its caller:
+**Note what is absent, and that it is the point of §3 C.** No `Value` archetype (C2 was withdrawn),
+no `closePolicy`, no lifecycle field of any kind. A Context declaration says *what this slot is
+called and what type it holds*, and nothing about teardown — so a String needs no fiction to travel
+through it.
+
+Provider — computes a value and binds it, then hands it to its caller:
 
 ```yaml
 main:
@@ -493,8 +878,8 @@ main.steps/Compute:
   code: '"Hello, " + name'
 
 main.steps/Publish:
-  is: ProvideStep
-  opens: Greeting
+  is: BindStep
+  binds: Greeting
   value: main.steps/Compute
 ```
 
@@ -518,7 +903,10 @@ main.steps/Show:
 No `key` anywhere: identity is `(kotlin.String, greeting)` and the engine key defaults to
 `kotlin.String:greeting`.
 
-### 4.2 Two SUTs in parallel — call-site binding
+### 4.2 Two SUTs, one unmodified test — call-site binding
+
+*("In parallel" is the user's framing and the motivating case; the mechanism is per-call rebinding,
+and the two calls run sequentially — §3 J on why a Script cannot do otherwise.)*
 
 ```yaml
 main:
@@ -526,24 +914,26 @@ main:
 
 main.steps/Start A:
   is: StartKzenAutoStep
-  opens: SutContext
-  qualifier: a
+  binds: Sut A
 
 main.steps/Start B:
   is: StartKzenAutoStep
-  opens: SutContext
-  qualifier: b
+  binds: Sut B
 
 main.steps/Test A:
   is: RunStep
   instructions: "main/Login Test.yaml#main"
-  contexts: { SutContext: main.steps/Start A }
+  contexts: { SutContext: Sut A }        # source is a DECLARATION — §3 E.1
 
 main.steps/Test B:
   is: RunStep
   instructions: "main/Login Test.yaml#main"
-  contexts: { SutContext: main.steps/Start B }
+  contexts: { SutContext: Sut B }
 ```
+
+where `Sut A` / `Sut B` are two declarations sharing the `sut` family (§4.3's shape) that the two
+`Start` steps bind. The editor may offer "pass what `main.steps/Start A` bound" as sugar and store
+the declaration — §3 E.1.
 
 And `Login Test.yaml` is **unmodified and unaware**:
 
@@ -560,17 +950,23 @@ Statically distinct, so they are two declarations rather than two call-site bind
 
 ```yaml
 main.contexts/Primary Db:
-  is: Resource
+  is: Context
   type: { class: java.sql.Connection }
   key: db
   qualifier: primary
 
 main.contexts/Reporting Db:
-  is: Resource
+  is: Context
   type: { class: java.sql.Connection }
   key: db
   qualifier: reporting
 ```
+
+A `Connection` does need closing — but that is declared by the **step that opens it**
+(`is: [ScriptStep, ContextBinder, ResourceOwner]`, with its own `closePolicy`), never by the
+declaration. Two consequences worth seeing side by side: the same declaration can be bound by one
+step that owns the connection and by another that merely borrows one it was handed; and the
+declarations above are byte-identical in shape to `Greeting` in §4.1, which is a `String`.
 
 Two chips, two distinct `requires`, **exact-key** analysis (both qualifiers are declared) — and one
 family, `db`, so a family-granular runtime gate still answers "is *some* database open" exactly as it
@@ -578,31 +974,223 @@ does today. Sharing a `key` with *different* qualifiers is the legitimate case; 
 qualifier is the alias the warning should be reporting, and after Phase 2 it reports exactly that
 rather than firing on this.
 
-### 4.4 Browser and SUT — unchanged
+### 4.4 Browser and SUT — structurally unchanged
 
-The shipped `FizzBuzz` / `Open Kzen and Browser` notation is untouched except for the single verb
-rename (`provides:` → `opens:`). Include the before/after in the document as the compatibility proof.
+The shipped `FizzBuzz` / `Open Kzen and Browser` notation keeps its shape; only the verbs move
+(`provides:` → `binds:`, `requires:` → `uses:` at the **step** level; document rows unchanged).
+`BrowserOpenStep` composes both mix-ins and keeps its `closePolicy` exactly as today. Include the
+before/after as the compatibility proof.
+
+### 4.5 A base path passed *down* a subtree — and why no export appears
+
+The most common shape, and the one the fused model made hardest to reason about. An outer Script
+sets a filesystem base path; everything it runs reads it.
+
+```yaml
+# outer Script — declares NOTHING, because the binding rests right here
+main:
+  is: Script
+
+main.steps/Set Base Path:
+  is: BindStep
+  binds: Base Path
+  value: '"C:/work/inbox"'
+
+main.steps/Process:
+  is: RunStep
+  instructions: "main/Process Folder.yaml#main"
+```
+
+```yaml
+# Process Folder.yaml
+main:
+  is: Script
+  context:
+    requires: [Base Path]
+
+main.steps/Base Path:
+  is: UseContextStep
+  uses: Base Path
+
+main.steps/Show:
+  is: DisplayValueStep
+  text: main.steps/Base Path
+```
+
+**No `exports` anywhere, and the reason is directional, not lifecycle-based.** Exports moves a
+binding *upward*; here the binding already rests at the outer frame, and reads walk self → parent →
+… → root, so every descendant sees it. Exports would enter only if the *callee* computed the path
+and the caller needed it afterwards. Getting this right by reasoning about *disposal* — "a String
+has nothing to close, so it needs no export" — reaches the correct answer through the P9 confusion
+and will mislead on the next case.
+
+**Two honest notes.**
+
+- **Every document on the path declares one line.** An intermediate Script that merely hosts a
+  requiring Script, never touching the path, still needs `context: {requires: [Base Path]}` — the
+  analysis is local plus one level deep at each RunStep. So "ambient" here means *declared once per
+  document*, not *invisible*. That is a deliberate trade (each document stays independently
+  analyzable, with its contract written down), but it should not be oversold.
+- **At one or two hops, a Script parameter is the better tool.** Context earns its keep when a value
+  is read deep in a tree that mostly does not care about it. Say so in the UI copy, or every value
+  in the system will end up ambient.
+
+### 4.6 Open, bind, use, auto-close — both primitives in one Script
+
+The scenario that produced §3 C.6: a browser opened by one step, named by another, driven by a third,
+closed by nobody.
+
+```yaml
+main:
+  is: Script
+
+main.steps/Open Browser:
+  is: OpenBrowserStep        # is: [ScriptStep, ResourceOwner] — owns disposal, binds nothing
+  closePolicy: auto          # onSettle(auto) { driver.quit() }, and returns the driver as its value
+
+main.steps/Publish:
+  is: BindStep
+  binds: BrowserContext
+  value: main.steps/Open Browser     # bind(key, driver) — no disposal argument
+
+main.steps/Click Login:
+  is: BrowserClickStep
+  uses: BrowserContext
+```
+
+The frame settles, the closer runs, the browser quits — no close step anywhere. Note that neither
+step is doing anything exotic: `Open Browser` is an ordinary step returning an ordinary value, and
+`Publish` is the same `BindStep` that publishes the `String` in §4.1. **The only reason this cannot
+be written today is that the engine primitive refuses to hand over either half alone.**
+
+Adding an explicit `BrowserCloseStep` (`uses:` + `releases: BrowserContext`) mid-script is legal and
+does close the browser there; the settle-time closer then runs against an already-quit driver and
+does nothing, per §3 C.1.
+
+What this Script must **not** do is declare `context: {exports: [BrowserContext]}` — §3 C.6. A Script
+that needs to hand its browser upward uses the fused `BrowserOpenStep`, which is the shipped shape
+and needs no change for this to work.
+
+### 4.7 Two browsers at once, plus one generic driver that works with either
+
+The example that exercises the most of this document at once, and the one that shows the two
+addressing mechanisms are for **different problems** rather than competing.
+
+Two declarations sharing the `browser` family — statically distinct instances, so they are
+declarations, not call-site bindings (§4.3's rule):
+
+```yaml
+main.contexts/Browser A:
+  is: Context
+  type: { class: org.openqa.selenium.remote.RemoteWebDriver }
+  key: browser
+  qualifier: a
+
+main.contexts/Browser B:
+  is: Context
+  type: { class: org.openqa.selenium.remote.RemoteWebDriver }
+  key: browser
+  qualifier: b
+```
+
+The driving Script opens both and works them **interleaved**:
+
+```yaml
+main.steps/Open A:
+  is: BrowserOpenStep
+  binds: Browser A          # instance-level `binds:` — P5 showed the notation already permits this
+  closePolicy: auto
+
+main.steps/Open B:
+  is: BrowserOpenStep
+  binds: Browser B
+  closePolicy: auto
+
+main.steps/Click Send in A:
+  is: BrowserClickStep
+  uses: Browser A
+
+main.steps/Check Inbox in B:
+  is: BrowserClickStep
+  uses: Browser B
+```
+
+Both registrations are live on the same frame at once — different keys, and logic-spec §6's "one
+registration per key **per frame**" is per *key*. No step carries a qualifier attribute: the
+qualifier lives on the declaration, which is exactly what makes `uses:` a pickable nominal reference
+instead of a string to get right.
+
+**Now the generic driver.** It declares **one unqualified slot** and knows nothing about A or B:
+
+```yaml
+# Drive.yaml
+main:
+  is: Script
+  context:
+    requires: [Browser]
+
+main.steps/Go:
+  is: BrowserOpenUrlStep
+  uses: Browser
+```
+
+and the caller wires it per call:
+
+```yaml
+main.steps/Drive A:
+  is: RunStep
+  instructions: "main/Drive.yaml#main"
+  contexts: { Browser: Browser A }
+
+main.steps/Drive B:
+  is: RunStep
+  instructions: "main/Drive.yaml#main"
+  contexts: { Browser: Browser B }
+```
+
+**The asymmetry is the whole trick, and §3 E.1 is what permits it.** The caller's namespace holds two
+qualified declarations; the callee's holds one unqualified slot; `contexts:` maps between them. The
+callee reads `Browser` argument-free and never learns a qualifier existed — so it is reusable against
+a single-browser caller with no `contexts:` entry at all, unchanged.
+
+**This is genuinely concurrent**, and worth being precise about because the sequential spine invites
+the wrong conclusion: both browsers hold live sessions throughout — pages loading, timers firing,
+requests in flight — and the steps interleave between them. What the Script does **not** do is drive
+them *in parallel*; it has no fork construct, so exactly one step is executing at any moment (§3 J).
+For a two-browser test that is almost always the wanted shape, and it needs nothing from the rest of
+this document beyond the two declarations above.
 
 ## 5. Phasing
 
-Six phases, each a ledger row. **Phase 1 depends on no verdict above** — ship it first regardless of
-what happens to the rest.
+Seven phases, each a ledger row. **Phase 1 depends on no verdict above** — ship it first regardless
+of what happens to the rest.
+
+P9 reshaped this section: the draft's Phase 2 bundled a kzen-lib rename with the kzen-auto identity
+change as two sessions of one phase. The engine split is now large enough to stand alone, so it
+becomes **Phase 2**, identity becomes **Phase 3**, and everything after shifts by one. Phase 2 is
+also now a **prerequisite** rather than a convenience: Phases 5 and 6 both depend on being able to
+bind without disposing.
 
 | # | Phase | Size | Content | Break? |
 |---|---|---|---|---|
 | 1 | **Defects & the row split** | S | P1 filter; picker shows type + description; Requires / Provides rows replace the Role dropdown; the Provides row renders private opens read-only (`ownStepProvides` → `internal`) | no |
-| 2 | **Identity** | M | **Two sessions, hard gate between.** *A (kzen-lib):* `ResourceKey` / `ResourceFamily` replace `key: String` across `Execution` + `RunEngine` — behaviour-preserving refactor (§3 A.3), ends with kzen-lib green **and published to mavenLocal**. *B (kzen-auto):* `Context` → concrete declaration with `type: TypeMetadata` + `qualifier`; `ContextDescriptor.valueClass` → `type`; `contextDescriptor<T>()` compares `type.className`; exact-key analysis for declared qualifiers; the alias warning becomes correct; qualified members are separate declarations sharing a `key` (§3 A.4) | **yes** |
-| 3 | **Authoring** | M | `Contexts` archetype + document + controller + ribbon/sidebar, on the `ObjectRegistry` template; picker "New context…" | no |
-| 4 | **Provision** | M | `ProvideStep` / `UseContextStep` / `ReleaseStep`; `SelectContextEditor`; `Resource` vs `Value` split; runtime type check on provide. Carries the `provides:` → `opens:` rename | **yes** |
-| 5 | **Call-site binding** | M | `RunStep.contexts`; borrowed registration (no-op closer, no engine change); `analyzeRunStep` credits the binding; spec §6 addendum | no |
-| 6 | **Reach & polish** | S | `context` lifted onto `Logic`; quick-fix inference chips | behaviour |
+| 2 | **The split (kzen-lib)** | **L** | `Execution`'s fused `resource(…)` becomes `bind` / `bound` / `unbind` / `hasBindingInFamily` + a keyless `onSettle`; `ContextKey` / `ContextFamily` / `FrameDisposal` domain types; `RunEngine` keeps bindings and disposals in separate registries; the export climb moves to the binding side; logic-spec §6 splits in two; the closer-idempotence requirement is restated at the `onSettle` / `FrameDisposal` declaration sites (§3 C.1); the two-`bind`s rename decision is taken here (§3 G). **Additive in observable behaviour** — the composed form reproduces today's `resource(…)` exactly. Ends with kzen-lib green **and published to mavenLocal** | **yes** (API) |
+| 3 | **Identity (kzen-auto)** | M | `Context` → concrete declaration with `type: TypeMetadata` + `qualifier` and **no lifecycle attribute**; `ContextDescriptor.valueClass` → `type`; `contextDescriptor<T>()` compares `type.className`; exact-key analysis for declared qualifiers; the alias warning becomes correct; qualified members are separate declarations sharing a `key` (§3 A.4) | **yes** |
+| 4 | **Authoring** | M | `Contexts` archetype + document + controller + ribbon/sidebar, on the `ObjectRegistry` template; picker "New context…" | no |
+| 5 | **The step vocabulary** | M | `BindStep` / `UseContextStep` / `ReleaseStep` / `DisposeAtSettleStep`; `SelectContextEditor`; `ContextProvider` → `ContextBinder` + `ResourceOwner`; runtime type check on bind (**runtime-only by nature — §3 D**); the partial analysis guard refusing `exports` of a `BindStep` fed by a same-frame `ResourceOwner` (§3 C.6). Carries the `provides:` → `binds:` and step `requires:` → `uses:` renames (§3 G) | **yes** |
+| 6 | **Call-site binding** | M | `RunStep.contexts` — a plain `bind` with no disposal, now that Phase 2 makes that expressible; **declaration-sourced** (§3 E.1) with step-source offered as editor sugar; `analyzeRunStep` credits the binding; spec addendum | no |
+| 7 | **Reach & polish** | S | `context` lifted onto `Logic` — **the enabler for *parallel* multi-instance work, since a Job worker has no context signature today**; the *concurrent* case already works in a Script (§3 J) | behaviour |
 
 Each phase's gate is `cd ../kzen-auto && ./gradlew build` — **never `./gradlew build` from the
 umbrella**, which abbreviation-matches `:buildEnvironment` and exits 0 having compiled nothing.
-**Phase 2A is the only kzen-lib work in the arc**; its gate is `cd ../kzen-lib && ./gradlew build`
+**Phase 2 is the only kzen-lib work in the arc**; its gate is `cd ../kzen-lib && ./gradlew build`
 followed by `publishToMavenLocal` (all subprojects), because kzen-auto's `jvmMain` / `jsMain` resolve
 variant-suffix coordinates from mavenLocal rather than through the composite. Every other phase is
 kzen-auto-only.
+
+**Phase 2 may need splitting once its anchors are re-verified.** A natural seam is (2a) the domain
+types plus a mechanical rename, keeping the fused primitive, then (2b) the primitive split and the
+registry separation. Decide at the start of the session against the real `RunEngine`, not here.
 
 ## 6. Decision log — rejected and deferred
 
@@ -615,29 +1203,66 @@ kzen-auto-only.
 | (e) | Custom Document as the authoring surface | **superseded** | The user chose a dedicated document type. Recorded because it was the first idea and the shapes really are similar — a `Prototype` and a Context declaration are both "an abstract archetype with a `class:`" |
 | (f) | Renaming `Context` itself (to `Ambient` / `Binding` / `Slot` / `Capability`) | **rejected** | The word aligns with Kotlin `context(…)` receivers, which the spec leans on deliberately. The confusion in the screenshot is P1 (a defect) and P2 (missing description), not the noun |
 | (g) | Renaming the engine's `declareExport` | **rejected** | Engine vocabulary, not user-facing, and the ownership semantic genuinely is an export. §3 G |
-| (h) | `ResourceKey` as a **single** wrapper over the whole `"family:qualifier"` string | **rejected** | Terser and wire-identical, but it cannot make `hasResourceInFamily` unmistakable — and closing that silent always-false is the entire justification for the change. Two types (`ResourceKey` + `ResourceFamily`). §3 A.3 |
+| (h) | `ContextKey` as a **single** wrapper over the whole `"family:qualifier"` string | **rejected** | Terser and wire-identical, but it cannot make the family parameter unmistakable — and closing that silent always-false is the entire justification for the change. Two types (`ContextKey` + `ContextFamily`). §3 A.3 |
 | (i) | Enumerating legal qualifier values on a Context family | **rejected** | A second, weaker kind of identity underneath the first. Each qualified member is its own declaration sharing a `key` instead — no new mechanism, and the ordinary Context picker already covers it. §3 A.4 |
 | (j) | Treating "type-based like Scala/DI" as a paradigm change | **rejected framing** | Those systems manufacture nominal entities for the same job (opaque/tagged types, custom qualifier annotations), and DI containers key their registries on `(Class, Annotation)` as runtime data. A Context object *is* kzen's newtype; A3 delegates string bookkeeping to the package namespace rather than eliminating it. §3 A.1 |
+| (k) | `Resource` / `Value` as two archetypes of `Context` (draft verdict C2) | **withdrawn** | Two skins on one mechanism — the P9 conflation one level down. It would still route every disposal through the naming namespace and hang a lifecycle slot on every binding. Replaced by C4: `Context` carries no lifecycle axis, and disposal is a separate primitive. §1.1, §3 C |
+| (l) | Step verb `opens:` (draft verdict N3) | **withdrawn** | Resource vocabulary applied to a binding — a step that binds a String opens nothing. `binds:` survives contact with String, Int, domain object and browser handle alike. §3 G |
+| (m) | Anonymous disposal participating in the export chain | **rejected** | Transferring ownership of something nobody can name is meaningless. `onSettle` is always frame-local; a closer that must outlive its frame belongs to a *binding*, and the existing chain then carries it. This is also the standing explanation for why the two features fused in the first place. §3 C.3 |
+| (n) | Widening `ResourceClosePolicy` to the full 2 × 2 (disposal × binding lifetime) | **deferred** | The engine should model two axes, but `auto` / `manual` / `keepOnFailure` are the three useful points and the fourth (`keepOnFailure` + `survives`) has no demonstrated use. Recorded so it is a small change if a case appears. §3 C.4 |
+| (o) | `onSettle(policy, subject)` + identity-based disposal adoption at `bind` | **deferred** | Would make the decomposed open → bind shape exportable, but ties ownership transfer to reference identity — action at a distance, for a case the fused `bind(…, disposal)` already expresses exactly. Reopening trigger: a real need to export a resource assembled by two separate steps. §3 C.6 |
+| (p) | Deregistering an anonymous disposal so an explicit close cannot double-fire | **rejected** | Unnecessary. logic-spec §6 already requires a closer to tolerate running when the resource is gone, and the engine swallows a double close rather than preventing it. The fused primitive's `releaseResource`-first discipline was an optimization, and mistaking it for a correctness requirement is what made the decomposed form look lossy on first reading. §3 C.1 |
+| (q) | Decomposing the shipped `BrowserOpenStep` into `OpenBrowserStep` + `BindStep` | **rejected** | The decomposed form cannot export, and export is exactly what the shipped SUT sub-script notation relies on. `BrowserOpenStep` stays fused; the decomposed shape is for locally-scoped resources that would otherwise need a plugin. §3 D |
+| (r) | `RunStep.contexts` sourcing from a **step location** (the draft's form) | **narrowed to sugar** | Does not generalize past one hop: at depth two the value being forwarded may have arrived via the caller's own `contexts:` binding or an export chain, and no local step produced it. A Context declaration is in scope regardless of provenance, is a `by: Nominal` weak reference like every other Context reference, and gives the analysis one edge kind instead of two. The editor may still offer "pass what this step bound" and store the declaration. §3 E.1 |
+| (s) | A per-step `qualifier:` attribute for addressing one of several live instances | **rejected** | Two declarations sharing a `key` express it with no new mechanism, and `uses:` stays a pickable nominal reference rather than a string to get right. The runtime qualifier parameter remains as the dynamic escape hatch (E1). §4.7, §3 A.4 |
+| (t) | A static resource-flow overlay over the document DAG | **future work, not planned** | Raised and deferred by the user. §3 K records only the properties that keep it possible, so a later phase does not close the door unknowingly |
 
 ## 7. Risks
 
-- **Phase 2 is breaking** across the shipped notation plus the ~20 fixtures in
+- **Phase 2 is the biggest single risk in the arc, and P9 created it.** Splitting a fused engine
+  primitive touches `RunEngine`'s registry, the export climb, `manual`'s hand-up cascade and the
+  live-edit migration that lifts registrations by their owner's stable id. Mitigations: the composed
+  form reproduces today's `resource(…)` exactly, so `RunEngineTest` plus the existing context suites
+  are a real gate; and the seam noted in §5 lets it split in two if the session runs long.
+- **Phase 2 crosses the repo boundary**, and it is the only phase that does. A kzen-lib change that
+  is not published to mavenLocal produces a kzen-auto build that compiles against the composite and
+  *fails* against the variant-suffix coordinates — verify the publish before starting Phase 3, not
+  after.
+- **Phase 3 is breaking** across the shipped notation plus the ~20 fixtures in
   `kzen-auto-jvm/src/test/resources/notation/test/script/context/`. `SelfTestContextDeclarationsTest`
   asserts the whole `notation/main/**` self-test suite carries zero findings and runs on every
   `build`, so the migration cannot be deferred past the session that starts it.
-- **Phase 4's Resource/Value split touches every shipped Context.** Mechanical, but it lands in the
-  same files Phase 2 rewrote — sequence them adjacently or accept a second sweep.
-- **Phase 2A crosses the repo boundary**, and it is the only phase that does. A kzen-lib change that
-  is not published to mavenLocal produces a kzen-auto build that compiles against the composite and
-  *fails* against the variant-suffix coordinates — verify the publish before starting 2B, not after.
-  Mitigating factor: 2A is behaviour-preserving, so `RunEngineTest` plus the existing context suites
-  are a complete gate.
-- **Phase 5's borrow semantics are new spec surface.** The mechanism needs no engine change, but
-  release-in-child and analysis credit are both decisions, and both belong in logic-spec §6 before
-  the code lands, not after.
-- **Phase 6 changes export-chain termination for Flow / Job / Report** — a behaviour change CTX2
-  deliberately deferred. Own fixtures, own step.
+- **Phase 5's two verb renames land in the same files Phase 3 rewrote.** Sequence them adjacently or
+  accept a second sweep of the same notation.
+- **The three-value `ResourceClosePolicy` now spans two engine axes** (§3 C.4). The mapping is
+  `manual` = `auto` + `survives`, and it must be written down where the enum is defined — otherwise
+  the next reader re-derives the fusion from the notation surface.
+- **The split introduces one new failure mode, and only one: exporting a binding whose disposal is
+  anonymous** (§3 C.6). Everything else in this document removes a constraint; this adds one. The
+  analysis guard catches `BindStep.value` pointing directly at a `ResourceOwner` step and **misses
+  the same handle laundered through an expression step**. Ship it as a partial guard, document it as
+  partial, and do not describe the decomposed form as safe to export.
+- **Closer idempotence stops being a nicety and becomes structural** (§3 C.1). It is already required
+  by logic-spec §6, but only stated in prose about the fused call; a plugin author writing a
+  non-idempotent closer today gets away with it wherever an explicit close step deregisters first.
+  Restate it at the `onSettle` / `FrameDisposal` declaration sites in the same change that creates
+  them.
+- **Two `bind`s after Phase 2** — `StepExecution.bind(location, value)` records a step value,
+  `Execution.bind(key, value)` creates a binding, and the notation verb `binds:` names only the
+  second (§3 G). Different parameter types, so the compiler is fine; the reader is not. Decide the
+  rename at Phase 2 rather than when someone trips over it.
+- **Phase 7 changes export-chain termination for Flow / Job / Report** — a behaviour change CTX2
+  deliberately deferred. Own fixtures, own step. It also opens a question nothing in the arc answers:
+  **parallel Job workers binding concurrently.** Sibling workers holding private bindings of one
+  family is already the frame model's "same key, my own instance", but *concurrent writes into a
+  shared parent frame* is a data race the single-threaded frame registry has never faced. Whoever
+  plans Phase 7 must look at a real Job, not at this document.
 - **P1 and P2 are hostage to nothing.** If this document stalls in review, ship them anyway.
+- **A process note.** P9 was found in review *after* a full draft had been built on top of the
+  confusion, and it invalidated four verdicts (C2, N3, the borrow mechanism, the phase list). The
+  draft's own §3 E is the tell: it required a no-op-closer workaround, which is what a fused
+  primitive looks like from the outside. **A design that needs a sentinel value to express the
+  ordinary case is reporting a conflation** — worth carrying forward as a review heuristic.
 
 ## 8. As-built
 
