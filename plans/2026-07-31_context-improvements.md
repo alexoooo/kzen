@@ -1287,3 +1287,162 @@ comes from the verdict rather than a preselected build command.
 ## 8. As-built
 
 *(To be filled per phase, in descending order of interest, with the gates that ran green.)*
+
+### Phase 4 — declarations and addressing (2026-08-02, ledger row 36)
+
+Gates green: `cd ../kzen-auto && ./gradlew build` (the whole suite, including
+`SelfTestContextDeclarationsTest`'s zero-findings assertion over `notation/main/**`, the 24 context
+fixtures, and `jsBrowserTest`), plus a spare-port browser smoke confirming the client graph is healthy
+with concrete Context declarations and the picker's detail line now reads its type from `type:`.
+
+**Deviations and findings, in descending order of interest:**
+
+- **The "~20 fixtures" migration was four files.** Only `script-jvm.yaml`, `script-test.yaml`,
+  `script-step-test-archetypes.yaml` and `script-context-alias-test.yaml` *declare* `is: Context` (five
+  declarations total); `notation/main/**` declares none. The ~24 figure counts fixtures that *use*
+  contexts through `provides:` / `requires:`, and those are CX6's verb sweep, not this phase's. Worth
+  correcting in the risk list, because it moved the phase's actual risk from "a large mechanical sweep"
+  to "one archetype shape change that the client graph has to survive" — which is what the smoke checked.
+- **`ContextDeclaration` lives in kzen-auto-common, not beside `ParameterBinding` in kzen-auto-jvm.**
+  `ParameterBinding` is the shape precedent but it is server-only, and its documents (`main/`) are
+  outside `clientUiAllowed`. A Context declaration is not: making it concrete means the graph
+  instantiates it, and JS has no runtime reflection to fall back on. A KMP `@Reflect` class removes the
+  question entirely rather than resting on a nesting-filter argument that a later phase could invalidate.
+- **A notation-level TypeMetadata reader already existed** — `TypeMetadataDefiner.parse(AttributeNotation)`
+  is a companion function with five callers — so `ContextConventions` reads `type:` off raw notation on
+  both platforms with no new parser. An absent or unparseable `type` degrades to `Any` rather than
+  dropping the declaration: a Context with a broken type is still a nominal symbol whose references
+  should keep resolving, and the contract is enforced where a value is actually bound.
+- **The duplicate-key warning now groups by the DERIVED exact key**, not by the `key` alias. Grouping by
+  alias would amber the two-databases shape §4.3 recommends, where sharing a family with different
+  declared qualifiers is exactly right. `ScriptContextValidationTest` was updated for the reworded
+  message; its behaviour assertion is unchanged.
+- **Runtime bind conformance walks the value's Kotlin supertype names** rather than loading the declared
+  class. `TypeMetadata` carries Kotlin names (`kotlin.String`) and the JVM namespace does not line up for
+  the mapped built-ins, so a translation table would be a standing source of drift. A hierarchy
+  reflection cannot walk answers *conforming* — an unverifiable type must not fail a bind that would have
+  worked — and, as §3 D requires, no claim is made about nested generics.
+- **The requires gate is now exact for a declared qualifier**, family-granular only for the unqualified
+  declarations that admit a computed one. Same change in `ScriptLogic`'s document-level check and in its
+  `declareExport`, which contributes `Exact` or `Family` on the same rule.
+
+### Phase 3 — binding / disposal split (2026-08-02, ledger row 35)
+
+Gates green: `cd ../kzen-lib && ./gradlew build` (86 `RunEngineTest` cases — the 74 that existed, unchanged,
+plus 12 new settlement-table fixtures), `publishToMavenLocal` (artifacts re-verified on disk), then
+`cd ../kzen-auto && ./gradlew build`. **The parity gate held first**: the pre-existing resource suite went
+green against the composed `resource(...)` adapter re-implemented over the split registries before a single
+new test was written, which is what makes the rest of the phase readable as behaviour *added* rather than
+behaviour *changed*.
+
+**Deviations and decisions, in descending order of interest:**
+
+- **"Retain" needed a surface, and got one.** The elaboration flagged this as a conditional: verify retention
+  is real, and if terminal-frame compaction makes it false, add the surface or rename the policy. It *was*
+  false — and worse than the elaboration assumed. The fused implementation cleared the frame's map and simply
+  did not dispose, so root/`manual` and failed/`keepOnFailure` registrations left no trace at all; a
+  non-retained frame is then compacted out of `nodes` entirely, so even leaving the entry on the frame would
+  not have saved it. Retention now moves the binding to a run-level register, exposed as
+  `RunEngine.retainedBindings()` / `releaseRetained(node, key)` (a new `RetainedBinding` model type) — so what
+  was kept is findable, its live handle readable, and closeable through the same one-shot claim.
+- **The surface went on `RunEngine`, not on the `Run` interface.** No driver needs it yet, and widening the
+  interface every consumer implements against for a facility with no consumer is exactly the future-proofing
+  CC-10 rejects. Lift it when a driver reaches for it.
+- **Retained bindings are NOT auto-disposed at `dispose()`.** Tempting (it would close the leak completely)
+  and rejected: §6's `manual` means the handle outlives the run, and quietly quitting a browser when the next
+  run replaces the retained one would be a user-visible behaviour change nothing in the arc asked for. The
+  register makes the leak *visible and closeable*, which is what the plan actually required.
+- **`releaseResource(String)` keeps remove-WITHOUT-dispose; `releaseBinding(ContextKey)` disposes.** They are
+  different operations, not a rename: the old one exists for a caller that already tore the resource down
+  itself. Keeping them apart is what let the compatibility oracle stay green — `resourceReleasedByDescendantIsNotDisposed`
+  asserts precisely the old semantic — while §3 G's "release does what the word promises" ships on the typed
+  path. CX6 migrates `BrowserCloseStep` / `ReleaseStep`, and must drop their own `quit()` call as it does.
+- **`ClosePolicy` is reused as the managed-binding settlement choice** rather than a fourth new enum. It
+  already holds exactly `Auto`/`Manual`/`KeepOnFailure`, `ResourceClosePolicy.toEngine()` already maps onto
+  it, and renaming it would have been drive-by churn (CC-07). `SettleDisposalPolicy` is the genuinely new
+  two-valued type, and converts.
+- **An anonymous registration is stored as a `FrameDisposal` too**, so one settlement evaluator serves both
+  registries and the one-shot claim is not duplicated. `Manual` is unreachable for it by construction —
+  `onSettle` takes only `SettleDisposalPolicy` — which is the API shape doing the work instead of a comment.
+- **Anonymous `keepOnFailure` on a failed frame retains nothing.** There is no handle to hold: retention means
+  the temp file stays undeleted, so the closer is simply never claimed. Only *named* bindings reach the
+  retained register.
+- **Settle order is anonymous-then-named, each LIFO.** An `onSettle` typically tidies something produced
+  *using* a bound resource, so it has to run while that resource is still open. The previous single-registry
+  implementation had no such choice to make.
+- **New package `exec/engine/disposal/`**, mirroring CX2's `exec/engine/context/`. The two packages are the
+  P9 split made structural — which is a better carrier for the design than any comment about it.
+
+### Phase 2 — address algebra (2026-08-02, ledger row 34)
+
+Gates green: `cd ../kzen-lib && ./gradlew build` (74 `RunEngineTest` cases, 13 new `ContextKeyTest`),
+`publishToMavenLocal` (all four subprojects, artifacts verified on disk), then
+`cd ../kzen-auto && ./gradlew build` — the consumer compiles unchanged against the deprecated
+adapters. No version bump (CC-14).
+
+**Deviations and decisions, in descending order of interest:**
+
+- **The types live in their own package, `exec/engine/context/`, not loose beside `Execution.kt`.**
+  `exec/engine/` already held 19 files before this phase; CC-06 and CC-15 both say a cluster of
+  related classes becomes a subpackage rather than diluting its parent. It also expresses P9
+  structurally: context addressing is one package, and CX3's disposal types are a different feature
+  that should not land in it.
+- **The registry stays string-keyed, so the deprecated string methods keep their *own* walks rather
+  than parsing.** The typed methods translate onto the same registrations via `ContextKey.asString()`.
+  That matters because `ContextKey.parse` is strict (below) and a raw plugin key need not be
+  well-formed: making `resourceValue(String)` parse would have turned "returns null" into "throws" on
+  input that works today. `hasResourceInFamily(String)` therefore also keeps its §0.1 degradation
+  intact and undocumented-as-fixed, exactly as the elaboration required; `hasBindingInFamily` shares
+  its implementation but cannot be handed a qualified key at all.
+- **`ExportSelector.covers` is defined over a raw key string, with the `ContextKey` overload derived
+  from it.** The engine's climb still sees strings, and the family split (`substringBefore(':')`) is
+  a rule that belongs on the selector rather than duplicated in `RunEngine`. One implementation, one
+  delegation — no sibling pair to drift.
+- **`ContextKey.parse` rejects a second delimiter** (`sut:a:b`), an empty family and an empty
+  qualifier, rather than reinterpreting them. There is no second qualifier level, so accepting one
+  would mean silently choosing a reading; rejecting keeps `parse` a total inverse of `asString`. The
+  only production path that now parses is `declareExport(String)`, whose inputs are authored `key:`
+  attributes (`browser`, `sut`, `job-scratch`) — all well-formed.
+- **The existing resource suite stays on the deprecated string API deliberately** — it is the
+  compatibility oracle, so it must keep exercising the adapters. The ~20 deprecation warnings it now
+  emits are the accurate migration worklist for CX4/CX6 and disappear with the surface itself; no
+  blanket suppression was added, which would also have masked new accidental uses.
+
+### Phase 1 — defects & the row split (2026-08-02, ledger row 33)
+
+Gates green: `cd ../kzen-auto && ./gradlew build` (full, incl. the self-test declaration suite and
+`:kzen-auto-js:jsBrowserTest`), plus a spare-port (`:8097`) browser smoke on a two-document scratch
+project. Smoke confirmed all four claims: the picker offers no abstract base; each option row carries
+the value class + description; Requires and Provides add/remove independently; and a document holding
+today's `context.exports` notation renders unchanged (notation format untouched).
+
+**Deviations, in descending order of interest:**
+
+- **`ownStepProvides` stays `private`.** §3 G and the elaboration both prescribed widening it to
+  `internal` so the Provides row could render private opens. That does not compile: the consumer is
+  `kzen-auto-js` and the declaration is in `kzen-auto-common` — **separate Gradle modules**, so
+  Kotlin `internal` is not visible across them. Added a purpose-named public
+  `LogicContextAnalysis.privateProvides(graphNotation, documentPath)` instead — own step provides
+  minus `context.exports` — which is exactly what the row wants and keeps the `anyManual` pairing
+  private. The same trap will recur for any future "let the JS editor see an analysis internal": the
+  answer is a public query named for the question, not a visibility widening.
+- **The picker's detail line needed a new capability in the shared select wrapper.** There was no
+  existing custom-option-rendering precedent in the tree (the elaboration's "same pattern the
+  sidebar's document pickers use" does not exist — no `renderOption` call site). `SelectOption` gained
+  optional `detail` / `detailTitle`, and `muiAutocompleteField` assigns MUI's `renderOption` **only
+  when some option carries a detail**, so every other select in the client keeps MUI's default
+  single-line row byte-for-byte. Assigned through `asDynamic()` to stay off the typed prop's arity,
+  matching the file's existing `onKeyDown` idiom.
+- **`isContext` took the `drop(1)` proper-ancestor form with no fallback needed.** The "check callers
+  first" contingency was moot: `isContext` has no external callers at all — everything reaches it
+  through `descriptorOrNull` / `resolveOrNull` / `allContexts`, and each of those wants the archetype
+  excluded. The fix therefore also silently repairs the graph-wide duplicate-key check, which had
+  been carrying the archetype's empty `key` as an alias candidate.
+- **`StageErrorIndicator.reservedRowEm` is unchanged.** The extra row takes the next slot on the
+  existing 2.25em rhythm (Requires 5.0em, Provides 7.25em), both now named constants in the editor
+  rather than a literal in the `css` block.
+- Role is a `ContextSignatureRole` prop on one component rendered twice, not two components. The
+  legacy `context.slots` warning renders on the Provides row (its remedy is an exports edit). Both
+  instances still read BOTH roles from notation — the mutual exclusion and the already-declared
+  picker filter are cross-row facts — and each write re-reads both roles, so a row's edit cannot
+  destroy its sibling's key.
