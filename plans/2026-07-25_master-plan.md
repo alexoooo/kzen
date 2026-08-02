@@ -23,14 +23,15 @@
 | **DA/SH** | `2026-07-25_desktop-and-hosting.md` | Desktop app distribution + the hosting trio's hygiene tail | SH5, DA1–DA5 (DA6 parked) |
 | **FL** | `2026-07-25_flow-improvements.md` | Flow flavour | FL5, FL6 |
 | **C** | `2026-07-25_core-and-verification.md` | Graph perf tail + accumulated verification debt | C1–C4 |
-| **CX** | `2026-07-31_context-improvements.md` | Context generalization — a **design-space exploration**, added mid-sprint on the first sustained use of CTX/CTX2 | CX1–CX7 |
+| **CX** | `2026-07-31_context-improvements.md` | Context generalization — a **design-space exploration**, added mid-sprint on the first sustained use of CTX/CTX2 | CX1–CX8 |
 
 Execution-ready elaborations for the independent items live under `plans/next/` — see its README.
 
-**CX is the odd one out**: it is a *design-space exploration*, not a phase list with pre-made
-decisions. Its §3 records a verdict per axis with the argument for it, so a session starting from it
-inherits intent — but the verdicts on **auto-wire depth (§3 B)** and **naming (§3 G)** were delegated
-to the document and remain open to the user until read.
+**CX is the odd one out**: it began as a *design-space exploration*, not a phase list with pre-made
+decisions. Its §3 records a verdict per axis with the argument for it. The user reviewed and ratified
+the nominal auto-wire verdict and N4 naming on **2026-08-01**, together with a semantic-hardening pass
+that split declaration/type/address identity, exact-vs-family exports, present-null lookup, one-shot
+disposal and atomic call-site bootstrap. CX8 is deliberately still a design gate for parallel flavours.
 
 ## Session ledger
 
@@ -72,20 +73,21 @@ everything above them and can be taken any time a change of pace helps.
 | 30 | **XC-N a** — frame-addressed move target (kzen-lib) | `MoveTarget` (id + call-site path) replaces the tree-wide broadcast, `Execution.moveDescendCallSite`, per-node suffix assignment, `logic-spec` §4/§5 + `Repositionable` + `Execution.host` KDoc. **DEFECT fix, part 1** — see § XC. As-built additions: `Repositionable.canDescendThrough` (keeps the driver flavour-agnostic) and a transit-frame `position` write in `RunEngine.host` | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
 | 31 | **XC-N b** — nested-frame move-to (kzen-auto) | Controller gates on the *addressed frame* (liveness / addressability / loop-body / descent capability), transit-frame descend in `ScriptRunContext.restore`, client drag in any live frame, 9 new fixtures. **DEFECT fix, part 2** — straight-line + `If`-nested shapes; ~~loop-hosted waits on the parked loop-body extension~~ **loop-hosted transit shipped in row 32** | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
 | 32 | **XC-N c** — post-smoke defect fix (kzen-auto) | The user's §9 manual smoke on `FizzBuzz Script Loop` found XC-N1 silently doing nothing. Three defects: **(a)** loop-hosted *transit* was refused on a **false** rationale — the walk already resumes mid-iteration, so `isDescendableCallSite` split off `plan` and dropped the `rerun` clause (targets keep it); **(b)** control errors were attributed to the run-root document, so nested rejections rendered on the *parent* — `controlAsync` now takes an explicit `documentPath`; **(c)** the drag handle painted valid against a guaranteed refusal — the margin now evaluates the whole frame spine. Plus rejection **reasons** end-to-end (`LogicControlReply` / `RepositionDiagnostic` / `MoveToRefusal` / `ScriptJumpRefusal`), kzen-lib untouched. See `next/nested-frame-move-to` §14 | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
-| 33 | **CX1** — context defects + the row split | `allContexts` no longer returns the abstract base (**defect** — `inheritanceChain` includes self, so `Context` matches its own filter); picker shows type + description; **Requires / Provides rows replace the Role dropdown**; the Provides row renders private opens read-only. **Depends on no design verdict — ship regardless of what happens to CX2–CX6** | CX · CX1 | — | ☐ |
-| 34 | **CX2** — split binding from disposal (kzen-lib) | **The arc's structural change, and its biggest risk.** `Execution`'s fused `resource(key, policy, value, closer)` — whose *optional* `value` is the tell — splits into `bind` / `bound` / `unbind` / `hasBindingInFamily` plus a **keyless** `onSettle`. Adds `ContextKey` / `ContextFamily` / `FrameDisposal` domain types, which also close a silent always-false (a fully-qualified key passed where a family is wanted never matches). Makes two things expressible for the first time: passing a String **without pretending it is disposable**, and frame-scoped teardown **without inventing a global key**. Additive in observable behaviour — the composed form reproduces today's `resource(…)` exactly. **The only kzen-lib work in the CX arc**; ends published to mavenLocal | CX · CX2 | — | ☐ |
-| 35 | **CX3** — identity = (type, qualifier) | `Context` becomes a concrete declaration carrying `type: TypeMetadata` + `qualifier` and **no lifecycle attribute at all**; `key` demoted to an optional interop alias defaulting to the class name; exact-key analysis for declared qualifiers; the shared-key alias warning becomes correct. **Breaking** — shipped notation + ~20 `test/script/context/` fixtures, and `SelfTestContextDeclarationsTest` runs on every build | CX · CX3 | — | ☐ |
-| 36 | **CX4** — the Contexts document | New `Contexts` archetype + document + controller + ribbon/sidebar, on the `ObjectRegistry` template; picker gains "New context…" writing into it. Closes "the set of providable things is authored in framework YAML only" | CX · CX4 | — | ☐ |
-| 37 | **CX5** — the step vocabulary | `BindStep` / `UseContextStep` / `ReleaseStep` / `DisposeAtSettleStep` + `SelectContextEditor`; `ContextProvider` splits into `ContextBinder` + `ResourceOwner`; runtime type check on bind. Carries the `provides:` → `binds:` and step `requires:` → `uses:` renames (§3 G). **Makes contexts usable without writing a plugin** | CX · CX5 | — | ☐ |
-| 38 | **CX6** — call-site context binding | `RunStep.contexts` — the caller supplies a callee's ambient dependency per call, so one sub-script runs against two SUTs unmodified. After CX2 this is a **plain bind with no disposal attached**, not the no-op-closer workaround the draft needed; `analyzeRunStep` credits the binding | CX · CX6 | — | ☐ |
-| 39 | **CX7** — reach & polish | `context` lifted from `Script` onto `Logic` so Flow/Job/Report participate (**behaviour change** CTX2 deferred — own fixtures); quick-fix inference chips off `remedyFor` | CX · CX7 | — | ☐ |
+| 33 | **CX1** — context defects + the row split | `allContexts` no longer returns the abstract base (**defect** — `inheritanceChain` includes self, so `Context` matches its own filter); picker shows type + description; **Requires / Provides rows replace the Role dropdown**; exported/private chips have explicit badges and accessible text. **Depends on no design verdict** | CX · CX1 | — | ☐ |
+| 34 | **CX2** — address algebra (kzen-lib) | `ContextKey` / `ContextFamily`, `ExportSelector.Exact/Family`, `BindingLookup.Missing/Present`, exact + family gates, qualified-export and present-null tests; typed overloads retain deprecated composed adapters. Ends green and published to mavenLocal | CX · CX2 | — | ☐ |
+| 35 | **CX3** — binding/disposal split (kzen-lib) | **The arc's structural change and biggest implementation risk.** Separate binding/disposal registries; `bind` / `binding` / `releaseBinding` + keyless `onSettle`; one-shot `FrameDisposal`; explicit settlement state table (including root/manual and failed retention); export climb on bindings; migration fixtures; composed form proves parity. Ends published to mavenLocal | CX · CX3 | — | ☐ |
+| 36 | **CX4** — declarations and addressing | Context becomes a concrete **nominal declaration** with `type: TypeMetadata` value contract, qualifier and optional interop key; canonical full-type default family; exact declared qualifiers vs family computed qualifiers; centralized typed-bind conformance; value-graph `bind` → `recordValue`. **Breaking** across shipped notation + ~20 fixtures | CX · CX4 | — | ☐ |
+| 37 | **CX5** — the Contexts document | New `Contexts` archetype + document + controller + ribbon/sidebar, on the `ObjectRegistry` template; picker gains "New context…" writing into it | CX · CX5 | — | ☐ |
+| 38 | **CX6** — the step vocabulary | `BindStep` / `UseContextStep` / `ReleaseStep` / `DisposeAtSettleStep`; `ContextProvider` → `ContextBinder` + `ResourceOwner`; release invokes attached disposal once; `provides:` → `binds:`, step `requires:` → `uses:`. No unsafe cross-step managed-resource handoff without a lease token | CX · CX6 | — | ☐ |
+| 39 | **CX7** — atomic call-site context binding | `RunStep.contexts` maps caller declaration to callee declaration; `Execution.host(initialBindings=…)` installs borrows before child run; missing-vs-null, source→target assignability and migration ordering; editor step-source sugar stores the declaration; analysis credits the binding | CX · CX7 | — | ☐ |
+| 40 | **CX8** — parallel-flavour reach gate | Inspect real Flow/Job/Report frame topologies; decide root-vs-worker signatures, borrow lifetime, sibling release and shared-parent write semantics. Records verdict + fixtures/implementation plan; **does not assume `context` simply lifts onto `Logic`** | CX · CX8 | — | ☐ |
 
-**~39 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
+**~40 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
 a **defect fix**, not new scope — sequence them by how much the broken affordance is costing, not
-by position in this table. Rows 33–39 (**CX**) are the context arc's third pass, added 2026-07-31
-on the first sustained use of CTX/CTX2 — row 33 is partly a defect fix and is independent of the
-rest of the arc, and row 34 is a prerequisite for rows 37–38.
+by position in this table. Rows 33–40 (**CX**) are the context arc's third/fourth pass, added
+2026-07-31 and hardened 2026-08-01 on the first sustained use of CTX/CTX2 — row 33 is partly a defect
+fix and independent; rows 34–35 establish the engine substrate for rows 36, 38 and 39.
 
 ### What to run right now
 
@@ -100,11 +102,10 @@ remains is the user's re-smoke, which needs a dev-server restart.
 
 Row **33 (CX1)** is the other genuinely-independent pull-forward: it carries a real defect (the
 Context picker offers the abstract base, because `inheritanceChain` includes the object itself) plus
-the Requires/Provides split, and it depends on **no** design verdict in the CX document. Rows 34–39
-should wait on the user reading `2026-07-31_context-improvements.md` — it is an exploration, and its
-§3 B (auto-wire depth) and §3 G (naming) are recommendations, not settled decisions. **Row 34 gates
-rows 37–38**: both need the ability to bind a value *without* registering a disposal, which the
-shipped engine primitive cannot express — see the document's §1.1.
+the Requires/Provides split, and it depends on **no** design verdict in the CX document. The user
+reviewed and ratified the document's nominal auto-wire and N4 naming verdicts on 2026-08-01, so the
+rest of the arc no longer waits on review. **Rows 34 → 35 are the kzen-lib substrate**; row 35 gates
+rows 36, 38 and 39. Row 40 remains a design gate by intent, not because it awaits document approval.
 
 ## Dependency rules (the live ones)
 
@@ -130,6 +131,9 @@ shipped engine primitive cannot express — see the document's §1.1.
 10. **FL6 after FL3** — satisfied (FL3 landed 2026-07-21), so the gate is open.
 11. **R6 is closed, no session** — the client-plugin verdict is recorded in the E plan's tracker.
 12. **TP2 is closed, no session** — superseded by TP3, which landed 2026-07-16. Formalized in C4.
+13. **CX1 is independent; CX2 → CX3 → CX4 is the engine/declaration spine.** CX5 needs CX4; CX6
+    needs CX3+CX4; CX7 needs CX3+CX4 and should follow CX6 to avoid a second notation sweep. CX8 is
+    a design gate after CX7, not authorization to lift `context` mechanically onto every Logic flavour.
 
 ## Carried over from Sprint 2
 

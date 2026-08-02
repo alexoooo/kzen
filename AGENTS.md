@@ -135,6 +135,8 @@ For foundational concepts shared across all KMP siblings (the Notation → Defin
 
 ## Working with this repo from AI agents
 
+Before modifying an included sibling repository, read that sibling's `AGENTS.md` completely. Do not assume that an agent started from the umbrella has automatically loaded a sibling's guide; treat it as required local context.
+
 ### File safety — never delete files outside your work stream
 
 Treat the working tree as the user's. Never delete, move, or overwrite a file that isn't an explicit part of the task you were asked to do — even if it is uncommitted, untracked, or `.gitignore`d. "Not in a commit" does not mean "disposable": the user keeps real working documents and run artifacts in the tree before committing (e.g. user-authored Scripts/Reports and screenshots under a sibling's `notation/main/`, often `git add`ed but not yet committed).
@@ -167,4 +169,4 @@ The `audit/` directory holds long-form analysis reports (e.g. build-warning clas
 
 ### Plans directory convention
 
-Long-form work plans live in `plans/` (umbrella root — when the user says "the plan" without a path, look here). Tiers: `plans/<yyyy-mm-dd>_*.md` are the live constituent plans, and the session ledger in `plans/_master-plan.md` is the sequencing source of truth — start there; each ledger row points at its constituent plan. `plans/next/` holds execution-ready elaborations of specific phases (lifecycle rules in its README: when a phase lands, tick the constituent plan's tracker AND the master ledger, then delete the elaboration file — never the constituent plan). `plans/sprint-*/` are closed archives: only each sprint's README survives as the as-built record; plan bodies are recoverable via `git show`.
+Long-form work plans live in `plans/` (umbrella root — when the user says "the plan" without a path, look here). Tiers: `plans/<yyyy-mm-dd>_*.md` are the live constituent plans, and the session ledger in `plans/2026-07-25_master-plan.md` is the sequencing source of truth — start there; each ledger row points at its constituent plan. `plans/next/` holds execution-ready elaborations of specific phases (lifecycle rules in its README: when a phase lands, tick the constituent plan's tracker AND the master ledger, then delete the elaboration file — never the constituent plan). `plans/sprint-*/` are closed archives: only each sprint's README survives as the as-built record; plan bodies are recoverable via `git show`.
