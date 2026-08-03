@@ -898,8 +898,16 @@ three ways at once. Evidence: `RunEngineParallelBindingTest` (kzen-lib, 4 fixtur
 |---|---|---|
 | Script | sequential host chain, one child frame per `RunStep` | **done** (CX1–CX7) |
 | Flow | **one frame for the whole DAG walk** — a vertex is a `checkpoint`, not a frame; `runOneVertex` is not even `suspend`. Only a `FlowLogicHost` vertex hosts, sequentially | **licensed** — structurally the Script case, no new engine semantics. Row 41 |
-| Job | Job document = one frame; **every Worker = a child frame, all launched together** (`coroutineScope { … async { host(…) } … awaitAll() }`, no cap beyond `max(2, cores-1)` engine threads); a `RunWorker` hosts a further frame per element | **withheld** — needs an engine decision that does not exist yet. Row 43, and the row's first step *is* that decision |
+| Job | Job document = one frame; **every Worker = a child frame, all launched together** (`coroutineScope { … async { host(…) } … awaitAll() }`, no cap beyond `max(2, cores-1)` engine threads); a `RunWorker` hosts a further frame per element | ~~**withheld**~~ → **decided 2026-08-03** (user): worker frames are **export-opaque by construction**. Landed as the `contextBarrier` on `Execution.host`, passed by `JobRun` per Worker. Row 43's engine half is done; the Job ROOT is an ordinary frame and can still take the row-41 treatment (43a), and a Worker read path needs a `JobControl` member (43b) |
 | Report | **leaf frame**: never hosts, never exports, no `declareExport`/`onCapture` anywhere; its parallelism is an LMAX Disruptor on daemon threads, invisible to the engine's node tree | **out of scope** — a signature would be pure decoration |
+
+⚠ **"Never hosts" is not "never hosted", and conflating the two is exactly what row 44 turned out to be.** The
+Report row above is correct as written: a Report has no sub-logic, so it is a leaf and nothing climbs an export
+chain through it. That says nothing about whether a Report can be *someone else's child*, and it can —
+`ReportLogic`'s KDoc claimed otherwise and was simply wrong (row 44, corrected 2026-08-03, pinned by
+`ReportHostedTest`). The verdict "out of scope — a signature would be pure decoration" survives on its own
+terms, but for the narrower reason that a Report reads no ambient context, not because it sits outside the
+host tree.
 
 Lifting the attribute alone would also be inert on three of four: `declareExport` has exactly one call
 site in kzen-auto (`ScriptLogic.kt:129`), `LogicContextAnalysis.analyze` has exactly one production
@@ -1520,6 +1528,128 @@ state) or 7a (the host-API change and its migration-ordering fixtures are one se
 > | 5 | four phases remaining, one session each | **six sessions**; §5.1 holds the seams and the fallbacks |
 > | 7 | Phase 4 breaks ~20 fixtures; Phase 6 re-sweeps them | four files, disjoint from Phase 6's set; both risks withdrawn, four sharper ones recorded |
 > | 3 E.1 | `contexts:` has "both sides `by: Nominal`" | only the SOURCE side can — a notation map key holds no `ObjectReference` and no rename rewrites one (Phase 7b) |
+> | 3 J | Job verdict "withheld — needs an engine decision that does not exist yet" | decision made by the user 2026-08-03 (export-opaque worker frames) and landed as the `contextBarrier` (Phase 11) |
+> | 8 (Phase 8) | Report finding filed as "an unenforced invariant" | the *claim* was the defect, not the missing enforcement — every Logic document is hostable by design (Phase 12) |
+
+### Phase 12 — Report hostability: deleting a claim, not adding a guard (2026-08-03, ledger row 44)
+
+Gates green: `:kzen-auto-jvm:test --tests "*ReportHostedTest*"` (1 test, 0 failures) · full `cd ../kzen-auto &&
+./gradlew build` — **1010 tests, 0 failures**, = the 1009 baseline + 1 (the 1 skip is the pre-existing E4/C7
+`@Ignore` in `CustomExportsRenameTest`, not from this work). That one build covered Phases 11 and 12 both, and
+its value is mostly Phase 11's: it is the evidence that adding a defaulted parameter to `Execution.host` and
+passing it from `JobRun` left every Job fixture green.
+
+**The row was filed pointing the wrong way, and that is the entry's main content.** Phase 8 found `ReportLogic`
+asserting a Report "is always top-level (never hosted)" with nothing anywhere enforcing it, and filed it as *an
+unenforced invariant* — i.e. as a gap to be closed by adding guards at the picker and the compiler. The user's
+ruling reversed it: **every Logic document is hostable, Report included, and that is a design point of kzen.**
+So the resolution was to delete two false claims, not to add two guards, and `SelectLogicEditor`'s `isLogic`
+predicate — the thing Phase 8 listed as evidence of the leak — was correct the whole time.
+
+The generalizable form: *code disagrees with comment* does not tell you which is wrong. Phase 8 assumed the
+prose. A three-line fixture settled it in the other direction.
+
+**What was actually true.** `LogicCompiler` has **no flavour `when` at all** — it resolves `main`'s archetype
+and dispatches through `LogicDocument.toLogic`, by design, so that a new paradigm is a notation archetype and
+never a compiler edit. `ReportDocument` implements `LogicDocument`; `ReportLogicCompiler` throws only on a
+non-Report or a missing input; `RunStep.definition` types any non-Script target as `Any`. Nothing was
+load-bearing on the restriction because the restriction never existed anywhere but in prose.
+
+**Landed:** the two KDoc corrections (`ReportLogic`, `LogicCompiler`), plus `ReportHostedTest` and two fixtures
+(`test/report/report-hosted-script-test.yaml`, `test/report/report-hosted-test.yaml`).
+
+**Two things the fixture had to get right to be worth anything:**
+
+1. **The row count, not the outcome.** A hosted Report that silently did nothing would still reach
+   `Outcome.Success` — the host boundary reports the child's outcome and an empty pipeline completes cleanly.
+   The test reads the materialized table back (3 rows) so "hosted and ran" is distinguished from "hosted and
+   quietly did nothing". Same trap as Phase 9's `FlowInput` stall, and the reason it was watched for.
+2. **Proving the run was not a stale artefact.** The first (failing) run had already driven the report to
+   completion, so the second run's row count could have been reading the *first* run's output. The run dir is
+   not under the fixture's `work:` path at all — `ReportWorkPool` resolves through `WorkUtils.sibling`, i.e.
+   `kzen-auto/work/…`, outside `build/` — so it was verified by mtime instead of by deletion: the table and
+   index were rewritten during the clean run. (Deleting it was not an option regardless; that tree is the
+   user's, not a build output.)
+
+**The failure that produced row 45.** The first version of the fixture had a `ResultStep` and a non-nullable
+`results:` block, and failed with *"null cannot be cast to non-null type kotlin.Any"* — **after** the report had
+run correctly to completion. Cause: `ReportRun.run` returns `TupleValue.empty` while `ReportLogicCompiler`
+declares `TupleDefinition.ofMain(LogicType.string)`. A declared output nothing produces. It is pre-existing and
+independent of hosting — nothing reads the ROOT frame's main value, which is why a top-level Report never
+notices — and hosting is simply the first thing that looks. Filed as row 45(c) rather than patched here,
+because *what a Report should return, if anything* is a product question this row has no standing to answer.
+
+### Phase 11 — the context barrier: determinism by construction (2026-08-03, ledger row 43, engine half)
+
+Gates green: `:kzen-lib-jvm:test --tests "*RunEngineParallelBindingTest*"` (10 tests, 0 failures) · full
+`cd ../kzen-lib && ./gradlew build` (**762 tests, 0 failures**, = the 757 baseline + 5 new; jvm 220 → 225) ·
+`publishToMavenLocal` · full `cd ../kzen-auto && ./gradlew build` after wiring `JobRun` (**1010 tests, 0
+failures** — see Phase 12) · per-guard falsification (below).
+
+⚠ **One gate was a false green and is worth recording as a trap.** `:kzen-lib-jvm:compileKotlinJvm` exits 0
+having compiled nothing: kzen-lib-jvm is a plain JVM module whose task is `compileKotlin`, so the `Jvm` suffix
+finds no such task and Gradle's name abbreviation matches something harmless. The same failure mode as the
+umbrella's `build` → `buildEnvironment` documented in AGENTS.md, one level down. The real compile found an
+error (`ObjectStableId` has `.value`, not `.asString()`). **Read the task list, not the exit code**, when a
+compile-only gate passes suspiciously fast.
+
+**The decision.** Row 40 withheld Job support pending an engine decision and recorded three candidates. The
+user chose **worker frames export-opaque by construction**, on the grounds that concurrent context is better
+kept deterministic and reopened later if needed. The two rejected options and why:
+
+- *Concurrent same-key bind is a hard error* — makes the diagnosis **schedule-dependent**. The same document
+  passes or fails run to run depending on interleaving, which converts a silent hazard into a flaky one.
+- *Per-frame isolation with an explicit merge* — needs a merge-policy vocabulary **and** an answer for
+  disposing N values in one slot. Not precluded; the barrier is the floor it would build on.
+
+**The mechanism is caller-declared, not detected** — this is the load-bearing design choice. The engine cannot
+infer "am I one of several concurrent siblings"; a frame cannot see its own scheduling context. So it is a
+parameter on the host call (`Execution.host(contextBarrier = true)`), which `JobRun` passes per Worker.
+Detection would have reintroduced exactly the schedule-dependence that killed option 2.
+
+**The rule: opaque to outward writes, transparent to inward reads.** Reads are untouched deliberately — walling
+them off too would stop a barrier child seeing anything its caller set up, including the `contexts:` borrow a
+call site installs, breaking the arc's headline capability the moment a Job used it. Reading up is not a race.
+
+**Four upward paths had to be closed, not one.** The original design covered only the export climb; the other
+three were found while implementing, and one of them was found only by falsification:
+
+| Path | Guard | Falsified by removing it? |
+|---|---|---|
+| `bind` climbing via `exportOwnerOf` | climb stops at a barrier | ⚠ **no — see below** |
+| `declareExport` on a barrier frame | hard `check`, not a silent no-op | ✅ fails only the loud-refusal fixture |
+| `releaseBinding` via `removeNearestBinding` | walk stops after the barrier's own registry | ✅ fails only the release fixture |
+| `manual` settle **promotion** (`parent.bindings.putIfAbsent`) | retains instead of handing up | ✅ fails only the manual fixture |
+
+The `manual` promotion is the one worth remembering: it is a **second upward route that bypasses
+`exportOwnerOf` entirely**, so blocking the climb alone would have left the shared parent reachable by another
+door. It was not in the design; it came out of reading every writer of a parent's `bindings` map.
+
+⚠ **The `exportOwnerOf` guard is unreachable, and the comment now says so.** Removing it leaves the entire
+suite green, because `declareExport` already refuses on a barrier frame, is the sole writer of
+`NodeRuntime.exports`, and that set is not lifted across `migrate` — so a barrier frame's selector set is
+always empty and the ordinary `none { covers }` test already ends the climb there. It is **kept as
+defence-in-depth** so containment is a property of the walk rather than a consequence of one guard elsewhere
+staying correct. The first draft of its comment claimed it carried the containment for binds made *below* the
+barrier; that was wrong, and falsification is what caught it — the guard's own justification, not just the
+guard, needed testing.
+
+**The hazard fixtures stay green and unchanged.** The barrier is opt-in, so unbarriered concurrent hosting
+still does exactly what the two ⚠ characterizations record. Both behaviours are live and both are pinned.
+
+**What this forecloses, deliberately:** a barriered flavour can only open what it also closes. Handing a
+resource from one concurrent sibling to a peer or up to the shared parent is now *not expressible* for a Job.
+That is the price of determinism, paid knowingly.
+
+**What remains of row 43** (hence `◪`, not `☑`): the Job **root** is an ordinary sequential frame, so a
+document-level signature is a near-copy of Phase 9's Flow work and now unblocked (43a); and a Worker read path
+still needs a new `JobControl` member, since the authored `Worker` SPI never sees an `Execution` (43b). Worker
+*publishing* is now foreclosed by design rather than merely unbuilt.
+
+⚠ **A correction to Phase 8's own record while here:** Phase 8 wrote that "a Worker never sees its
+`Execution`". That is right about the **`Worker` SPI** and wrong as stated about the frame — `JobRun` hosts
+each Worker as a real engine node and `WorkerLogic.run(execution)` holds its `Execution`. The distinction
+matters, because it is exactly why the barrier had somewhere to attach: one flag, one host call.
 
 ### Phase 9 — the Flow context signature (2026-08-03, ledger row 41)
 
@@ -1669,11 +1799,17 @@ land in, which is the part that had to be settled first.
    (`aChildsOwnBindUnderTheBootstrapKeySupersedesTheBorrowOnItsOwnFrame`) only exercises the
    *non-exporting* callee, where `exportOwnerOf` returns the callee itself and the supersede works —
    so the passing test sat one `declareExport` away from the broken case.
-2. **An unenforced invariant, adjacent to this arc rather than in it.** `ReportLogic`'s own KDoc says
-   a Report "is always top-level (never hosted)", but `ReportDocument` implements `LogicDocument`,
-   `LogicCompiler` only *comments* the exception, and `SelectLogicEditor` offers any document passing
-   `AutoConventions.isLogic` — which a Report does. A `RunStep` can be pointed at a Report today.
-   Filed as row 44; it is a Logic-composition defect, not a context one.
+2. ~~**An unenforced invariant**~~ → **a false claim**, adjacent to this arc rather than in it.
+   `ReportLogic`'s own KDoc says a Report "is always top-level (never hosted)", but `ReportDocument`
+   implements `LogicDocument`, `LogicCompiler` only *comments* the exception, and `SelectLogicEditor`
+   offers any document passing `AutoConventions.isLogic` — which a Report does. A `RunStep` can be
+   pointed at a Report today. Filed as row 44.
+   ⚠ **This entry's framing was wrong, and the correction is the lesson.** Calling it "an unenforced
+   invariant" presumed the comment was right and the code deficient; the user's ruling (2026-08-03) was
+   the reverse — **every Logic document is hostable, Report included, and that is a design point**, which
+   is precisely why `LogicCompiler` has no flavour `when`. So the resolution deleted two claims rather
+   than adding two guards. When code and comment disagree, which one is the defect is a question, not a
+   given; a fixture answers it and a reading does not. See § Phase 11.
 3. **`Flow` and `Job` child frames are not call-site addressed** — both pass `callerStableId = null`
    (`FlowRun.kt:221`, `JobRun.kt:249`, `EngineJobControl.kt:183`), so two Flow vertices hosting the
    same document share one frame identity for migration capture and cannot be reached by

@@ -38,8 +38,11 @@
   deleted per the rule above; `../2026-07-31_context-improvements.md` is the permanent record, and its
   §8 As-built is where each phase's deviations live. **CX8 was a design gate and it did not license the
   lift it was gating** — `context` does *not* move onto `Logic`, because the four Logic flavours have
-  three different frame topologies (§3 J's verdict table). Its output is master-plan rows **41–44**,
-  which are open and independent of each other.
+  three different frame topologies (§3 J's verdict table). Its output was master-plan rows **41–44**;
+  all four landed by 2026-08-03 (43 in its engine half only, `◪`), and row 44 produced **row 45** in
+  turn. What is still open: **43a** (Job document-level signature — unblocked, a near-copy of row 41),
+  **43b** (Worker read path, needs a new `JobControl` member) and **45** (three quiet hosted-Report
+  defects). None blocks anything else.
   ⚠ **Four facts a later reader is most likely to need, none of them findable from the code alone:**
   (1) a *plain-name* reference does not resolve to a user's `main.contexts/<Name>` declaration from
   another document — the object-path form `main.contexts/<Name>` is what lands in notation, fully
@@ -48,8 +51,12 @@
   side is mitigated by a loud error + warning (CX doc §3 E.1, corrected in place); (3) the raw string
   hatch (`resource` / `resourceValue` / `releaseResource`) is an un-deprecated, documented public
   contract, strict to write and permissive to address; (4) **the engine's binding model is specified for
-  a sequential host chain only** — `RunEngineParallelBindingTest` (kzen-lib) pins what concurrency
-  actually does to it, including two ⚠ hazards and one ⚠ defect, and row 43 exists because of it.
+  a sequential host chain only, and the way out is a `contextBarrier` on the host call, not a check** —
+  a caller hosting children concurrently declares each one export-opaque (opaque to outward writes,
+  transparent to inward reads), which is what `JobRun` now does per Worker; `RunEngineParallelBindingTest`
+  (kzen-lib) pins both sides, since the barrier is opt-in and the two ⚠ hazards remain exactly what
+  UNBARRIERED concurrent hosting still does. Detection was rejected on purpose: a frame cannot see its own
+  scheduling context, so any detect-and-fail rule would be schedule-dependent.
 
 ## Not elaborated — and why
 

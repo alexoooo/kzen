@@ -83,8 +83,9 @@ everything above them and can be taken any time a change of pace helps.
 | 40 | **CX8** — parallel-flavour reach gate | Inspect real Flow/Job/Report frame topologies; decide root-vs-worker signatures, borrow lifetime, sibling release and shared-parent write semantics. Records verdict + fixtures/implementation plan; **does not assume `context` simply lifts onto `Logic`** | CX · CX8 | — | ☑ |
 | 41 | **CX9** — Flow context signature | Verdict-licensed by row 40: a Flow is **one frame for the whole DAG walk** (a vertex is a checkpoint, not a frame), so it takes the Script treatment unchanged — `context` on the `Flow` archetype, `declareExport` + requires gate in `FlowLogic.run`, `LogicContextAnalysis` wired into the Flow validator, `ContextSignatureEditor` mounted in `FlowController`, and `contexts:` on the `FlowLogicHost` vertex. **No new engine semantics.** M rather than S because `FlowRun.kt:221` passes neither `callerStableId` nor `initialBindings` today and must start supplying both. **⚠ RESCOPED at execution (user's call) — "the Script treatment unchanged" was false**: Flow vertices are *root* ObjectPaths, so `ScriptTree.read` yields an empty tree and `analyze` silently reports nothing; and a DAG has no linear "before", so the availability walk would need a fan-in join policy nothing in the arc decided. Landed as **document signature + call site only** — a Flow declares no per-vertex `binds`/`uses`/`releases`, so it requires, relays and supplies but never opens, and no DAG analysis is needed. See CX §8 Phase 9 | CX · 3 J verdict | — | ☑ |
 | 42 | **CX10** — bootstrap/export ownership defect (kzen-lib) | **Defect in shipped code**, found by row 40 and independent of it: a callee declaring an export covering a key it was bootstrapped with binds *past* the borrow — `host` installs the bootstrap on the callee's frame, a later `bind` routes through `exportOwnerOf` which now climbs past it, so the value rests on the caller while the borrow shadows it and the callee **cannot see what it just bound**. Reachable from `RunStep.contexts` as shipped; `ExportSelector.Family` widens it to every qualifier. Behaviour pinned today by `RunEngineParallelBindingTest`; the fix flips that fixture's ⚠ assertion and re-publishes to mavenLocal | CX · 3 J verdict | — | ☑ |
-| 43 | **CX11** — Job worker context capability | **Explicitly withheld by row 40's verdict — not licensed, and the row's first step is the engine decision, not the feature.** Two blockers, both structural: (a) concurrent siblings exporting one family collapse into a single slot on the Job frame, where the second bind closes the first's live resource underneath it and the loser silently reads its sibling's handle — the spec is *silent* on parallel frames and the engine lock does not make the winner deterministic; (b) a Worker is a **nested object, not a document**, and never sees its own `Execution` (`WorkerLogic` hands it only a `JobControl`, which has no binding member), so there is nowhere for a signature to attach and no read path. Decide first among: worker frames export-opaque by construction · concurrent same-key bind into a shared ancestor a hard error · per-frame isolation with an explicit merge. Then size the feature | CX · 3 J verdict | — | ☐ |
-| 44 | **Report hostability invariant** | Found in passing by row 40, and a **Logic-composition defect, not a context one**: `ReportLogic`'s KDoc states a Report is "always top-level (never hosted)", but `ReportDocument` implements `LogicDocument`, `LogicCompiler` only *comments* the exception, and `SelectLogicEditor` offers any document passing `AutoConventions.isLogic` — which a Report does. A `RunStep` can be pointed at a Report today. Either enforce the invariant at both the picker and the compiler, or decide Report is hostable and give it the frame semantics that implies | CX · 8 (Phase 8) | — | ☐ |
+| 43 | **CX11** — Job worker context capability | **The engine decision is made and landed (2026-08-03); the feature it gates is not.** The user chose **worker frames export-opaque by construction** over hard-error-on-collision (schedule-dependent diagnosis — the same document would pass or fail run to run) and per-frame-merge (needs a merge vocabulary and an answer for disposing N values in one slot), on the stated grounds that concurrent context is better kept deterministic and reopenable later. Landed as a **context barrier** on `Execution.host(contextBarrier=)`: opaque to outward writes, transparent to inward reads, passed by `JobRun` on every Worker. Both row-40 hazards are now structurally unreachable for a Job rather than merely documented. **What remains is two smaller, independent pieces, neither claimed:** *(a)* a **Job document-level signature** — now unblocked and a near-copy of row 41's Flow work, since the Job ROOT is an ordinary sequential frame and only Worker frames are barriered; *(b)* a **Worker read path** — a Worker still never sees its own `Execution` (`WorkerLogic` holds it, but the authored `Worker` SPI gets only `JobControl`, which has no binding member), so reading ambient context from a Worker needs a new `JobControl` member. Worker-level *publishing* is now foreclosed by design, not merely unbuilt | CX · 3 J verdict | — | ◪ |
+| 44 | **Report hostability invariant** | **Resolved 2026-08-03 in the direction opposite to the row's framing: there was no invariant to enforce — the two KDoc comments asserting one were simply wrong, and are corrected.** Every Logic document is hostable, Report included; that is a design point, and `LogicCompiler`'s deliberate absence of a flavour `when` is its expression. Row 40 filed this as "an unenforced invariant"; the enforcement was never missing, the claim was. Verified rather than asserted: `ReportHostedTest` drives a Script → `RunStep` → Report end to end and reads the materialized table back (3 rows), the run dir's mtimes confirming the pipeline actually re-ran rather than a stale artefact being read. `SelectLogicEditor`'s `isLogic` predicate was right all along and is untouched | CX · 8 (Phase 8) | — | ☑ |
+| 45 | **Hosted-Report top-level assumptions** | Found by row 44's fixture, three places where a Report still assumes it is the run root. Execution is unaffected in all three — a hosted Report runs correctly to completion — so each fails quietly rather than loudly, which is what makes them worth a row. **(a) UI request addressing:** `ReportRun` registers its preview/summary handler on its OWN node via `Execution.onRequest`, while the client addresses the run's ROOT frame (`logicRunInfo.frame.executionId`), so a hosted Report's online output info and summary previews silently answer nothing. **(b) Run-dir identity:** the run dir is stamped with the compiling run's `LogicRunExecutionId`, which when hosted is the HOST's identity, so offline progress correlation points at the wrong frame. **(c) Output signature mismatch:** `ReportLogicCompiler` declares `TupleDefinition.ofMain(LogicType.string)` while `ReportRun.run` returns `TupleValue.empty` — so a hosted Report's `main` is null and a caller declaring `nullable: false` fails the cast *after* the report has run correctly. (c) is one line to make honest but the product question is what a Report *should* return, if anything; (a) is the substantial one and is a client+server change | — | — | ☐ |
 
 **~40 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
@@ -103,12 +104,12 @@ twice against two different subjects, wired per call. Row 40 was the design gate
 the lift it was gating: `context` does not go onto `Logic`, because the four flavours have three different
 answers — see CX §3 J's verdict table. Its output is rows 41–44 below.
 
-**Rows 41–44 are row 40's output, and they are not a block.** They differ in kind and should be sequenced
-separately, not as a unit: **42 is a defect in shipped code** and the only one with a standing cost —
-sequence it by that; **41 is the licensed feature** and the cheapest real capability left in the arc; **44 is
-an adjacent defect** found in passing, small and independent; **43 is withheld**, and its first step is an
-engine decision about concurrent frames that nothing else waits on. Nothing depends on 43, and a Job author
-is no worse off than before the arc started.
+**Rows 41–44 were row 40's output, and they were not a block.** They differed in kind and were sequenced
+separately rather than as a unit: **42 was a defect in shipped code** and the only one with a standing cost;
+**41 was the licensed feature**; **44 was an adjacent defect** found in passing; **43 was withheld** pending an
+engine decision about concurrent frames. All four have since landed (43 in its engine half), and row 45 is
+row 44's own output. The pattern held throughout: each row's gate found something the previous gate could not
+see, which is the argument for sequencing them separately rather than batching.
 
 **Row 42 landed 2026-08-03** — the defect is fixed and re-published to mavenLocal, so nothing in the tree is
 running the broken supersede any more. The fix turned out to need a *path* walk rather than a single-frame
@@ -121,9 +122,27 @@ the Job case needed an engine decision, but it did *not* re-derive Script's anal
 inherited an assumption ("takes the Script treatment unchanged") that the anchor pass falsified in three
 independent ways. Both gates were doing their job; the second one caught what the first could not see.
 
-**Next up: rows 43 and 44 remain, neither claimed.** Row 44 is small and independent; row 43 is still withheld
-pending an engine decision about concurrent frames, and nothing waits on it. With 41 and 42 in, the CX arc's
-follow-on work is down to one defect and one deliberately-open design question.
+**Rows 43 and 44 were both decided by the user on 2026-08-03, and both landed the same day** — 43's engine
+half, 44 in full. Two things about them are worth carrying forward, because neither is visible from the
+resulting diff:
+
+- **Row 43's decision buys determinism by removing expressiveness, deliberately.** Under the barrier, a
+  concurrent sibling cannot hand a resource to a peer or to its shared parent — a barriered flavour can only
+  open what it also closes. That is the conservative floor, chosen so the alternatives stay available: a merge
+  policy can be added later without invalidating anything built on top of it, whereas shipping last-writer-wins
+  and tightening it afterwards could not. The two ⚠ hazard fixtures are deliberately KEPT green and unchanged,
+  because the barrier is opt-in and unbarriered concurrent hosting still does exactly what they record.
+- **Row 44 inverted its own premise.** It was filed as "an unenforced invariant" — the natural reading of a
+  KDoc that says a thing and code that does not check it. The user's ruling was that the *invariant* was the
+  error: every Logic document is hostable by design. So the fix was to delete two claims rather than add two
+  guards, and the row is a reminder that "code disagrees with comment" does not tell you which one is wrong.
+  A fixture settled it, not a reading — and the first version of that fixture failed, which is how row 45's
+  output-signature mismatch surfaced.
+
+**Next up: rows 43a/43b and 45, none claimed.** Row 43's remainder is now two small independent pieces (a Job
+document-level signature, which is a near-copy of row 41's Flow work and unblocked; and a Worker read path
+needing a new `JobControl` member). Row 45 is three quiet hosted-Report defects, of which (a) — the UI request
+addressing — is the only substantial one. Nothing in the CX arc blocks anything else any more.
 
 ### What to run right now
 
@@ -136,12 +155,13 @@ that does not do what its spec says. Row 30 must precede row 31 (kzen-lib → `p
 kzen-auto); row 32 is the post-smoke follow-up and is kzen-auto-only. **All three are done** — what
 remains is the user's re-smoke, which needs a dev-server restart.
 
-Row **33 (CX1)** is the other genuinely-independent pull-forward: it carries a real defect (the
-Context picker offers the abstract base, because `inheritanceChain` includes the object itself) plus
-the Requires/Provides split, and it depends on **no** design verdict in the CX document. The user
-reviewed and ratified the document's nominal auto-wire and N4 naming verdicts on 2026-08-01, so the
-rest of the arc no longer waits on review. **Rows 34 → 35 are the kzen-lib substrate**; row 35 gates
-rows 36, 38 and 39. Row 40 remains a design gate by intent, not because it awaits document approval.
+Rows **33–44 (CX)** are all landed as of 2026-08-03, row 43 in its engine half (`◪`). What is left of that
+arc is **43a** (Job document-level signature — unblocked, near-copy of row 41), **43b** (Worker read path via
+a new `JobControl` member), and **45** (three quiet hosted-Report defects). None of them blocks anything, and
+none is claimed. Two verification debts also survive the arc and are the natural first items for whoever next
+touches this area: the **Flow-stage browser smoke** from row 41 (the `FlowController` context panels are
+compile-verified but were never rendered), and two CX6b coverage gaps (`SelectContextEditor.wireValue`'s
+disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
 
 ## Dependency rules (the live ones)
 
