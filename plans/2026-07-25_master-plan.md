@@ -79,8 +79,12 @@ everything above them and can be taken any time a change of pace helps.
 | 36 | **CX4** — declarations and addressing | Context becomes a concrete **nominal declaration** with `type: TypeMetadata` value contract, qualifier and optional interop key; canonical full-type default family; exact declared qualifiers vs family computed qualifiers; centralized typed-bind conformance; value-graph `bind` → `recordValue`. **Breaking** across shipped notation + ~20 fixtures | CX · CX4 | `next/CX` | ☑ |
 | 37 | **CX5** — the Contexts document | New `Contexts` archetype + document + controller + ribbon/sidebar — **chrome** on the `ObjectRegistry` template, **payload** as `by: NestedList` nested objects (a spec payload has no `ObjectLocation`, so it cannot carry a nominal declaration — CX §3 I correction); list UI from `LogicSignatureEditor`; picker gains "New context…" writing into it. **1 session** — landed as 5 files + 1 test; a new document type needs **zero** registration points | CX · CX5 | `next/CX` | ☑ |
 | 38 | **CX6** — the step vocabulary | **2 sessions (A vocabulary / B steps).** **A** — `ContextProvider` → `ContextBinder` + `ResourceOwner`; `provides:` → `binds:`, step `requires:` → `uses:` (~14 files, only 3 notation instance sites); migrate kzen-auto off the deprecated kzen-lib adapters — **☑ 38a landed 2026-08-02**; the two levels now differ in symbol *and* string, so a cross-level misread cannot compile, and `BrowserOpenStep` turned out to carry the same double-teardown the plan named only for `BrowserCloseStep`. **B** — `BindStep` / `UseContextStep` / `ReleaseStep` / `DisposeAtSettleStep` + `SelectContextEditor`; release invokes attached disposal once. No unsafe cross-step managed-resource handoff without a lease token — **☑ 38b landed 2026-08-02**; needed an unplanned **kzen-lib** fix (attribute `meta:` inherited most-distant-ancestor-wins, the opposite of values, so no subtype could refine an inherited attribute — the Context picker would have been inert on all four steps) | CX · CX6 | `next/CX` | ☑ |
-| 39 | **CX7** — atomic call-site context binding | **2 sessions, split at the repo boundary (forced by mavenLocal).** **A (kzen-lib)** — `Execution.host(initialBindings=…)` installs borrows before child run; migration ordering fixtures; spec addendum; the raw-string-surface verdict. **B (kzen-auto)** — `RunStep.contexts` maps caller declaration to callee declaration; missing-vs-null and source→target assignability; editor step-source sugar stores the declaration; analysis credits the binding | CX · CX7 | `next/CX` | ☐ |
-| 40 | **CX8** — parallel-flavour reach gate | Inspect real Flow/Job/Report frame topologies; decide root-vs-worker signatures, borrow lifetime, sibling release and shared-parent write semantics. Records verdict + fixtures/implementation plan; **does not assume `context` simply lifts onto `Logic`** | CX · CX8 | `next/CX` | ☐ |
+| 39 | **CX7** — atomic call-site context binding | **2 sessions, split at the repo boundary (forced by mavenLocal).** **A (kzen-lib) ✅ 2026-08-02** — `Execution.host(initialBindings=…)` installs borrows before child run; migration ordering fixtures; spec addendum; the raw-string-surface verdict *(option (i), narrowed: `resource`/`resourceValue`/`releaseResource` un-deprecated as the supported raw interop layer, `declareExport(String)`/`hasResourceInFamily(String)` still deprecated)*. **B (kzen-auto) ✅ 2026-08-02** — `RunStep.contexts` maps callee slot to caller declaration; missing-vs-null and source→target assignability; `RunStepContextsEditor`; analysis credits the binding. Needed no `StepExecution` signature change (the run context reads the map off the running step, as it already does for `binds`), and found that only the SOURCE side can be rename-tracked — a notation map key is a raw string at every layer and no command renames one, so the callee side is mitigated by a loud error + warning rather than propagation | CX · CX7 | `next/CX` | ☑ |
+| 40 | **CX8** — parallel-flavour reach gate | Inspect real Flow/Job/Report frame topologies; decide root-vs-worker signatures, borrow lifetime, sibling release and shared-parent write semantics. Records verdict + fixtures/implementation plan; **does not assume `context` simply lifts onto `Logic`** | CX · CX8 | — | ☑ |
+| 41 | **CX9** — Flow context signature | Verdict-licensed by row 40: a Flow is **one frame for the whole DAG walk** (a vertex is a checkpoint, not a frame), so it takes the Script treatment unchanged — `context` on the `Flow` archetype, `declareExport` + requires gate in `FlowLogic.run`, `LogicContextAnalysis` wired into the Flow validator, `ContextSignatureEditor` mounted in `FlowController`, and `contexts:` on the `FlowLogicHost` vertex. **No new engine semantics.** M rather than S because `FlowRun.kt:221` passes neither `callerStableId` nor `initialBindings` today and must start supplying both. **⚠ RESCOPED at execution (user's call) — "the Script treatment unchanged" was false**: Flow vertices are *root* ObjectPaths, so `ScriptTree.read` yields an empty tree and `analyze` silently reports nothing; and a DAG has no linear "before", so the availability walk would need a fan-in join policy nothing in the arc decided. Landed as **document signature + call site only** — a Flow declares no per-vertex `binds`/`uses`/`releases`, so it requires, relays and supplies but never opens, and no DAG analysis is needed. See CX §8 Phase 9 | CX · 3 J verdict | — | ☑ |
+| 42 | **CX10** — bootstrap/export ownership defect (kzen-lib) | **Defect in shipped code**, found by row 40 and independent of it: a callee declaring an export covering a key it was bootstrapped with binds *past* the borrow — `host` installs the bootstrap on the callee's frame, a later `bind` routes through `exportOwnerOf` which now climbs past it, so the value rests on the caller while the borrow shadows it and the callee **cannot see what it just bound**. Reachable from `RunStep.contexts` as shipped; `ExportSelector.Family` widens it to every qualifier. Behaviour pinned today by `RunEngineParallelBindingTest`; the fix flips that fixture's ⚠ assertion and re-publishes to mavenLocal | CX · 3 J verdict | — | ☑ |
+| 43 | **CX11** — Job worker context capability | **Explicitly withheld by row 40's verdict — not licensed, and the row's first step is the engine decision, not the feature.** Two blockers, both structural: (a) concurrent siblings exporting one family collapse into a single slot on the Job frame, where the second bind closes the first's live resource underneath it and the loser silently reads its sibling's handle — the spec is *silent* on parallel frames and the engine lock does not make the winner deterministic; (b) a Worker is a **nested object, not a document**, and never sees its own `Execution` (`WorkerLogic` hands it only a `JobControl`, which has no binding member), so there is nowhere for a signature to attach and no read path. Decide first among: worker frames export-opaque by construction · concurrent same-key bind into a shared ancestor a hard error · per-frame isolation with an explicit merge. Then size the feature | CX · 3 J verdict | — | ☐ |
+| 44 | **Report hostability invariant** | Found in passing by row 40, and a **Logic-composition defect, not a context one**: `ReportLogic`'s KDoc states a Report is "always top-level (never hosted)", but `ReportDocument` implements `LogicDocument`, `LogicCompiler` only *comments* the exception, and `SelectLogicEditor` offers any document passing `AutoConventions.isLogic` — which a Report does. A `RunStep` can be pointed at a Report today. Either enforce the invariant at both the picker and the compiler, or decide Report is hostable and give it the frame semantics that implies | CX · 8 (Phase 8) | — | ☐ |
 
 **~40 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
@@ -88,11 +92,38 @@ a **defect fix**, not new scope — sequence them by how much the broken afforda
 by position in this table. Rows 33–40 (**CX**) are the context arc's third/fourth pass, added
 2026-07-31 and hardened 2026-08-01 on the first sustained use of CTX/CTX2 — row 33 is partly a defect
 fix and independent; rows 34–35 establish the engine substrate for rows 36, 38 and 39.
-**Rows 33–38 landed 2026-08-02**; rows 39–40 are **three sessions, not two** (row 39 splits — see the row
-and CX §5.1). A split row in progress carries `◪` with the landed half named, because one `☐`/`☑` cannot
-say "half". Row 39a is kzen-lib and must publish to mavenLocal before 39b compiles — note row 38b already
-had to publish kzen-lib once (an unforeseen metadata-inheritance fix), so mavenLocal now holds a
-`0.30.0-SNAPSHOT` ahead of the last tagged one. **Next up: row 39a (CX7a, kzen-lib).**
+A split row in progress carries `◪` with the landed half named, because one `☐`/`☑` cannot say "half".
+**Rows 33–39 landed 2026-08-02, row 40 on 2026-08-03 — the CX arc is closed.** Row 39 was cross-repo and
+split at the repo boundary: 39a (kzen-lib) published to mavenLocal with its artifacts verified on disk
+(`InitialBinding.class` present, `Execution.host` carrying `List<InitialBinding>`), which is what 39b then
+compiled against; note row 38b had already published kzen-lib once (an unforeseen metadata-inheritance fix),
+so 39a's was the second such publish and mavenLocal holds a `0.30.0-SNAPSHOT` well ahead of the last tagged
+one. With 39b in, the arc's headline capability is real and smoked end to end: one unedited sub-Script, run
+twice against two different subjects, wired per call. Row 40 was the design gate, and it **did not** license
+the lift it was gating: `context` does not go onto `Logic`, because the four flavours have three different
+answers — see CX §3 J's verdict table. Its output is rows 41–44 below.
+
+**Rows 41–44 are row 40's output, and they are not a block.** They differ in kind and should be sequenced
+separately, not as a unit: **42 is a defect in shipped code** and the only one with a standing cost —
+sequence it by that; **41 is the licensed feature** and the cheapest real capability left in the arc; **44 is
+an adjacent defect** found in passing, small and independent; **43 is withheld**, and its first step is an
+engine decision about concurrent frames that nothing else waits on. Nothing depends on 43, and a Job author
+is no worse off than before the arc started.
+
+**Row 42 landed 2026-08-03** — the defect is fixed and re-published to mavenLocal, so nothing in the tree is
+running the broken supersede any more. The fix turned out to need a *path* walk rather than a single-frame
+clear (an intermediate frame on the export chain can hold the shadowing borrow), and it was falsified before
+being trusted: removing the one call fails exactly the two regression fixtures and leaves the three
+concurrency characterizations green.
+
+**Row 41 landed 2026-08-03**, rescoped — see its cell. The rescope is the useful record: row 40's gate proved
+the Job case needed an engine decision, but it did *not* re-derive Script's analysis internals, so row 41
+inherited an assumption ("takes the Script treatment unchanged") that the anchor pass falsified in three
+independent ways. Both gates were doing their job; the second one caught what the first could not see.
+
+**Next up: rows 43 and 44 remain, neither claimed.** Row 44 is small and independent; row 43 is still withheld
+pending an engine decision about concurrent frames, and nothing waits on it. With 41 and 42 in, the CX arc's
+follow-on work is down to one defect and one deliberately-open design question.
 
 ### What to run right now
 

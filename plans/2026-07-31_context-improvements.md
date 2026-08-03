@@ -655,6 +655,18 @@ callee's holds one unqualified slot; `contexts:` is a **mapping between namespac
 name. At runtime the source is read by its caller key and installed under the target's callee key;
 the two keys need not match. That is what lets a generic sub-script stay generic — see §4.7.
 
+**Corrected by Phase 7b: only the SOURCE side is a `by: Nominal` reference in the rename-propagating
+sense.** The E-s2 argument above is about the source and stands unchanged, but the two sides of the
+map are not symmetric in notation. The target sits in map-KEY position, and a notation map key is a
+raw string at every layer — the weak definer requires a `kotlin.String` key generic,
+`MapAttributeDefinition` is `Map<String, _>`, and the refactor's traversal turns a key into a path
+segment and descends into the value alone. There is no command in the notation vocabulary that
+renames a key. So renaming a Context updates the callee's own `context.requires` and leaves the
+caller's key behind; the mitigation is that a stale key satisfies nothing, so it surfaces as the
+ordinary unsatisfied-requires error on the calling RunStep plus a dangling warning. A
+`by: NestedList` of two-field binding objects is the shape that would propagate on both sides, and
+is the change to make if that is ever wanted.
+
 ### F · Inference
 
 | | Option | Verdict |
@@ -876,6 +888,70 @@ are live and making progress; *parallel* means several drivers execute simultane
 So J is the **gate** for the parallel case, not its implementation. Reading "a Script cannot drive
 two browsers concurrently" would send an author to a Job unnecessarily; reading "move one attribute
 and Jobs are safe" would make the opposite mistake.
+
+#### J's verdict (2026-08-03, Phase 8) — a split, and `context` does **not** lift onto `Logic`
+
+The four flavours have three different answers, so one attribute on the shared marker would be wrong
+three ways at once. Evidence: `RunEngineParallelBindingTest` (kzen-lib, 4 fixtures, all green).
+
+| Flavour | Real frame topology | Verdict |
+|---|---|---|
+| Script | sequential host chain, one child frame per `RunStep` | **done** (CX1–CX7) |
+| Flow | **one frame for the whole DAG walk** — a vertex is a `checkpoint`, not a frame; `runOneVertex` is not even `suspend`. Only a `FlowLogicHost` vertex hosts, sequentially | **licensed** — structurally the Script case, no new engine semantics. Row 41 |
+| Job | Job document = one frame; **every Worker = a child frame, all launched together** (`coroutineScope { … async { host(…) } … awaitAll() }`, no cap beyond `max(2, cores-1)` engine threads); a `RunWorker` hosts a further frame per element | **withheld** — needs an engine decision that does not exist yet. Row 43, and the row's first step *is* that decision |
+| Report | **leaf frame**: never hosts, never exports, no `declareExport`/`onCapture` anywhere; its parallelism is an LMAX Disruptor on daemon threads, invisible to the engine's node tree | **out of scope** — a signature would be pure decoration |
+
+Lifting the attribute alone would also be inert on three of four: `declareExport` has exactly one call
+site in kzen-auto (`ScriptLogic.kt:129`), `LogicContextAnalysis.analyze` has exactly one production
+caller (`ScriptValidator.kt:107`), and `ContextSignatureEditor` is mounted only by `ScriptController`.
+
+The five questions, answered from the code and the fixtures:
+
+- **Placement.** Flow: the document root, unambiguously — one frame, one signature. Job: *neither
+  level works as-is*. The Job root is a real frame and could carry a signature coherently, but the
+  values live in Workers, and a Worker is a **nested object, not a document**, so `context.exports` /
+  `context.requires` — read off `main` via `firstAttribute` — has nowhere to attach. The step
+  vocabulary does not reach it either: the `Worker` archetype declares no `binds`/`uses`/`releases`,
+  and decisively **a Worker never sees its `Execution`** — `WorkerLogic.run` wraps it in
+  `EngineJobControl` and hands over only that, whose entire surface has no binding member. Job needs a
+  **new capability on `JobControl`**, not an attribute lift.
+- **Which frame receives a call-site `InitialBinding`, and can it outlive its owner?** The **callee's
+  own frame**, by direct map write, inside the same lock section that mints the node — before the
+  child runs, so no half-bootstrapped frame is observable. It cannot outlive its owner in any flavour
+  today, *including* Job: `host` awaits inline, and Job's concurrent workers sit inside a
+  `coroutineScope`, so the Job frame cannot settle before them. Note precisely **why** that holds —
+  structured concurrency, not an engine check. `settleFrame` never consults `runtime.children`; a
+  flavour that launched `host` into an unstructured scope would dispose a parent's bindings while a
+  child still read them. Discipline, not invariant.
+- **Worker-local isolation, and a family export across worker frames.** Isolation holds **by
+  construction**: per-node registries, an upward-only walk, and `exportOwnerOf` returning the binding
+  frame itself unless *that* frame declared a covering export — which no Worker can. A family export
+  across worker frames is exactly what destroys it, and this is the gate's central finding: two
+  workers exporting one family collapse into **one slot on the Job frame**, where the second bind
+  displaces the first, claims its disposal and runs the closer — **closing a live sibling's browser
+  underneath it** — after which the loser's own read silently returns its sibling's handle.
+- **Sibling `ReleaseStep` vs a live borrow.** Two cases, only one safe. Releasing a *borrow* is safe
+  under any concurrency — the walk stops at the callee's own frame and the owner's registration is
+  untouched. Releasing a key the frame does **not** hold reaches *up* into the shared ancestor and
+  disposes it: deliberate for a sequential closing step, hazardous concurrently, since one worker can
+  close a shared resource out from under every other and the victim's read reports `Missing`,
+  indistinguishable from "never bound".
+- **Last-writer-wins on shared-parent binds — intentional?** **No.** The supersede *rule* is
+  intentional; its application to concurrency was never considered. `bind`'s justification reasons
+  exclusively about a loop re-binding sequentially, where the displaced handle is provably nobody's
+  business by then; §6 of the spec argues identically. Grepping §6 for
+  parallel/concurrent/thread/race/sibling yields four hits and **not one states a contract** — the
+  silence is the finding. The lock delivers exactly what it claims (one claim, no leak, no double
+  close) and nothing more: it does not make the winner deterministic, and with no `bindIfAbsent`/CAS,
+  `if (binding(k) is Missing) bind(k, …)` is a check-then-act race between workers.
+
+**A defect the gate found in shipped code**, unrelated to parallelism and independently shippable: a
+callee that declares an export **covering a key it was bootstrapped with** binds *past* the borrow.
+`host` installs the bootstrap on the callee's own frame; a later `bind` routes through
+`exportOwnerOf`, which now climbs past that frame, so the value lands on the caller while the borrow
+still sits on the callee shadowing it — the callee **cannot see the value it just bound**, for the
+rest of its run. Not a leak (disposal reaches the right owner), but every callee-side read is wrong,
+and `ExportSelector.Family` widens the reach to every qualifier of an exported family. Row 42.
 
 ### K · Space held for a static flow overlay (future work — deliberately not planned)
 
@@ -1247,10 +1323,12 @@ this document beyond the two declarations above.
 Eight phases, each a ledger row. **Phase 1 depends on no verdict above** — ship it first regardless
 of what happens to the rest.
 
-> **Progress (2026-08-02): Phases 1–5 ✅ landed and gated green** (§8 As-built). **Phases 6–8 remain,
-> and they are five sessions, not three** — Phase 6 and Phase 7 each carry a mandatory internal seam.
-> §5.1 is the authority on where those seams fall and why; the execution-layer entry anchors are in
-> `next/CX_context-generalization.md`.
+> **Closed 2026-08-03: Phases 1–8 ✅ all landed and gated green** (§8 As-built, in descending order of
+> interest). It ran to eight phases over **six sessions**, not the four this section first estimated —
+> Phase 6 and Phase 7 each carried a mandatory internal seam, and §5.1 below records where they fell.
+> The execution elaboration that carried the per-session anchors was deleted on closure, as its own
+> header instructed; **this document is the permanent record**. Phase 8 was a design gate and withheld
+> the lift it was gating — its verdict is in §3 J, and its output is master-plan rows 41–44.
 
 The fourth review pass makes the old "Phase 2 may need splitting" seam mandatory. Address algebra
 (exact/family selectors, present-null lookup, compatibility adapters) is independently testable from
@@ -1441,6 +1519,316 @@ state) or 7a (the host-API change and its migration-ordering fixtures are one se
 > | 5 | "Phases 2 and 3 are the only kzen-lib work" | Phase 7a is kzen-lib too — and that boundary is now its session seam |
 > | 5 | four phases remaining, one session each | **six sessions**; §5.1 holds the seams and the fallbacks |
 > | 7 | Phase 4 breaks ~20 fixtures; Phase 6 re-sweeps them | four files, disjoint from Phase 6's set; both risks withdrawn, four sharper ones recorded |
+> | 3 E.1 | `contexts:` has "both sides `by: Nominal`" | only the SOURCE side can — a notation map key holds no `ObjectReference` and no rename rewrites one (Phase 7b) |
+
+### Phase 9 — the Flow context signature (2026-08-03, ledger row 41)
+
+Phase 8's licensed feature. **Rescoped at the anchor pass, with the user's call** — the row's premise that a
+Flow "takes the Script treatment unchanged" is false in one specific, load-bearing place.
+
+**What the row got wrong.** The per-vertex `uses` availability analysis cannot port, for three independent
+reasons, each verified rather than reasoned:
+
+1. A Flow's `vertices` attribute has **no `by: NestedList`** — its entries are scalar object *references* to
+   top-level objects, so every vertex is a **root** `ObjectPath` and `ObjectPath.startsWith(main)` is false for
+   all of them. `ScriptTree.read` therefore returns an *empty* tree, and `LogicContextAnalysis.analyze` on a
+   Flow succeeds today while reporting zero step-level findings. Silent under-reporting is the worst available
+   failure mode, and it is what "just call analyze" would have shipped.
+2. The branch filter matches metadata declaring `of: ScriptStep` by exact name; Flow's is `of: FlowVertex`.
+3. Semantically, `available` is **one mutable set threaded through a DFS** — "before" *is* the linear order. A
+   DAG needs per-vertex availability folded over transitive predecessors, and at a multi-input vertex that
+   requires a **fan-in join policy** (union vs intersection) with no Script precedent and no verdict anywhere
+   in this document. `releases` has no DAG meaning at all.
+
+Separately, `uses`/`releases` are declared **on `ScriptStep` itself**, not as a mix-in the way `binds` is
+(`ContextBinder`), so the full vocabulary would also mean refactoring the Script step archetype.
+
+**The decision (user's, offered as three options): document signature + call site only.** A Flow declares no
+per-vertex `binds`/`uses`/`releases` at all — so there is nothing vertex-local to order, and the DAG analysis
+is not deferred so much as *not needed*. A Flow **requires** Contexts from its caller, **relays** exports
+upward, and **supplies** the Logic its host vertices run. It never opens one. That is a coherent story rather
+than a subset of one, which is why it is written into the `Flow` archetype's own comment.
+
+Shipped: `context: {}` + `meta.context` on the `Flow` archetype · the `declareExport` + requires-gate prologue
+in `FlowLogic.run` · `contexts: {}` on `RunLogic`/`RunLogic2` · `FlowRun` now passing **both** `callerStableId`
+and `initialBindings` · the two `ContextSignatureEditor` rows in `FlowController`.
+
+**Two things worth knowing beyond the diff:**
+
+- **`RunStepContextsEditor` was reused with zero Kotlin.** It turned out to have no Script coupling whatsoever
+  — a stock `AttributeEditorProps` editor addressing everything through `objectLocation` + `attributeName` — so
+  a Flow host vertex gets the full two-picker call-site editor from one `editor:` line in notation. The same
+  held for `SelectContextEditor`.
+- **A seam was extracted rather than duplicated**: the new `ContextCallSite` (kzen-auto-jvm `server/exec/`)
+  holds the call-site resolution and the typed bind-conformance check, and `ScriptRunContext` now delegates to
+  it. The alternative was a second copy of ~40 lines of reflection-walking conformance logic in `FlowRun`,
+  where a fix to one would silently not reach the other.
+
+Gates green:
+
+| Gate | Result |
+|---|---|
+| `:kzen-auto-jvm:compileKotlin` · `:kzen-auto-js:compileKotlinJs` | ✅ both clean |
+| `FlowContextTest` | ✅ 3 tests, 0 failures |
+| Falsification | ✅ removing **only** the middle Flow's `context.exports` fails only the export test — the relay is what carries it, not something incidental |
+| `cd ../kzen-auto && ./gradlew build` | ✅ BUILD SUCCESSFUL in 11m 22s — **1009 tests, 0 failures** (1006 baseline + 3), so the `ContextCallSite` extraction left the whole Script suite green |
+
+**A fixture trap worth recording**, because it produced three green-looking passes that tested nothing. The
+first Flow fixtures used a `FlowInput` vertex, whose value comes from a run argument the hosting RunStep does
+not supply — so the DAG stalled at the input, the host vertex never ran, and the run **succeeded** with an
+empty result. Two of the three tests failed on their probe-log assertion (which is why the assertions read the
+log rather than the outcome), but a weaker test asserting only `Outcome.Success` would have passed forever.
+Fixed by using a self-starting `IntRangeSource(1..1)`.
+
+**⚠ NOT SMOKED — the one gap in this phase's evidence.** Every gate above is compile- or test-level. The
+`FlowController` mount was never rendered in a browser, so the claim that the new `position: relative` wrapper
+is layout-neutral and that the two panels land in the stage's top-right stack rests on **inspection, not
+observation**. That is exactly the evidence gap Phase 7b's smoke closed by finding a defect 997 green tests had
+not — and the two known risks here are the shape a smoke finds and unit tests cannot: the wrapper disturbing
+the vertex grid, and the panels' absolute offsets (`requiresRowEm = 5.0` / `providesRowEm = 7.25`) being
+calibrated for a stage that mounts Parameters and Result above them, which a Flow does not. Cosmetic if wrong,
+but unverified either way. **Row 41 is ticked on the runtime and notation work; a Flow-stage smoke is
+outstanding** and is the natural first item if anyone touches this area next.
+
+**Known boundary, recorded not fixed**: `LogicContextAnalysis.canProvide`'s hosted-callee arm is gated on
+`ScriptConventions.isRunStep`, so on a Flow an export backed *only* by a host vertex's callee renders as
+unbacked in the Provides row. Warning-severity and cosmetic — the same class as the accepted one-level-deep
+false negative — and it needs a notation-visible host predicate, which Flow does not have today
+(`FlowLogicHost` is discovered by Kotlin interface test on the instantiated graph).
+
+### Phase 10 — the bootstrap/export ownership defect (2026-08-03, ledger row 42)
+
+The first of Phase 8's four output rows, and the only one that was paying interest: a defect in shipped
+code, found by the gate rather than by use.
+
+**The fix is three lines and one walk.** `bind` now calls `supersedeBorrowsBelowOwner(nodeId, ownerId, key)`
+before placing the binding — dropping any *borrow* under that key on the frames the export climb travelled
+past, `[nodeId, ownerId)`. Only borrows, never an owned binding: a borrow carries no disposal by
+construction, so removing one cannot strand anything, whereas an owned binding on a frame in between is that
+frame's live resource. Both halves then hold at once — the export still moves ownership up, and the binder
+still reads what it bound.
+
+**Why it walks the path rather than clearing the binding frame alone.** The borrow that shadows a bind need
+not be on the frame that made it: an *intermediate* frame on the export chain can hold one, and a borrow
+shadows every read from its whole subtree, including the binder's one level below. That is the same defect
+one frame further away, and it survives a self-only fix — which is exactly why the second regression fixture
+(`aBindTravellingTheExportChainSupersedesEveryBorrowItTravelsPastNotOnlyItsOwn`) is a three-frame shape and
+not a restatement of the first.
+
+Gates green:
+
+| Gate | Result |
+|---|---|
+| `cd ../kzen-lib && ./gradlew build` | ✅ **757 tests, 0 failures, 0 skipped** (752 baseline + 5), across all four result dirs |
+| Falsification | ✅ commenting out the one call fails **exactly** the two regression fixtures; the three CX8 characterizations stay green, which is the right blast radius |
+| `publishToMavenLocal` + artifact check | ✅ `javap` on the published `RunEngine.class` shows `supersedeBorrowsBelowOwner` present |
+| `cd ../kzen-auto && ./gradlew build` | ✅ BUILD SUCCESSFUL in 11m 4s — **1006 tests, 0 failures** (669 jvm + 155 common ×2 + 23 js + 4 test), unchanged against the new kzen-lib |
+
+**What the CX8 fixture file became.** Its first three tests stay ⚠ characterizations of *unspecified*
+behaviour (row 43); the last two are now ordinary regression fixtures for behaviour that was *wrong*. The
+class KDoc says which is which, because the distinction is the whole reason the file exists and a later
+reader flipping an assertion needs to know which kind they are touching.
+
+**One thing deliberately not done.** kzen-auto's `LogicContextAnalysis` still says nothing about a document
+that both `requires` and `exports` the same Context — the authoring shape that reaches this code path. The
+engine is now correct for it either way, so a warning would be a *usability* judgement about a contradictory
+declaration, not a correctness fix, and it is out of this row's scope. Recorded here rather than acted on.
+
+### Phase 8 — the parallel-flavour reach gate (2026-08-03, ledger row 40)
+
+A design session with no implementation pre-approved, and none taken. **The verdict is recorded in
+§3 J**, at the point of the argument, where a later reader meets the question; this entry is the
+session record — how it was established and what it costs to trust.
+
+Gate green: `cd ../kzen-lib && ./gradlew :kzen-lib-jvm:test --tests "*RunEngineParallelBindingTest*"` —
+**4 tests, 0 failures, 0 skipped** (`RunEngineParallelBindingTest.kt`, new). Every one of them passed
+on its first run, which is the honest thing to report about them: they *record* behaviour rather than
+demand it, and two are labelled ⚠ RECORDED HAZARD and one ⚠ RECORDED DEFECT at their own site so the
+class cannot be misread as a blessing.
+
+**Why fixtures rather than a reading.** §3 J's five questions are all of the form "what happens when
+two frames do this at once", and the engine is *memory-safe* for all of them — the single-writer lock
+sees to that. The failure is one layer up, in which frame owns what, and no amount of reading
+`RunEngine.kt` settles it as convincingly as two concurrent children and an assertion on what the
+loser can still see. The decisive assertion is the one inside the losing sibling: at the moment it
+resumes, `disposed == ["browserA"]` — its own browser is already closed, and its next read hands it
+its sibling's. That is not inferable from the supersede rule; it has to be run.
+
+**What the fixture set deliberately does not claim.** These are four *engine-level* characterizations.
+No Job was run. The gate's Job verdict rests on topology facts read from the code — a Worker is a
+nested object with no `Execution` of its own, and `JobControl` has no binding member — which is why
+the verdict is *withheld* rather than negative: there is no Job-level context vocabulary to exercise,
+so there is nothing yet to characterize. The engine fixtures establish what such a vocabulary would
+land in, which is the part that had to be settled first.
+
+**Three things found that were not on the charter:**
+
+1. **A live defect in shipped code** (§3 J, row 42) — the bootstrap/export ownership disagreement.
+   Reachable from CX7b's own `RunStep.contexts` whenever the callee also exports a covering key; a
+   family export makes that wider than exact-qualifier reasoning suggests. The existing coverage
+   (`aChildsOwnBindUnderTheBootstrapKeySupersedesTheBorrowOnItsOwnFrame`) only exercises the
+   *non-exporting* callee, where `exportOwnerOf` returns the callee itself and the supersede works —
+   so the passing test sat one `declareExport` away from the broken case.
+2. **An unenforced invariant, adjacent to this arc rather than in it.** `ReportLogic`'s own KDoc says
+   a Report "is always top-level (never hosted)", but `ReportDocument` implements `LogicDocument`,
+   `LogicCompiler` only *comments* the exception, and `SelectLogicEditor` offers any document passing
+   `AutoConventions.isLogic` — which a Report does. A `RunStep` can be pointed at a Report today.
+   Filed as row 44; it is a Logic-composition defect, not a context one.
+3. **`Flow` and `Job` child frames are not call-site addressed** — both pass `callerStableId = null`
+   (`FlowRun.kt:221`, `JobRun.kt:249`, `EngineJobControl.kt:183`), so two Flow vertices hosting the
+   same document share one frame identity for migration capture and cannot be reached by
+   `MoveTarget.callSitePath`. `ScriptRunContext.kt:654` is still the only call site in the codebase
+   passing either `callerStableId` or `initialBindings`. Row 41 has to supply both for Flow, which is
+   why that row is M and not S.
+
+**The arc closes here.** Rows 33–40 are all ☑; `plans/next/CX_context-generalization.md` is deleted
+per its own header, this document being the permanent record.
+
+### Phase 7b — the call site: `RunStep.contexts` (2026-08-02, ledger row 39b)
+
+Gates green: `cd ../kzen-auto && ./gradlew build` (1006 tests, 0 failures — the 997 baseline plus nine new
+`ScriptContextCallSiteTest` cases), plus a spare-port smoke (18097, own scratch project home) of §4.7 driven
+through the real server and a real browser. The smoke's decisive pair: **one generic `Drive.yaml`, two calls,
+`Drive A → browser-a` and `Drive B → browser-b`** — the callee names neither subject and was never edited
+between them. Alongside it, the same document's two RunSteps differing only by the map: the mapped one
+validates clean, the empty one reports *"main/Drive.yaml requires Driver Slot, which nothing before this step
+binds"*. The second mapping was authored **through the new editor**, not hand-written — and what it wrote is
+the terser `main.contexts/Driver Slot` object-path form on both sides, i.e. CX5's crop-then-verify rule
+choosing correctly against a Context nested in another document. Selenium was deliberately not involved: the
+smoke's Contexts are `kotlin.String`, because what §4.7 gates is the *asymmetric mapping* (two qualified
+caller declarations in one family into one unqualified callee slot in another), not the browser flavour.
+
+**Deviations and findings, in descending order of interest:**
+
+- **The map KEY cannot be a rename-tracked reference, and that is structural rather than an oversight.** The
+  phase row asks for "both sides `by: Nominal`"; only the source side can have it. Three independent layers
+  forbid a reference-typed key: `WeakAttributeDefiner.defineMap` hard-`require`s a `kotlin.String` key generic,
+  `MapAttributeDefinition.map` is `Map<String, _>` at the model level, and `DefinitionAttributeCreator` does
+  `mapValues` — so a key is a raw pass-through string with no `ObjectReference` in it to rewrite. The refactor
+  agrees: `ObjectDefinition.traverseAttribute` turns a map key into a *path segment* and recurses into the
+  value alone, and there is no rename-a-map-key command in the notation vocabulary at all. There is also zero
+  precedent — all four production and two test `is: Map` declarations across the seven repos are String-keyed.
+  **Shipped the map anyway**, over the one rename-safe alternative (a `by: NestedList` of two-field binding
+  objects, the `ParameterBinding` shape), for two reasons: the notation §4.2 and §4.7 both document *is* a
+  map, and the failure is loud rather than silent — a stale key resolves to nothing, so it satisfies nothing,
+  so `analyzeRunStep` raises the ordinary unsatisfied-requires **error** on the calling RunStep and
+  `checkCallBindings` adds a **warning** naming the string still on disk. Both land on the step that has to be
+  re-pointed. Recorded as a live boundary, not a closed one: if rename propagation on the callee side is ever
+  wanted, the nested-object shape is the way and it is a contained change.
+- **`contexts:` is notation-only, and that is load-bearing.** A constructor-injected weak reference that
+  dangles does not degrade — `DefinitionAttributeCreator` throws and `GraphCreator` records an
+  `ObjectCreationFailure` for the **whole host object**. So injecting the map would have made one mis-picked
+  Context destroy the entire RunStep, which is the exposure `RunStep.arguments` carries today. Reading it off
+  notation (the `Logic.context` pattern) is what makes a dangling entry a finding instead.
+- **Nothing had to be threaded through `StepExecution.host`.** `ScriptRunContext.host` reads the map off
+  `currentStepLocation`, exactly as `bindDeclared` reads `binds` — a context declaration is notation the
+  running step carries, so the runtime can already see it. `StepExecution.host`'s signature, `RunStep.run` and
+  all four other `Execution.host` call sites are untouched. It also makes live-edit re-supply free rather than
+  designed: `ScriptLogic.run` constructs a fresh `ScriptRunContext` per rebuild, so the caches cannot serve a
+  pre-edit map and the borrow is re-read from whatever the caller's sources hold now.
+- **The `Any` trap CX7a predicted for this phase does not apply, and the reason is worth stating.** `BindStep`
+  must skip its class comparison when inference yields `Any` because `ExpressionReturnTypeInference` writes
+  `Any` for "the graph cannot name this type". Both sides here are **declared**, where `Any` is a genuine top
+  type — so `RunStep.callBindingMismatch` has *no* `Any` escape, and admitting `Any → String` would be unsound
+  rather than generous. Same word, opposite meaning, opposite handling. Exact type equality short-circuits
+  ahead of the probe compile; a nullable source into a non-nullable target gets its own message.
+- **A half-written row failed the whole RunStep's definition, and only the smoke found it.** A map entry is
+  keyed by its target, so the editor can only materialize a row once the *slot* is picked — making
+  "target chosen, source not yet" a reachable on-disk state, not a hypothetical. Without `nullable: true` on
+  the value generic the weak definer answers `Empty object reference` for that instant and fails the step
+  mid-edit. Fixed the way `ContextBinder.binds` already was, and pinned by
+  `aRowWhoseSourceIsNotPickedYetStillDefines` — **falsified before being trusted**: reverting the one line
+  reproduces `Failed attribute(s): contexts, attributeErrors={contexts=Empty object reference}`. Re-verified
+  against a fresh server, which is the stronger statement the unit test cannot make: the half-written step
+  still publishes a `type`, and its only finding is the ordinary unsatisfied-requires message.
+- **A smoke-methodology note worth having in writing, because it cost real time here.** kzen-auto's client is
+  a single-page app on a `#document` hash, so re-navigating to the *same* URL — hash included — is a
+  same-document navigation and does **not** reload it. A tab driven that way keeps serving component state
+  and traces from before a server restart, which reads exactly like a server bug and is not one. Verify a
+  notation change in a **new tab**, or change the URL; and when client and server disagree, believe the
+  detached `ScriptValidator` action, which answers from the server's own graph.
+- **Both sides resolve against the CALLER's step**, including the callee-side key. Resolving the key against
+  the callee's document was considered and rejected: the editor mints from the step (`SelectContextEditor`'s
+  crop-then-verify rule, applied to both sides), and one map entry answering differently depending on which
+  reader asked is worse than a rule that is uniform. The smoke confirmed the minting: the editor wrote the
+  terser `main.contexts/Driver Slot` object-path form on both sides, which resolves cross-document per CX5's
+  rule, while the hand-written fully-qualified form beside it validates identically.
+- **A computed-qualifier member is not addressable from a call site.** `ContextAddressing.keyOf(source)` takes
+  no computed qualifier, so a value a `BindStep` put under `family:x` against an *unqualified* declaration
+  cannot be named as a source. Consistent with §3 E (statically distinct instances are declarations; computed
+  qualifiers are the dynamic escape hatch E1), but it is a real edge and better written down than rediscovered.
+- **The fixtures are built so a passing read cannot come from the ancestor walk**, which is the failure mode
+  that would make this whole phase look like it works when it does not. §4.2's callers are `call-sut:a` /
+  `call-sut:b` while the callee reads exact `call-sut`; §4.7's source and target families (`call-sut` /
+  `call-driver`) share nothing at all. Neither can be satisfied by climbing.
+- **Editor notes.** State keeps raw reference strings beside their resolution rather than locations alone —
+  since the whole map is rewritten on every edit, resolving-then-reserializing would *delete* a dangling entry
+  as a side effect of editing an unrelated row. It also repairs a renamed KEY itself (~10 lines, matching the
+  two spellings its own minting produces, and only when the reference is dangling so it cannot steal a live
+  name), because kzen-lib structurally cannot; that repair only reaches RunSteps whose body is open when the
+  rename lands, and the rest surface through the warning above.
+
+### Phase 7a — the host extension: call-site bootstrap (2026-08-02, ledger row 39a)
+
+Gates green: `cd ../kzen-lib && ./gradlew build` (752 tests, JVM + JS) → `publishToMavenLocal` (all four
+subprojects) → artifacts verified **on disk** per §7 risk 2, not merely "the task ran": the published
+`kzen-lib-common-jvm-0.30.0-SNAPSHOT.jar` contains `InitialBinding.class` and `javap` shows
+`Execution.host` carrying `java.util.List<…InitialBinding>` → `cd ../kzen-auto && ./gradlew build`.
+
+- **`InitialBinding(key, value)`** in kzen-lib-common `exec/engine/context/`;
+  `Execution.host(…, initialBindings: List<InitialBinding> = listOf())`. Additive and defaulted, so all 78
+  existing `host` call sites in `RunEngineTest` plus the four in kzen-auto compiled untouched.
+- **The install is one loop inside the existing `synchronized(lock)` block** in `RunEngine.host`, between
+  `nodes[id] = runtime` and `adoptLiftedResources(runtime)` — so bootstrap values land before `publish()`
+  and before `runNode`, i.e. before any child code can observe a half-built frame. Written straight into
+  `runtime.bindings` rather than through `bind`, because `exportOwnerOf` would consult an `exports` set that
+  is necessarily still empty at that instant (the child re-declares its exports when its `Logic.run` starts).
+- **The migration ordering rule turned out to be a placement, not a precedence rule.** "An adopted
+  locally-owned binding supersedes a same-key bootstrap value" falls out for free from installing *before*
+  `adoptLiftedResources`, whose `putAll` then overwrites. No comparison logic was written.
+- **But placement alone was not sufficient, and the fixture caught it.** The barrier lifts *every* entry of
+  a frame's binding map, and a borrow is stored as `Binding(value, null)` — indistinguishable from a
+  callee-owned disposal-less binding. So the rebuilt child re-adopted its *pre-edit* borrow on top of the
+  value the rebuilt caller had just supplied: the callee kept driving whatever the caller named **before**
+  the edit, which is precisely what an edit is for. Fixed with a `bootstrap` flag on the private `Binding`
+  entry, filtered out at the lift. Chosen over the two obvious alternatives: a `bootstrapKeys` set beside
+  the map can drift out of sync with it, and "don't lift disposal-less bindings" would have stopped a
+  `BindStep`'s plain ambient value surviving a live edit — regressing Phase 6b. The flag rides on the entry,
+  so a child binding its own value under that key replaces the entry and stops borrowing in one stroke.
+- Both directions are pinned, and they are genuinely independent: moving the install after adoption breaks
+  `anAdoptedLocalBindingSupersedesTheSameKeyBootstrapValueOnRebuild`, while lifting borrows breaks
+  `aBootstrapValueIsReSuppliedFromTheCallersCurrentStateOnRebuild`. Seven fixtures in all, including the
+  headline `theSameCalleeRunsTwiceAgainstTwoDifferentBootstrapValues` — one unparameterized callee, two
+  subjects, no edit to the callee.
+- **A borrow cannot be "released to `Missing`" while the caller also holds the key**, and the fixture says
+  so rather than pretending otherwise: `releaseBinding` removes the *nearest* entry, so once the callee's
+  borrow is gone the very next read walks up and finds the caller's own registration. The test asserts the
+  stronger true statement (the release stopped at the callee's frame) and uses a second, caller-unheld key
+  to isolate the `Missing` case.
+
+**The deprecated-surface verdict (§0.1 finding 8): option (i), narrowed.** The five deprecated members were
+never uniform, so a single verdict over all of them would have been wrong. Split by whether the string form
+spells a typed operation *losslessly*:
+
+- **Un-deprecated and named as a supported layer** — `resource` / `resourceValue` / `releaseResource`, under
+  a `raw string interop (§6)` banner in `Execution`. They are what makes `ContextKey.asString`/`parse` being
+  exact inverses pay off: a raw caller and a typed one naming `sut` address one registration. Documented as
+  **strict to write, permissive to address** — registering under an unspellable string is a caller bug with
+  no sensible silent outcome, whereas reading or releasing one addresses nothing and answers null / no-op.
+  That asymmetry already existed in the code; it had just never been stated, and `ScriptRunContext`'s
+  comment justified the whole hatch by a tolerance only two of its three members actually had.
+- **Still deprecated** — `declareExport(String)` (cannot say whether it claims a family or one exact member)
+  and `hasResourceInFamily(String)` (a qualified argument silently degrades it to an exact-key check). These
+  answer *differently and wrongly* rather than less declaratively. Neither has a caller outside kzen-lib's
+  own tests, so nothing had to migrate.
+- Consequences swept in kzen-auto: the three `@Suppress("DEPRECATION")` in `ScriptRunContext` (the only ones
+  in the repo) are gone, and `StepExecution.releaseResource` now says it is *not* the raw spelling of
+  `releaseContext` — it removes without disposing, which has no typed equivalent by design.
+
+Docs: logic-spec §6 gained the bootstrap bullet, a borrow note under the settlement table (a row would have
+been dishonest — the columns are close policies and a borrow has none), the raw-layer verdict, and an
+updated *Implemented* block; two appendix rows and architecture.md's `Execution` row and package map were
+stale from the earlier typed-API landing and were corrected rather than left to mislead.
 
 ### Phase 6b — the generic step quartet + editor (2026-08-02, ledger row 38b)
 
