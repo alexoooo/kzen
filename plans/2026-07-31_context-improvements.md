@@ -260,10 +260,15 @@ fun releaseBinding(key: ContextKey) // removes the nearest binding; runs attache
 fun onSettle(policy: SettleDisposalPolicy, closer: () -> Unit) // anonymous; no key
 ```
 
-`ContextFamily` remains a distinct type because `hasResourceInFamily(family: String)` today accepts
-a fully-qualified key and silently returns false. `ExportSelector` replaces the previous proposal to
-make `declareExport` family-only; tightening it that way would have invalidated exact declared
-qualifiers before they shipped.
+`ContextFamily` remains a distinct type because `hasResourceInFamily(family: String)` today accepts a
+fully-qualified key and **silently stops being a family gate**. *(Corrected 2026-08-02 during Phase 2
+— the first draft said "silently returns false", which is not what happens. The implementation builds
+`"$family:"` as a prefix, so passing `"sut:main"` degrades to an exact-key check: **true** iff a
+registration exists under exactly `"sut:main"`, false for the bare family or a sibling qualifier. The
+motivation is unchanged and if anything stronger — a gate that silently narrows is harder to notice
+than one that always fails.)* `ExportSelector` replaces the previous proposal to make `declareExport`
+family-only; tightening it that way would have invalidated exact declared qualifiers before they
+shipped.
 
 **Resolution rule.** A Context descriptor with a declared qualifier always resolves to that exact
 key. Passing an additional runtime qualifier with it is an error, not an override or concatenation.
@@ -451,6 +456,19 @@ the engine behavior explicit:
 surface. If Phase 3 finds that a terminal frame is compacted such that nothing can inspect or release
 it, either add that surface or rename the policy; silently dropping the registration while keeping
 the external process alive is a leak, not inspection.
+
+> **Resolved in Phase 3 (2026-08-02) — the conditional fired.** Retention was *not* real, and worse
+> than this paragraph assumed: the fused implementation cleared the frame's map and merely skipped
+> disposal, so root/`manual` and failed/`keepOnFailure` left no trace at all — and a non-retained
+> frame is then compacted out of `nodes` entirely, so even leaving the entry on the frame would not
+> have saved it. Retention now moves the binding to a **run-level register** (`RetainedBinding`),
+> exposed as `RunEngine.retainedBindings()` / `releaseRetained(node, key)`. Deliberately **not**
+> auto-disposed at `dispose()`: `manual` means the handle outlives the run, so quietly quitting a
+> browser when the next run replaces the retained one would be a user-visible change nothing here
+> asked for. The register makes the leak *visible and closeable*, which is what "must be real" meant.
+> One asymmetry worth stating: anonymous `keepOnFailure` on a failed frame retains **nothing** —
+> there is no handle to hold, so the closer is simply never claimed. Only *named* bindings reach the
+> register.
 
 For anonymous `onSettle`, only the two meaningful rows exist: `Auto` disposes on every terminal
 outcome; `KeepOnFailure` disposes on success/cancel and retains on failure. There is no `Manual`
@@ -699,8 +717,17 @@ Label row 2 "Provides" naively and a reader takes it to mean fact 3, which is pr
 **Provides** row renders two chip variants: solid-filled + an **Exported** arrow/badge for what is
 handed to the caller (`context.exports`), plain-outlined + a **Private** badge for what is bound here
 and kept private (derived from the document's own steps — `LogicContextAnalysis.ownStepProvides`,
-currently `private` and needing to become `internal`). Do not encode the distinction in fill color
-alone; tooltip and accessible text name it.
+currently `private`). Do not encode the distinction in fill color alone; tooltip and accessible text
+name it.
+
+> **Correction (Phase 1, 2026-08-02): `internal` was the wrong answer and does not compile.** The
+> first draft said to widen `ownStepProvides` to `internal`. The consumer is **kzen-auto-js** and the
+> declaration is in **kzen-auto-common** — separate Gradle modules, so Kotlin `internal` is not
+> visible across them. Phase 1 added a purpose-named public
+> `LogicContextAnalysis.privateProvides(graphNotation, documentPath)` — own step provides minus
+> `context.exports` — which is exactly the question the row asks, and keeps the neighbouring
+> `anyManual` pairing private. **The trap recurs for any future "let the JS editor see an analysis
+> internal": the answer is a public query named for the question, not a visibility widening.**
 
 That resolves the trap without giving up the word. One word at the row level, precision at the chip
 level — which is exactly how the step header already works, where
@@ -750,6 +777,43 @@ Decided by the user; what remains is *what a declaration is*.
 Model the document on **`ObjectRegistry`** — the closest precedent in the tree: a `Customize`-group
 `is: Document` archetype holding a list of declarations, with a server document class and a
 `DocumentController` registered in `*-js.yaml`. `DataFormat` is the same shape.
+
+> **Correction (2026-08-02, verified against the tree before Phase 5 starts): "`ObjectRegistry`" and
+> "the same shape as a `ParameterBinding`" name TWO DIFFERENT SHAPES, and this section quietly asked
+> for both.** They are not interchangeable, and only one of them can work.
+>
+> - **`ObjectRegistry` / `DataFormat` are a *spec payload*.** The whole list is **one attribute on
+>   one object** (`main: {is: ObjectRegistry, classes: [...]}`), parsed by a `ClassListSpec` /
+>   `FieldFormatListSpec` `AttributeDefiner`. Entries are `AttributeNotation`s. **They have no
+>   `ObjectLocation`.**
+> - **`ParameterBinding` is a *nested-object list*.** Each entry is a real notation object
+>   (`main.parameters/threshold: {is: ParameterBinding, …}`), enumerated by `meta: {parameters: {is:
+>   List, of: ParameterBinding, by: NestedList}}`. **Each entry has a genuine `ObjectLocation`.**
+>
+> **The nested-object shape is mandatory, and the reason is this document's own axis A.** A Context
+> declaration is a *nominal symbol referenced from elsewhere* — `ObjectLocation` **is** its
+> declaration identity (§3 A). A spec entry cannot be one:
+> `ContextConventions.resolveOrNull` resolves through `graphNotation.coalesce`, which is built from
+> objects only, so `by: Nominal` would resolve to nothing; `renameObjectRefactor` asserts its target
+> is in `coalesce.map`, so the command is **not constructible** for a list item and `ContextRenameTest`
+> becomes unwritable; and `allContexts` iterates `coalesce.map.keys`, so a spec-shaped declaration
+> would never reach the picker at all. Choosing the spec shape means hand-writing a parallel
+> string→entry resolution path and re-implementing rename propagation.
+>
+> **So the template splits by layer**, and Phase 5 should read it that way:
+>
+> | Layer | Template | Why |
+> |---|---|---|
+> | Document chrome — archetype block, `DocumentArchetype` subclass, `*-js.yaml` controller registration, sidebar/ribbon | **`ObjectRegistry`** | Exactly the right precedent; ~4 small pieces |
+> | Declaration payload | **`ParameterBinding` / `main.steps/`** (`by: NestedList`) | The only shape that yields `ObjectLocation` |
+> | The list UI itself | **`LogicSignatureEditor`** | Already a near drop-in: it edits a `type: TypeMetadata` map, and already wires rename-as-refactor, drag-reorder and delete |
+>
+> This makes Phase 5 **smaller than the section implies, not larger**: the `Context` archetype already
+> exists and is already correct after Phase 4, and add / remove / reorder / rename / per-entry-edit all
+> have working kzen-auto call sites (`AddObjectCommand`, `RemoveObjectCommand`, `ShiftObjectTreeCommand`,
+> `RenameObjectRefactorCommand`, `UpsertAttributeCommand`). No spec class, no `AttributeDefiner`, no
+> notation ser/de. One caveat carried from `docs/architecture.md`: add must be `AddObjectCommand` at a
+> computed index, **not** `AddObjectAtAttributeCommand`, which writes a stray scalar back.
 
 **The sub-fork that matters:**
 
@@ -1183,6 +1247,11 @@ this document beyond the two declarations above.
 Eight phases, each a ledger row. **Phase 1 depends on no verdict above** — ship it first regardless
 of what happens to the rest.
 
+> **Progress (2026-08-02): Phases 1–5 ✅ landed and gated green** (§8 As-built). **Phases 6–8 remain,
+> and they are five sessions, not three** — Phase 6 and Phase 7 each carry a mandatory internal seam.
+> §5.1 is the authority on where those seams fall and why; the execution-layer entry anchors are in
+> `next/CX_context-generalization.md`.
+
 The fourth review pass makes the old "Phase 2 may need splitting" seam mandatory. Address algebra
 (exact/family selectors, present-null lookup, compatibility adapters) is independently testable from
 the registry/lifecycle split. Combining them would ask one session to change the vocabulary, storage,
@@ -1195,18 +1264,56 @@ for the generic steps and call-site bootstrap.
 | 2 | **Address algebra (kzen-lib)** | M | `ContextKey` / `ContextFamily`, `ExportSelector.Exact/Family`, `BindingLookup.Missing/Present`; exact and family presence APIs; qualified-export tests; present-null tests; typed overloads with deprecated composed adapters so current callers stay green. No registry split yet. Ends published to mavenLocal | additive API |
 | 3 | **Binding / disposal split (kzen-lib)** | **L** | Separate binding and disposal registries; `bind` / `binding` / `releaseBinding` + keyless `onSettle`; one-shot `FrameDisposal`; managed-binding settlement state table from C.4; supersession, explicit release, root/manual, failed retention and migration fixtures; export climb on bindings; logic-spec §6 split. Composed adapters reproduce today's observable behavior before removal. Ends published to mavenLocal | **yes** (API) |
 | 4 | **Declarations and addressing (kzen-auto)** | M | `Context` → concrete nominal declaration with `type: TypeMetadata`, `qualifier`, optional interop `key`, no lifecycle; canonical full-type default family; `ContextDescriptor.valueClass` → `type`; declared-vs-computed qualifier exclusivity; exact-key analysis/gates and exact alias warnings; typed bind conformance centralized; `StepExecution.bind(location, value)` → `recordValue` | **yes** |
-| 5 | **Authoring** | M | `Contexts` archetype + document + controller + ribbon/sidebar, on the `ObjectRegistry` template; picker "New context…" | no |
-| 6 | **The step vocabulary** | M | `BindStep` / `UseContextStep` / `ReleaseStep` / `DisposeAtSettleStep`; `SelectContextEditor`; `ContextProvider` → `ContextBinder` + `ResourceOwner`; `ReleaseStep` invokes attached disposal once; runtime raw-class/nullability check plus full metadata checks where a source type exists. Carries `provides:` → `binds:` and step `requires:` → `uses:`. No cross-step resource opener and no partial export guard presented as safety | **yes** |
-| 7 | **Call-site binding** | M | `RunStep.contexts` with declaration source and step-source editor sugar; `Execution.host(initialBindings=…)` installs borrows atomically before child run; missing-vs-null and source→target assignability; migration ordering fixtures; `analyzeRunStep` credits the map; spec addendum | **yes** (host API) |
+| 5 ✅ | **Authoring** | M · **1 session** | `Contexts` archetype + document + controller + ribbon/sidebar — **chrome** on the `ObjectRegistry` template, **payload** as `by: NestedList` nested objects (§3 I correction), list UI cloned from `LogicSignatureEditor`; picker "New context…" | no |
+| 6 | **The step vocabulary** | M · **2 sessions (A / B)** | **A** — `ContextProvider` → `ContextBinder` + `ResourceOwner`; `provides:` → `binds:`, step `requires:` → `uses:`; migrate kzen-auto off the deprecated kzen-lib adapters. **B** — `BindStep` / `UseContextStep` / `ReleaseStep` / `DisposeAtSettleStep` + `SelectContextEditor`; `ReleaseStep` invokes attached disposal once. No cross-step resource opener and no partial export guard presented as safety | **yes** |
+| 7 | **Call-site binding** | M · **2 sessions (A / B)** | **A (kzen-lib)** — `Execution.host(initialBindings=…)` installs borrows atomically before child run; migration ordering fixtures; spec addendum; deprecated-surface verdict; ends published to mavenLocal. **B (kzen-auto)** — `RunStep.contexts` with declaration source and step-source editor sugar; missing-vs-null and source→target assignability; `analyzeRunStep` credits the map | **yes** (host API) |
 | 8 | **Reach gate** | design | Inspect real Flow / Job / Report frame topologies; decide root-vs-worker signatures, borrow lifetime, release conflicts and shared-parent writes; record verdict + fixtures/implementation plan. **Does not lift `context` onto `Logic` by assumption**; implementation receives a separately estimated ledger row | no implementation pre-approved |
 
 Each phase's gate is `cd ../kzen-auto && ./gradlew build` — **never `./gradlew build` from the
 umbrella**, which abbreviation-matches `:buildEnvironment` and exits 0 having compiled nothing.
-**Phases 2 and 3 are the only kzen-lib work in the arc**; each gate is
-`cd ../kzen-lib && ./gradlew build` followed by `publishToMavenLocal` (all subprojects), because
-kzen-auto's `jvmMain` / `jsMain` resolve variant-suffix coordinates from mavenLocal rather than
-through the composite. Phases 4–7 are kzen-auto. Phase 8 is a design session whose verification plan
-comes from the verdict rather than a preselected build command.
+**Phases 2, 3 and 7a are the kzen-lib work in the arc** — *corrected 2026-08-02; the original prose
+said "Phases 2 and 3 are the only kzen-lib work", but Phase 7's own row changes `Execution.host`,
+which is kzen-lib. The row is the authority, and §5.1 makes the repo boundary Phase 7's session
+seam.* Each kzen-lib gate is `cd ../kzen-lib && ./gradlew build` followed by `publishToMavenLocal`
+(all subprojects), because kzen-auto's `jvmMain` / `jsMain` resolve variant-suffix coordinates from
+mavenLocal rather than through the composite. Phases 4–6 and 7b are kzen-auto. Phase 8 is a design
+session whose verification plan comes from the verdict rather than a preselected build command.
+
+### 5.1 · Session split for the remaining work (2026-08-02)
+
+Phases 1–4 were one session each, as drafted. **The remaining four phases are six sessions.** Two
+carry a mandatory seam; the reasoning is recorded here so a session does not merge them back.
+
+| Session | Phase | Repo | Character | Gate |
+|---|---|---|---|---|
+| **1** | 5 | kzen-auto | additive — new document type | build + smoke: create from ribbon, add a declaration, see it in the picker |
+| **2** | **6a** | kzen-auto | mechanical — rename + mix-in split + adapter migration | build; the self-test suite is the canary |
+| **3** | **6b** | kzen-auto | additive — the generic step quartet + editor | build + smoke of §4.6's three safe compositions |
+| **4** | **7a** | **kzen-lib** | breaking host API | kzen-lib build + `publishToMavenLocal`, artifacts verified on disk |
+| **5** | **7b** | kzen-auto | additive at the call site | build + smoke of §4.7 |
+| **6** | 8 | — | design gate, no implementation | verdict recorded + a separately-estimated ledger row |
+
+**Why Phase 6 splits.** 6a changes only things that already exist and ships **no new user-facing
+capability**; its gate is "the build is green and `SelfTestContextDeclarationsTest` still reports zero
+findings". 6b adds four steps and an editor; its gate is browser smokes of behaviour that did not
+previously exist. Merged, a failing smoke cannot be attributed — is the new `BindStep` wrong, or did
+the rename miss a reader? Split, 6a's canary fires on a half-done rename before any new code exists to
+blame. 6b also *depends* on 6a: `BindStep` is `is: [ScriptStep, ContextBinder]` with **no**
+`ResourceOwner`, which is the entire payoff of the C.5 split and cannot be written before it.
+
+**Why Phase 7 splits.** The seam is forced by the repo boundary and is not a judgement call: 7b
+cannot compile until 7a's artifacts are in mavenLocal (§7 risk 2). Doing both in one session means a
+mid-session publish and a build of two repos against a half-migrated API.
+
+**Fallback seams, if a session runs long.** Named in advance so the decision is not improvised:
+
+- **6b** → ship `BindStep` + `UseContextStep` + `SelectContextEditor` first (the read/write pair that
+  justifies the editor), then `ReleaseStep` + `DisposeAtSettleStep` (the disposal pair) as a tail.
+- **5** → ship the document + declaration list first; **"New context…" in the picker is the
+  detachable tail**, since it is the only part that reaches outside the new document.
+
+**Do not split** 6a (a half-renamed graph fails the self-test suite, so it has no green intermediate
+state) or 7a (the host-API change and its migration-ordering fixtures are one semantic unit).
 
 ## 6. Decision log — rejected and deferred
 
@@ -1246,12 +1353,44 @@ comes from the verdict rather than a preselected build command.
 - **Phases 2 and 3 cross the repo boundary.** A kzen-lib change not published to mavenLocal produces
   a kzen-auto build that compiles against the composite and fails against variant-suffix coordinates.
   Publish after each phase; verify Phase 3's artifacts before starting Phase 4.
-- **Phase 4 is breaking** across the shipped notation plus the ~20 fixtures in
-  `kzen-auto-jvm/src/test/resources/notation/test/script/context/`. `SelfTestContextDeclarationsTest`
-  asserts the whole `notation/main/**` self-test suite carries zero findings and runs on every
-  `build`, so the migration cannot be deferred past the session that starts it.
-- **Phase 6's two verb renames land in the same files Phase 4 rewrote.** Sequence them adjacently or
-  accept a second sweep of the same notation.
+- ~~**Phase 4 is breaking** across the shipped notation plus the ~20 fixtures…~~ **Resolved
+  2026-08-02 — the estimate was wrong by 5×, in the safe direction.** Only **four** files *declare*
+  `is: Context` (five declarations total); `notation/main/**` declares none. The ~20/~24 figure counted
+  fixtures that *use* contexts through `provides:` / `requires:`, which is Phase 6's sweep. The real
+  Phase 4 risk was never volume — it was "one archetype shape change that the **client** graph has to
+  survive", since making `Context` concrete means the graph instantiates it and JS has no runtime
+  reflection to fall back on. That is what the browser smoke checked, and no JVM test could have.
+  `SelfTestContextDeclarationsTest` still asserts zero findings over `notation/main/**` on every
+  `build`, so a migration still cannot be deferred past the session that starts it.
+- ~~**Phase 6's two verb renames land in the same files Phase 4 rewrote.**~~ **Did not happen.** Phase 4
+  touched only the five `is: Context` declarations; Phase 6 touches the *step* archetypes that declare
+  `provides:` / `requires:`. The two sets are disjoint, so no second sweep was paid and **Phase 6 gets
+  the fixtures to itself**. The adjacency advice is withdrawn — it was insurance against a collision
+  that the measurement disproved.
+- **Phase 6a's real risk is a name collision inside one file, not volume.** The measured blast radius
+  is ~14 files with only **3** notation instance sites; everything else inherits from an archetype. But
+  `LogicContextConventions` holds `requiresSegment` (**document**-level `context.requires`, *unchanged*)
+  and `requiresAttributeName` (**step**-level, *renamed to `uses`*) — **two constants that are both the
+  string `"requires"` today**, and the rename splits them apart. Alongside that, **17 documents carry
+  document-level `context.requires`** that a naive grep-and-replace corrupts. Discriminator: 2-space
+  indent = step, 4-space under `context:` = document. One instance site hides inside a Kotlin
+  triple-quoted string (`ContextRenameTest`), where YAML tooling will not see it.
+- **The `ContextBinder` / `ResourceOwner` split buys nothing for the two first-party steps that
+  motivate it.** `BrowserOpenStep` and `StartKzenAutoStep` are the only `is: ContextProvider`
+  inheritors, and *both* take both halves — so both become `is: [ScriptStep, ContextBinder,
+  ResourceOwner]` and nothing about them improves. The split pays off only for a binder that owns
+  nothing, i.e. Phase 6b's `BindStep`, and for the reader-side decoupling in
+  `ScriptStepDisplayDefault`, which today reads `closePolicy` **only when `providesContext != null`** —
+  the fusion expressed in code. State this rather than discover it, so 6a is not judged a no-op.
+- **Phase 7's "remove the deprecated surface" is a decision, not a deletion.** Only 7 deprecated call
+  sites remain in kzen-auto, but three of them (`ScriptRunContext`'s `openResource` / `resource` /
+  `releaseResource`) *implement* `StepExecution`'s **raw string API**, which logic-spec §6 makes
+  load-bearing: *"a typed step opens the browser a raw step then drives"*. That surface needs a
+  permissive string-keyed layer underneath it, and `ContextKey.parse` is deliberately **strict** — so
+  routing the raw hatch through it would turn "returns null" into "throws" for a malformed plugin key.
+  Phase 7a must choose explicitly: keep an undeprecated raw string surface in kzen-lib as the documented
+  interop layer, or have kzen-auto's hatch parse defensively. Do not let a session discover this while
+  trying to delete a public contract.
 - **The settlement table exposes behavior the old enum prose hid.** In particular, root/manual and
   failed `keepOnFailure` must remain inspectable/releasable rather than merely leaking an external
   handle after the registry entry disappears. Pin every table cell with tests before deleting the old
@@ -1287,6 +1426,239 @@ comes from the verdict rather than a preselected build command.
 ## 8. As-built
 
 *(To be filled per phase, in descending order of interest, with the gates that ran green.)*
+
+> **Where the discoveries were folded back.** A finding that only invalidates a *phase record* stays
+> in that phase's entry below. A finding that invalidates something this document **argues** was
+> corrected in place, at the point of the argument, so a later reader is never misled by the original
+> claim. Those in-place corrections, for audit:
+>
+> | § | What was wrong | Now |
+> |---|---|---|
+> | 3 A.3 | `hasResourceInFamily` "silently returns false" | silently stops being a *family* gate — degrades to an exact-key check |
+> | 3 C.4 | "retain must be real" left as a Phase-3 conditional | conditional fired; resolved by a run-level retained register |
+> | 3 G | widen `ownStepProvides` to `internal` | does not compile across Gradle modules — public `privateProvides` instead |
+> | 3 I | `ObjectRegistry` **and** `ParameterBinding` named as one shape | two different shapes; chrome from one, payload from the other, `ObjectLocation` decides |
+> | 5 | "Phases 2 and 3 are the only kzen-lib work" | Phase 7a is kzen-lib too — and that boundary is now its session seam |
+> | 5 | four phases remaining, one session each | **six sessions**; §5.1 holds the seams and the fallbacks |
+> | 7 | Phase 4 breaks ~20 fixtures; Phase 6 re-sweeps them | four files, disjoint from Phase 6's set; both risks withdrawn, four sharper ones recorded |
+
+### Phase 6b — the generic step quartet + editor (2026-08-02, ledger row 38b)
+
+Gates green: `cd ../kzen-lib && ./gradlew build` (745 tests) → `publishToMavenLocal` → `cd ../kzen-auto &&
+./gradlew build` (997 tests, 0 failures), including the ten new `ContextStepRuntimeTest` /
+`ContextStepValidationTest` cases; `cd ../kzen-project && ./gradlew build` as the ripple check on the kzen-lib
+change. Browser smoke on a spare port (18099, own project home): the "Context" ribbon group carries the four
+tools, `BindStep`'s picker renders with type + description detail, a Context declared *after* the editor
+mounted appears on picker-open, and `BrowserOpenStep`'s body shows **no** picker — both halves of the
+editor/no-editor contract. Notation read off disk, not the UI: picking the first-party `BrowserContext` wrote
+`binds: BrowserContext`, picking a user Context wrote **`binds: main.contexts/Greeting`** — the object-path
+form, which is the case that would have silently dangled. The server-side validator was driven independently
+and reported no error or warning for either step. **This phase turned out to need a kzen-lib change**, which
+§5 did not predict — see the first entry.
+
+**Deviations and findings, in descending order of interest:**
+
+- **Attribute METADATA inherited in the opposite direction from attribute VALUES, and had done so all along.**
+  `GraphNotation.inheritanceChain` is linearized most-derived-first. `firstAttribute` walks it and takes the
+  first hit, so values are closest-wins. `NotationMetadataReader.readObjectImpl` walked the *same* chain
+  assigning `builder[name] = metadata` per ancestor — last writer wins — so **a subtype could not refine an
+  inherited attribute's `meta:` at all**; its entry was silently replaced by its base's. This is why the
+  defect survived so long: a restatement that is value-identical to its base is indistinguishable from being
+  overwritten by it, so `BindStep.meta.binds` and `ReleaseStep.meta.releases` "worked". Only
+  `UseContextStep`, which genuinely *narrowed* `uses` from the inherited `is: List` to a nullable
+  `ObjectLocation`, exposed it — and it surfaced as a definition failure in the subtype
+  (`Empty object reference`), never as an inheritance error. The `editor:` key was being dropped on all three
+  declarations, so the Context picker would have been inert on every one of the four new steps. Fixed in
+  kzen-lib (`readObjectImpl` keeps the first declaration, matching `firstAttribute`); 745 kzen-lib tests and
+  997 kzen-auto tests green after, so nothing depended on ancestor-wins. **This was escalated as a decision
+  rather than taken unilaterally** — it crosses the repo boundary §5.1 reserved for Phase 7a, and it needed a
+  `publishToMavenLocal` mid-arc.
+- **The disposal-free bind did not exist and had to be built.** kzen-lib's `Execution.bind` has defaulted its
+  disposal to null since Phase 3, but **no `StepExecution` member reached that form** — both
+  `provideContext` and the raw `openResource` force a `FrameDisposal`. So `BindStep`, the step the whole C.5
+  split exists for, was unreachable through the typed API. `bindContext` now has two overloads routed through
+  one private `bindDeclared`, sharing resolution, conformance and addressing and differing only in whether a
+  disposal rides along — the `ContextBinder` / `ResourceOwner` split expressed at the runtime boundary.
+  `provideContext` was renamed to `bindContext` in the same edit, closing the inconsistency 6a recorded;
+  confirmed not an SPI break, since `kzen-auto-plugin` (what `kzen-sample-plugin` compiles against) contains
+  no `StepExecution` at all.
+- **`Execution.onSettle` was likewise unreachable from a step** — `ScriptRunContext` holds its `Execution`
+  privately, and only a `Logic` like `JobRun` could call it. `disposeAtSettle` exposes it, and
+  `DisposeAtSettleStep` is the first step that can register frame cleanup without inventing a Context to hang
+  it on.
+- **`BindStep`'s static type check has to skip the class comparison when inference yields `Any`, and that is
+  not a weakening.** `ExpressionReturnTypeInference` approximates any classifier outside the object-registry
+  scan to `Any` and **does not mark the approximation** — an expression genuinely typed `Any` reads
+  identically. Comparing against it would reject exactly the cases the check exists to protect: every
+  expression yielding a plugin's own class, `RemoteWebDriver` included. So `Any` means "the graph cannot name
+  this type", the class half is skipped, and the runtime raw-class check stays definitive — which is what §3 D
+  already prescribed for an unknown-source value. Nullability survives the approximation (read off the
+  `KType`, not the classifier) and is checked either way; it is also the half a runtime check can only catch
+  once a null actually arrives.
+- **`SettleDisposalPolicy` needed its own notation archetype and definer** rather than reusing `ResourceOwner`.
+  Reusing it would have offered `manual` on an anonymous registration — a promotion with no name to promote,
+  i.e. a control that cannot do what it says. kzen-lib's enum carries no `key`/`parse`, so the wire map lives
+  in the new `SettleDisposalPolicyDefiner`; kzen-lib was not touched for it. Consequence recorded: a third
+  constant added upstream is silently unselectable until both the definer map and the notation `values:` are
+  updated.
+- **A deferred expression must capture, so `StepExpressionSupport` gained a `prepare` seam.** A settle-time
+  closer fires when there is no run left to resolve a reference against, so compiling, loading and resolving
+  every in-scope value happen at step time and only `instance.evaluate(snapshot)` is deferred. `evaluate` is
+  now a one-line delegation to it. `DisposeAtSettleStep` also deliberately skips `perRunSingleton`: a compiled
+  expression holds its argument list as mutable state, so sharing one across a loop's iterations would leave
+  several pending closers racing on it at settle.
+- **The body-editor suppression is now "does the archetype name an `editor:`", not "is it a context
+  declaration".** `ScriptStepDisplayDefault` hid all of `binds`/`uses`/`releases` from the step body, which is
+  right for a typed step whose Context is an archetype constant and fatal for a generic step whose entire
+  point is that the user chooses it. Naming an editor is the archetype's own opt-in, so `BrowserOpenStep`
+  keeps behaving exactly as before by naming none. `LogicContextConventions.isContextDeclaration` was left
+  alone — the naming convention is shared, the policy belongs to the caller.
+- **`SelectContextEditor` mints references by resolution, not by document equality.** `SelectObjectEditor`'s
+  `wireValue` shortens a reference when the target is in the same document; that is positional and would
+  silently dangle for a Context in a Contexts document. The new editor uses Phase 5's rule — try
+  `crop(retainPath = false)`, keep it only if it resolves back to the same location from the referring step,
+  else fall back to fully-qualified. It also recomputes its candidate list on picker-open rather than per
+  publish, because `allContexts` walks the inheritance chain of every object in the graph.
+- **Two test-lore corrections.** (1) `ProvideContextTestStep`'s KDoc claim that pulling `SelectValuesEditor`
+  into the JVM-only test graph fails to resolve is at least too broad: the new fixtures instantiate production
+  archetypes carrying both `editor: KotlinExpressionEditor` and (via `meta.ref`) `editor: SelectValuesEditor`
+  with no resolution error of any kind. (2) `ContextProbeLog` *is* reachable from a runtime-compiled Kotlin
+  expression — `ScriptKotlinCompiler` builds its classpath from the loading classloader, which under Gradle's
+  test worker includes the test classes dir — so no temp-file or system-property workaround was needed.
+- **Validator fixpoint poisoning shapes the fixtures.** A step whose `definition()` returns a validation error
+  publishes no `typeMetadata`, so every later expression step reports "Unresolved: circular or unavailable
+  dependency" instead of its own verdict. Each failing-`BindStep` scenario therefore needs its own document;
+  noted in the fixture headers rather than left for the next author to rediscover.
+- **Two coverage gaps left open deliberately, both narrow.** (1) `wireValue`'s *disambiguation* branch — two
+  same-named Contexts in different documents, where the object-path form no longer round-trips and the
+  fully-qualified form must be written — is exercised by neither the smoke nor the in-process tests. The
+  three reference forms themselves stay pinned by `ContextsDocumentTest`; what is untested is this editor
+  choosing between them under collision. (2) Only `BindStep`'s picker was driven end to end; `uses` and
+  `releases` on the other three steps resolve through the identical metadata shape and the identical
+  `AttributeWrapperLookup` path, and `UseContextStep`'s narrowed `uses` is proven to *define* by
+  `anUnconfiguredUseContextStepDefinesAndAsksForAContext` — but their bodies were not rendered.
+- **A correction to this document's own expectation, not a finding:** the "New context…" affordance belongs to
+  CX5's `ContextSignatureEditor` (the document-level Requires/Provides row), not to a step-body picker.
+  `SelectContextEditor` has none and needs none — a user creates a Context from Project options → Customize,
+  and the picker sees it on next open. Recorded because the smoke brief asserted otherwise and the absence
+  reads like a gap until you check which editor owns the affordance.
+
+### Phase 6a — the step vocabulary: binds / uses / releases (2026-08-02, ledger row 38a)
+
+Gates green: `cd ../kzen-auto && ./gradlew build` — 650 `kzen-auto-jvm` tests (0 failures) plus
+`SelfTestContextDeclarationsTest`'s zero-findings assertion over `notation/main/**`, which is the canary a
+half-done rename fails with a full finding list.
+
+**Deviations and findings, in descending order of interest:**
+
+- **The headline risk was disarmed by making the two levels DIVERGE, not by being careful.** §7 named
+  `requiresSegment` (document) and `requiresAttributeName` (step) — both the string `"requires"` — as the
+  bug-prone spot. Renaming only the step constant's *value* would have left two same-named symbols one
+  qualifier apart in one file. They now differ in **symbol name AND in string**: `requiresSegment` /
+  `"requires"` versus `usesAttributeName` / `"uses"`. A cross-level misread no longer compiles, and
+  `LogicContextConventions`' KDoc says so in a paragraph headed *THE TWO LEVELS DELIBERATELY DO NOT SHARE
+  VOCABULARY*. The 17 document-level `context.requires` decoys were never at risk once the discriminator was
+  a *symbol* rather than an indent level.
+- **`privateProvides` / `canProvide` / `unbackedExports` were NOT renamed, and the reason is that ripgrep
+  cannot see the file that consumes them.** `ContextSignatureEditor.kt` carries a literal NUL byte inside its
+  `newContextSentinel` constant, so rg classifies it binary and reports *no matches* for anything in it — a
+  grep-driven rename sweep would have compiled clean on the JVM and broken the JS build with no warning.
+  Renaming them would also have paid nothing: they are *analysis* vocabulary about what a document can
+  supply, not the step verbs N4 renames. Read that file with `Read` / `Select-String` / `grep -a`, never rg.
+- **`BrowserOpenStep` carried the same double-teardown hazard as `BrowserCloseStep`, and the plan named only
+  one.** §8 Phase 3 flagged that CX6 must drop `BrowserCloseStep`'s own `quit()` once `releaseContext` starts
+  disposing. `BrowserOpenStep`'s replace-existing path had the identical shape — release the old driver, then
+  quit it — and would have quit an already-quit handle on every re-open. Both now name *what* ends and leave
+  *how* to the disposal the binder attached; the release-before-bind ordering is unchanged and still
+  load-bearing.
+- **The mix-in split pays off exactly where §7 predicted it would not: in the reader.**
+  `ScriptStepDisplayDefault` read `closePolicy` **only when `providesContext != null`** — the fusion expressed
+  in code. It now reads both unconditionally, which is what lets Phase 6b's `BindStep` (`ContextBinder`, no
+  `ResourceOwner`) and a settle-only step render without touching the display again. The two first-party
+  steps that motivated the split still take both halves, as predicted.
+- **`StopKzenAutoStep` collapsed from a teardown into a name.** It used to reach into
+  `KzenAutoSubprocessRegistry` and tear the SUT down itself; it now decides only *when* the SUT dies, by
+  releasing the binding `StartKzenAutoStep` attached its identity-checked closer to. `remove(name)` and
+  `removeAndClose(name)` became dead and were deleted; the identity-checked `removeAndClose(name, process)`
+  stays, because two SUTs sharing one name is a real shape. Its tolerant "nothing to stop" branch stays
+  reachable because the step declares `releases:`, not `uses:` — so it is never gated.
+- **One test assertion had to get STRONGER, not just re-worded.** `releaseBinding` disposes, so in
+  `qualifiedMembersOfOneFamilyAreIndependent` each `disposed[…]` now precedes its own `release saw …`. The
+  expected log interleaves them, which pins something the old ordering could not: alpha's disposal fires on
+  alpha's release and not on beta's, so one member of a Context family cannot tear down its sibling.
+- **`provideContext` was deliberately left unrenamed.** The notation verb is `binds:` and the engine verb is
+  `bind`, so that `StepExecution` member is now the only place the retired word survives. Renaming it belongs
+  with Phase 6b, which adds the disposal-free sibling that gives the pair a shape (`bindContext(value)` /
+  `bindContext(value, closePolicy, closer)`); doing it here would have churned the same signature two
+  sessions running. Recorded so it reads as a decision rather than an oversight.
+- **Migration off the deprecated string adapters was one call site, not a sweep.** `JobRun`'s
+  `resource("job-scratch", …)` became `onSettle(SettleDisposalPolicy.Auto)` — anonymous frame cleanup that
+  never needed a name, i.e. §3 C.6's middle composition arriving a phase early. `ScriptRunContext.releaseContext`
+  moved from `releaseResource` (remove without dispose) to `releaseBinding` (remove and dispose once). What
+  remains deprecated is exactly the raw hatch (`StepExecution.openResource` / `resource` / `releaseResource`),
+  whose fate Phase 7a decides.
+- **Two docs corrected in passing.** `kzen-auto/AGENTS.md` still claimed a Context is abstract and never
+  instantiated — true of the **archetype**, false of a **declaration** since Phase 4. And
+  `kzen-lib/docs/logic-spec.md`'s "why `context.exports` and not `provides`" argument rested partly on a
+  collision with a step-level `provides:` that no longer exists; the verdict is unchanged but now rests
+  solely on the export-vocabulary argument, with the expired half marked as expired.
+
+### Phase 5 — authoring: the Contexts document (2026-08-02, ledger row 37)
+
+Gates green: `cd ../kzen-auto && ./gradlew build`, plus the new `ContextsDocumentTest` (five tests).
+
+**Deviations and findings, in descending order of interest:**
+
+- **Three reference forms are in play and the plain name is not one of the working two.** Pinned by
+  `ContextsDocumentTest.aPlainNameDoesNotResolveAcrossDocumentsButTheObjectPathDoes`, and confirmed by
+  the browser smoke. Reference resolution is relative to the *referring* document, and a user's Context
+  now lives at `main.contexts/<Name>` in a **different** document:
+  1. the **plain name** (`Greeting`) — what a hand-written first-party reference looks like
+     (`provides: BrowserContext`) — **does not resolve**;
+  2. the **object path** (`main.contexts/Greeting`), i.e. `crop(retainPath = false)` — resolves, and is
+     what actually lands in notation;
+  3. the fully-qualified reference — resolves, and is the fallback.
+
+  `ContextSignatureEditor.referenceNameOf` tries (2) then (3), so no code change was needed and the
+  smoke wrote form (2). *(First written up here as "the fully-qualified reference" — corrected the same
+  day when the smoke showed what actually lands. `crop(retainPath = false)` drops the **document** path
+  but keeps the **object** nesting, and that nesting is what disambiguates.)* This is the first time
+  the non-plain form is routine rather than exceptional: every first-party Context is a *root-level*
+  object in classpath notation, which is why the terse form has always worked so far. **CX6b's
+  `SelectContextEditor` must mint references the same way**; noted in the elaboration.
+- **The server document class needs no constructor parameter, so it is one line.** The plan predicted "a
+  thin `DocumentArchetype` subclass". `ScriptDocument` is the precedent: it declares `meta: steps /
+  parameters / …` in notation and takes *nothing*, because a `meta:` entry with no matching constructor
+  parameter is simply not injected, and a document whose structure is read from notation has no use for
+  the injected list. `ContextsDocument` is `class ContextsDocument: DocumentArchetype()`. Taking
+  `contexts: List<ObjectLocation>` would have been an unused field and a definition-time risk for
+  nothing.
+- **`ContextsConventions` was deliberately not created.** The plan said "a small `ContextsConventions`,
+  the `isX` pattern is ~10 lines". Two conventions objects one letter apart in one package
+  (`ContextConventions` / `ContextsConventions`) is the same class of collision CX6a documents for
+  `requiresSegment` / `requiresAttributeName`, and it is cheaper to not create it than to document it.
+  The three additions (`contextsDocumentObjectName`, `contextsAttributeName` / `Path`,
+  `isContextsDocument`) went into `ContextConventions`, which already owns the domain. Every other
+  document type keeps its own `<Type>Conventions`; this is the one exception and it is commented as such.
+- **Zero registration points, confirmed by construction.** No manifest, no `project-js.yaml` edit, no
+  icon map, no `DocumentArchetype` registry, no `KzenAutoContext` wiring. Three notation autowires cover
+  a new document type end to end: `ProjectController.archetypeLocations` (`of: Document`,
+  `by: AutowiredNominal`) picks the archetype up for the sidebar tree **and** the create menu, and
+  `HeaderController` / `StageController`'s `documentControllers` (`of: DocumentController`,
+  `by: Autowired`) pick up the controller. The whole type is five files.
+- **§3 I's resizing held.** No spec class, no `AttributeDefiner`, no notation ser/de; add / remove /
+  reorder / rename / per-entry-edit are `AddObjectCommand` at a computed index, `RemoveObjectCommand`,
+  `ShiftObjectTreeCommand`, `RenameObjectRefactorCommand` and `UpsertAttributeCommand` against existing
+  call sites. The one genuinely new code is the editor's rendering.
+- **A stale KDoc corrected in passing.** `ContextConventions` still said "A Context is data, never
+  instantiated (`abstract: true`)" — true of the *archetype*, false of a declaration since Phase 4, and
+  actively misleading for Phase 5, whose entire premise is that a declaration is a concrete object with
+  an `ObjectLocation`.
+- **"New context…" shipped** (the detachable tail was not needed). It prefers an **existing** Contexts
+  document over creating one — a user who named theirs `main/Fixtures.yaml` should not silently acquire
+  a second — and seeds `main/Contexts.yaml` only when the project has none. The sentinel is branched
+  **before** the option lookup, because that lookup's `?.let` silently swallows any value that is not an
+  `ObjectLocation` string.
 
 ### Phase 4 — declarations and addressing (2026-08-02, ledger row 36)
 
