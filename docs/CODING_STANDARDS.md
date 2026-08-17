@@ -468,3 +468,57 @@ Do:
 ```
 
 **Why:** CC-02 bans prompt-echo in comments, where the cost falls on the next developer; in UI copy the same echo ships to the user, who has even less context. A string naming one specific consumer (or the requester's example scenario) becomes wrong the moment another consumer exists — and the domain-language restatement is just as short.
+
+
+## CC-19 — Commented-out code is deleted code
+
+**Never disable or retire code by commenting it out. A rejected alternative gets at most one prose line; a removed or disabled feature gets deleted — git history is the archive.**
+
+Don't:
+```kotlin
+//    fun scanAll(): Map<DocumentPath, DocumentScan> {
+//        val builder = mutableMapOf<DocumentPath, DocumentScan>()
+//        ... 120 more commented lines kept "in case" ...
+//    }
+```
+
+Do — delete it; if the alternative embodies a real decision worth keeping, record the decision, not the code:
+```kotlin
+// A Bifurcan-backed index benchmarked slower than H2 at production row counts (see git history).
+```
+
+**Interaction with CC-07:** commented-out code *pre-dating* your change that you stumble on mid-task is still CC-07 territory — surface it, don't drive-by delete. This rule governs (a) code being disabled or replaced in the current change (never leave a new corpse) and (b) dedicated cleanup passes, where corpses are deleted on sight.
+
+**Why:** Commented-out code is the dominant real-world bloat form in this codebase (the 2026-08-16 audit found six whole files that were 100% comments, plus ~2,000 dead lines overall). It rots silently against the live API it can no longer compile against, buries genuine prose comments, and misleads both readers and metrics. Everything it "preserves" is one `git log -S` away.
+
+
+## CC-20 — Rationale has one canonical home; never cite line numbers
+
+**A design rationale or invariant is written out in exactly one place — the owning spec/architecture doc, or the one field/class comment that owns the invariant. Every other site that depends on it gets a one-line pointer. Pointers cite symbols or doc sections, never file line numbers.**
+
+Don't — restate the rationale at each site that touches it:
+```kotlin
+// Contexts must pass the migration barrier before binding, because a borrowed
+// binding could otherwise observe a frame from the superseded run, which ... (×5 sites)
+```
+
+Don't — line numbers are wrong by the next edit:
+```kotlin
+// see RunEngine.kt:1234
+```
+
+Do — one canonical block on the owning declaration; elsewhere:
+```kotlin
+// Barrier-before-binding — see `migrationBarrier` / logic-spec §6.
+```
+
+**Why:** N restatements are N copies to keep true; the audit found spec prose re-derived at 2-5 sites per rule, and the copies had already drifted. A symbol or section reference survives edits and is navigable; a line-number citation is stale the moment either file changes.
+
+
+## CC-21 — Deliberate duplicates carry reciprocal keep-in-sync markers
+
+**Where the no-shared-module design makes a cross-repo copy deliberate (launcher/shell/auto-test), each copy carries a keep-in-sync header naming its counterpart, in the style the existing markers use (`SecurityGate`, `BuildInfo`). A fix to either copy is applied to both in the same change-set.**
+
+An unmarked copy is indistinguishable from accidental duplication — a maintainer fixing one side has no signal that the other side exists.
+
+**Why:** The 2026-08-16 audit found drift precisely in the unmarked copies (`DownloadService`, the zip-slip guard, the SecurityGate *tests*) while the marked sources had stayed aligned. The marker is what converts "duplication we accepted" into "duplication that stays correct".

@@ -133,7 +133,7 @@ Cheap structural + standalone checks before anything is pushed:
   and confirm it serves HTTP:
 
 ```powershell
-& "$env:USERPROFILE\.jdks\temurin-26.0.1\bin\java" -jar main.jar --server.port=8091
+& "$env:USERPROFILE\.jdks\temurin-26.0.2\bin\java" -jar main.jar --server.port=8091
 # then in another shell: curl http://127.0.0.1:8091/   (expect a response, not connection-refused)
 ```
 
