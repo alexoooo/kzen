@@ -161,12 +161,12 @@ When a task has you create a **new** file (source, test, notation, doc), `git ad
 
 ### Audit directory convention
 
-The `audit/` directory holds long-form analysis reports (e.g. build-warning classifications). Layout rules:
+The `docs/audit/` directory holds long-form analysis reports (e.g. build-warning classifications). Layout rules:
 
 - **One markdown file per audit**, named `yyyy-mm-dd_<topic>_<model>-<effort>.md`. The date is the *capture* date, not the cleanup/edit date. The model token is either dotted-version style (`4.7` for Opus 4.7) or codename style (`fable`); the effort tier is the reasoning effort, `x`-prefixed where applicable — e.g. `4.7-xhigh`, `fable-high`. Do not guess the slug from training-time defaults; if uncertain, ask once.
-- **Reusable scripts live in `audit/script/`**, not at the audit root. They resolve I/O paths via `Split-Path -Parent $PSScriptRoot` so outputs land in `audit/` regardless of script depth.
-- **Intermediate data is transient.** Scripts capture into `audit/raw/` and parse into `audit/parsed.tsv`; both must be deleted as the last step of finalizing an audit. Only the MD persists.
+- **Reusable scripts live in `docs/audit/script/`**, not at the audit root. They resolve I/O paths via `Split-Path -Parent $PSScriptRoot` so outputs land in `docs/audit/` regardless of script depth.
+- **Intermediate data is transient.** Scripts capture into `docs/audit/raw/` and parse into `docs/audit/parsed.tsv`; both must be deleted as the last step of finalizing an audit. Only the MD persists.
 
 ### Plans directory convention
 
-Long-form work plans live in `plans/` (umbrella root — when the user says "the plan" without a path, look here). Tiers: `plans/<yyyy-mm-dd>_*.md` are the live constituent plans, and the session ledger in `plans/2026-07-25_master-plan.md` is the sequencing source of truth — start there; each ledger row points at its constituent plan. `plans/next/` holds execution-ready elaborations of specific phases (lifecycle rules in its README: when a phase lands, tick the constituent plan's tracker AND the master ledger, then delete the elaboration file — never the constituent plan). `plans/sprint-*/` are closed archives: only each sprint's README survives as the as-built record; plan bodies are recoverable via `git show`.
+Long-form work plans live in `docs/plans/` (when the user says "the plan" without a path, look here). Tiers: `docs/plans/<yyyy-mm-dd>_*.md` are the live constituent plans, and the session ledger in `docs/plans/2026-07-25_master-plan.md` is the sequencing source of truth — start there; each ledger row points at its constituent plan. `docs/plans/next/` holds execution-ready elaborations of specific phases (lifecycle rules in its README: when a phase lands, tick the constituent plan's tracker AND the master ledger, then delete the elaboration file — never the constituent plan). `docs/plans/sprint-*/` are closed archives: only each sprint's README survives as the as-built record; plan bodies are recoverable via `git show`.

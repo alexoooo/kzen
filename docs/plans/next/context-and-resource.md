@@ -12,7 +12,7 @@
 > ReportTerminalStep) does not touch the resource API — that module needs nothing.
 >
 > **Lifecycle exception — do not delete this file when it lands.** This is a *standalone* plan: design rationale
-> and execution elaboration in one document, with no constituent plan behind it. `plans/next/README.md`'s
+> and execution elaboration in one document, with no constituent plan behind it. `docs/plans/next/README.md`'s
 > "delete the elaboration when the phase lands" rule assumes a constituent plan holds the rationale; applying it
 > here would destroy the only record of a breaking change's design. On landing, move this document to the sprint
 > archive as an as-built record (README carries the same exception).
@@ -296,7 +296,7 @@ Step changes: `BrowserOpenStep` (replace-existing at BrowserOpenStep.kt:29-33, r
 
 **Only phase 2 is forced to be atomic with the enum shrink; phases 3 and 4 are additive.** Phase 3 adds a nullable wire field and a new analysis class; phase 4 adds UI. Neither breaks anything if it lands later. "Phases 2–4 land as one atomic change" over-constrained the work into one impossible session.
 
-**Session split** — every other plan in `plans/next/` carries one (J3 "L with a split point", J5 "Session A = 1–3, B = 4–8", J7's extractable micro-session); this one needs it more than any of them, spanning an engine API change, an 11-test rewrite in a 2208-line file, two notation bundles, four new runtime members, a cross-document analysis, a wire field, four UI surfaces, ~21 notation documents and four doc files.
+**Session split** — every other plan in `docs/plans/next/` carries one (J3 "L with a split point", J5 "Session A = 1–3, B = 4–8", J7's extractable micro-session); this one needs it more than any of them, spanning an engine API change, an 11-test rewrite in a 2208-line file, two notation bundles, four new runtime members, a cross-document analysis, a wire field, four UI surfaces, ~21 notation documents and four doc files.
 
 | Session | Scope | Exit criteria |
 |---|---|---|

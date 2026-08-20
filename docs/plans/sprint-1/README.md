@@ -3,7 +3,7 @@
 Historical archive of the plan documents whose work landed in Sprint 1 (2026-07-10 →
 2026-07-16, on groundwork going back to 2026-07-05). **Nothing here is needed for future
 work**: every still-open item, decision, dependency edge, and gotcha was carried into the
-fresh documents at `kzen/plans/` (see `2026-07-16_master-plan.md` for the full live set and
+fresh documents at `kzen/docs/plans/` (see `2026-07-16_master-plan.md` for the full live set and
 its "Deferred & resolved" section for the sprint-1 knowledge that still matters). This
 directory exists for as-built detail and history; it can be deleted without losing anything
 load-bearing.
@@ -47,7 +47,7 @@ load-bearing.
 
 ## Where the live work is now
 
-All open work lives flat in `kzen/plans/`:
+All open work lives flat in `kzen/docs/plans/`:
 `2026-07-16_master-plan.md` (start here) · graph · serialization · trace-payload · yaml-parser
 · job · flow · script-client-sweep · shell-launcher · attribute-editor ·
 custom-plugin-extensibility-analysis (awaiting D1–D7 ratification).

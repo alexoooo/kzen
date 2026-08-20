@@ -2,7 +2,7 @@
 
 Historical archive of the plan documents whose work landed in Sprint 2 (2026-07-16 → 2026-07-25).
 **Nothing here is needed for future work**: every still-open phase, decision, dependency edge and
-gotcha was carried into the fresh documents at `kzen/plans/` (start at
+gotcha was carried into the fresh documents at `kzen/docs/plans/` (start at
 `2026-07-25_master-plan.md`). This directory exists for as-built detail and history; it can be
 deleted without losing anything load-bearing.
 
@@ -128,12 +128,12 @@ points at.
 - **Deleting a plan loses its deferrals** — three plans were deleted rather than archived on
   2026-07-23, taking their deferred scope and pending manual smoke with them. Recovering them for
   this README is why the § above exists. Convert plans to as-built records; delete only the
-  elaborations under `plans/next/`.
+  elaborations under `docs/plans/next/`.
 
 ## Where the live work is now
 
-All open work lives flat in `kzen/plans/`:
+All open work lives flat in `kzen/docs/plans/`:
 `2026-07-25_master-plan.md` (**start here** — one line per session) · `2026-07-25_job-improvements.md`
 · `2026-07-25_flow-improvements.md` · `2026-07-25_extensibility-improvements.md` ·
 `2026-07-25_desktop-and-hosting.md` · `2026-07-25_core-and-verification.md`, with execution-ready
-elaborations for the independent items under `plans/next/`.
+elaborations for the independent items under `docs/plans/next/`.

@@ -1,4 +1,4 @@
-# Parses audit/raw/*.log into audit/parsed.tsv (one row per unique warning).
+# Parses docs/audit/raw/*.log into docs/audit/parsed.tsv (one row per unique warning).
 # Surfaces: kotlin, gradle-deprecation, gradle-daemon, kgp, jvm-runtime, yarn, node, java, webpack.
 # Dedupe key: (surface, normalized_msg). Normalization strips paths/numbers/quoted idents.
 

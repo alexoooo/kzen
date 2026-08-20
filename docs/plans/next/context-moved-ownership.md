@@ -222,7 +222,7 @@ rewrite:
   the rebuilt tree re-declares them.
 
 §8 decision-log rows: (a) export-chain ownership supersedes nearest-declaring-slot (CTX) —
-reference `kzen/plans/next/context-and-resource.md` as the prior record, and note the intended
+reference `kzen/docs/plans/next/context-and-resource.md` as the prior record, and note the intended
 breaking change (undeclared consumers lose tunneled capture); (b) consumption inference considered
 and rejected, with §1.1's reasoning compressed to two sentences; (c) supersession runs the displaced
 closer, with the loop-leak motivation and the closer contract; (d) non-Script flavours cannot

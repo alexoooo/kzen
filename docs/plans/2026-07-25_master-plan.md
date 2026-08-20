@@ -25,7 +25,7 @@
 | **C** | `2026-07-25_core-and-verification.md` | Graph perf tail + accumulated verification debt | C1–C4 |
 | **CX** | `2026-07-31_context-improvements.md` | Context generalization — a **design-space exploration**, added mid-sprint on the first sustained use of CTX/CTX2 | CX1–CX8 |
 
-Execution-ready elaborations for the independent items live under `plans/next/` — see its README.
+Execution-ready elaborations for the independent items live under `docs/plans/next/` — see its README.
 
 **CX is the odd one out**: it began as a *design-space exploration*, not a phase list with pre-made
 decisions. Its §3 records a verdict per axis with the argument for it. The user reviewed and ratified
@@ -224,7 +224,7 @@ a surviving plan** — the validation indicator, the digest handshake, the docum
 **A process note worth keeping.** Three plans were *deleted* rather than archived on 2026-07-23,
 taking their deferred scope and pending manual smoke with them, and the `RestHandler` split silently
 invalidated line anchors in four unexecuted plans. **Convert a completed plan into an as-built record
-in the sprint archive; delete only the elaborations under `plans/next/`.**
+in the sprint archive; delete only the elaborations under `docs/plans/next/`.**
 
 ## Deferred & resolved (self-contained)
 

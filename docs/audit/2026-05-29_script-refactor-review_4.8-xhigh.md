@@ -3,7 +3,7 @@
 Post-refactor code review of the Script document feature, requested after two changes landed:
 
 1. **Logic/Task/Trace/Tuple relocation to kzen-lib** (commit `2c478bc` "logic refactor to kzen-lib done", 2026-05-28; Moves A–D of `plans/2026-05-28_logic-task-trace-relocation.md`). The execution abstractions and the process-global / client-side `ObjectStableMapper` identity layer.
-2. **Script client refactor** — remediation of `audit/2026-05-26_script-review_4.7-xhigh.md`: the `S01` `detectChanges` bug deleted, `ScriptGlobal` (a `WeakRef<ScriptStore>` global) replaced by `ScriptStoreContext` (React Context), and per-step UI state folded into `ScriptState.steps` via a `ScriptStepStore` sub-store.
+2. **Script client refactor** — remediation of `docs/audit/2026-05-26_script-review_4.7-xhigh.md`: the `S01` `detectChanges` bug deleted, `ScriptGlobal` (a `WeakRef<ScriptStore>` global) replaced by `ScriptStoreContext` (React Context), and per-step UI state folded into `ScriptState.steps` via a `ScriptStepStore` sub-store.
 
 Coverage: the Script JS client (`document/script/` — controller, model, progress, valid, step sub-stores), the Script JVM server (`server/objects/script/` — `ScriptDocument`, `ScriptExecution`, contexts, `ActiveScriptModel`), and the kzen-lib identity/trace pieces it now depends on (`ObjectStableMapper`, `LogicTraceStore`, `KzenAutoContext`/`ClientContext` wiring). Compared against the canonical `report/` document (`ReportController`/`ReportStore`). Graded against `docs/CODING_STANDARDS.md` (CC-01…CC-11) plus design-level observations.
 

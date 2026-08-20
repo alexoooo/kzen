@@ -237,7 +237,7 @@ Two distinct categories that currently look identical in the code:
 Five serialization mechanisms coexist: hand-rolled notation YAML (also a command wire payload),
 kotlinx JSON (40 `@Serializable` files), hand-rolled `toCollection` map codecs (16 files remain,
 5 of which carry *both* codecs today), Jackson 3 YAML (launcher registry only), and the query-string
-codec. This is the in-flight SER1–SER5 migration (`plans/2026-07-25_core-and-verification.md:121-161`)
+codec. This is the in-flight SER1–SER5 migration (`docs/plans/2026-07-25_core-and-verification.md:121-161`)
 — the finding is *scope, not surprise*: the un-migrated tail is exactly the 16 `toCollection` files +
 `LogicTraceEndpoint`'s detached payloads. Finish or explicitly park. Related layering wart flagged by
 two reviews independently: `ExecutionValue.kt:22` self-identifies as
@@ -461,7 +461,7 @@ Declared-deliberate designs the reviews checked and cleared (recorded so future 
    coordinated); RunEngineTest 4-way split; `ServerLogicController`/`ScriptRunContext` seam
    extractions when those files are next under change anyway.
 
-Intermediate metrics data was session-scratchpad-only and has been discarded; no `audit/raw/`
+Intermediate metrics data was session-scratchpad-only and has been discarded; no `docs/audit/raw/`
 was created.
 
 ---

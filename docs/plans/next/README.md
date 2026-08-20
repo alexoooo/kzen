@@ -1,4 +1,4 @@
-# plans/next — execution elaborations for the independent backlog
+# docs/plans/next — execution elaborations for the independent backlog
 
 > Detailed, execution-ready elaborations of individual constituent-plan phases: anchors refreshed,
 > "check first" questions pre-resolved. **The constituent plans remain the authority on design

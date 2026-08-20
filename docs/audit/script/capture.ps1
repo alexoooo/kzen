@@ -1,9 +1,10 @@
 # Sequentially captures `clean build --warning-mode=all` for each sibling with source.
-# Output: audit/raw/<sibling>-build.log per sibling. Continues even if a build fails.
+# Output: docs/audit/raw/<sibling>-build.log per sibling. Continues even if a build fails.
 
 $ErrorActionPreference = 'Continue'
 $auditDir = Split-Path -Parent $PSScriptRoot
-$root = Split-Path -Parent $auditDir
+$docsDir = Split-Path -Parent $auditDir
+$root = Split-Path -Parent $docsDir
 $rawDir = Join-Path $auditDir 'raw'
 $siblingsRoot = Split-Path -Parent $root  # C:\Users\ostro\IdeaProjects
 

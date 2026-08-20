@@ -488,7 +488,7 @@ All on Windows, PowerShell; record exact numbers in the verdict table.
 
 ### Phase 7 — verdict recording (closes gate D1)
 
-All edits in `C:\Users\ostro\IdeaProjects\kzen\plans\2026-07-25_desktop-and-hosting.md`:
+All edits in `C:\Users\ostro\IdeaProjects\kzen\docs\plans\2026-07-25_desktop-and-hosting.md`:
 
 1. **Progress tracker** (top block): tick `- [x] DA1 … (closed <date>, <GO|NO-GO>)`.
 2. **§ 7 D1 bullet**: append one line —
