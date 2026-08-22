@@ -1,5 +1,11 @@
 # J3 — Report subsumption A: pluggable input formats + design-time services — implementation plan
 
+> ⚠️ **SUPERSEDED 2026-08-21 by the DS arc** (`DS1`–`DS8` in this directory; rationale in
+> `../../analysis/2026-08-20_job-data-source.md`). **Do not execute this plan.** Steps 1+4 land as
+> `FileDataSource.rows` + `DataPart.encoding` (DS2/DS3); steps 2+3 as the source's detached `schema`
+> action + the `JobUpstreamSchema` provider list (DS6). This file survives only for its verified
+> Current-state findings §A–§E, which DS2 and DS6 cite; delete it when DS6 lands.
+
 > **Status: ready to execute.** Generated 2026-07-19 from the Job plan's **Phase 3**; the live
 > constituent plan is now `../2026-07-25_job-improvements.md` (ledger rows 1–2). Decisions
 > pre-made there — do not re-litigate. Anchors were first verified against `ceb699d0`
