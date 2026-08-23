@@ -202,7 +202,7 @@ and js):
    browser).
 2. `./gradlew :kzen-auto-js:compileKotlinJs` and `:kzen-auto-jvm:compileKotlin` — nothing downstream
    breaks (there are no consumers yet; this is a smoke that the common module still builds for both).
-3. Append an as-built note to the analysis doc (`## 14. As-built`) and tick ledger row 50; delete this
+3. Append an as-built note to the analysis doc (**§13 As-built**) and tick ledger row 50; delete this
    file (the README rule — the analysis doc is the record).
 
 ## Risks & gotchas

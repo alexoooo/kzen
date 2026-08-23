@@ -151,7 +151,10 @@ After this session the child-Logic idiom (§5.6b) is expressible end to end: a c
    two-reader composition.** Plus a single-unit child-Job shape: outer Job hosts `RunWorker` over a child Job
    whose parameter is `unit: DataUnit`, `FormulaSourceWorker("unit")` → `ReadPartWorker(role: main)` →
    `CsvWriterWorker(path: "out/child.csv")` — proves self-opening across the Logic boundary with **no
-   resolver and no expression I/O**. DS7 owns named per-unit path binding.
+   resolver and no expression I/O**. DS7 owns named per-unit path binding. ⚠ The child declares no
+   `results`, so `RunWorker` emits `mainComponentValue() == null` payloads on its output lane —
+   expected here: cap the lane with a sink or assert the nulls, rather than letting the fixture's
+   author read them as a defect. The writer yield that makes this non-null is DS7's.
 3. **`JobValidatorTest`** additions — a `ReadPartWorker` downstream of `ReadWorker(emit: units)`
    validates (input typed `DataUnit`, needs DS1b); downstream of an `Int` lane → validation error naming
    the type; output lane unknown in v1 (no error).

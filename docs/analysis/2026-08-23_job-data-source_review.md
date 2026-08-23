@@ -225,9 +225,10 @@ These were verified against the tree and the reasoning holds:
   exercises minting, the id→location scan, or duplicate validation.
 - **The manifest is carried, not re-resolved**, with the guard on the source's definition digest.
 - **Heterogeneous headers fail loudly in v1**, for the downstream reason rather than a reader reason.
-- **Run-time instances come from the run graph, not `GraphInstanceCache`** — the cache filters by
-  `serverAllowed` and the run does not, so they can disagree, and a cached instance is outside the run's
-  frame where the Context borrow cannot reach it.
+- **Run-time instances come from the run graph, not `GraphInstanceCache`** — the cache's callers filter
+  by `serverAllowed` (the cache itself is policy-agnostic) and the run does not, so the two populations
+  can disagree, and a cached instance is outside the run's frame where the Context borrow cannot reach
+  it.
 - **`ResultSinkWorker` keeps `first` / `last` today**, so `keep: all` really is new work (O2).
 - **`DataUnit` will type as `Any` without DS1b** — `visibleBuiltins` is eleven entries and the shipped
   registry holds one, `kotlin.ranges.IntRange`.

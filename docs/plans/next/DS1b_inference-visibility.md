@@ -126,7 +126,10 @@ is not a loadability check.
 
 Remove `ObjectRegistry`, `ObjectRegistryDocument`, `ObjectRegistryScan`, the scan cache, their common
 spec/reflection types, JS add/edit/controller, archetype/ribbon notation and tests, and the now-dead scan
-fields/parameters threaded through Job and Script definition contexts. Preserve the Contexts document;
+fields/parameters threaded through Job and Script definition contexts. The archetype is user-facing, but
+the retirement is verified safe: checked 2026-08-23 — nothing under `notation/main/` and nothing in
+`../kzen-proj` references `ObjectRegistry`, so removing it breaks no user document (recorded here so the
+session need not re-litigate; re-run the grep before deleting in case a document appeared since). Preserve the Contexts document;
 its KDoc comparison to the old registry becomes historical wording or is rewritten without a live type
 reference. The `IntRange` and public first-party tests below prove the predicate replaces the shipped entry.
 

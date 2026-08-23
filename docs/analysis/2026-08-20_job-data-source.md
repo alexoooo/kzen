@@ -537,8 +537,9 @@ removes the two-regions problem, which is the real complaint, while leaving the 
   `GraphCreator.createGraph(filteredDefinition, graphEnvironment)` over the **whole** filtered definition,
   so every object in the Job document — and everything a structural reference reaches — is instantiated
   once, in the run's own graph, before the first Worker starts. Going through the cache instead would mean
-  two instances of the same object during a run (the cache filters by `AutoConventions.serverAllowed`, the
-  run does not, so they can disagree), would import the cache's statelessness contract into the run, and
+  two instances of the same object during a run (the cache's callers — `ModelDetachedExecutor`,
+  `ModelTaskRepository` — filter by `AutoConventions.serverAllowed` before handing it a definition, while
+  the run does not; `GraphInstanceCache` itself is policy-agnostic, but the two populations can disagree), would import the cache's statelessness contract into the run, and
   would put the instance outside the run's frame where §4's Context borrow cannot reach it. So: **run time
   = the run graph; design time = the generic `DataSourceActions` over `GraphInstanceCache`.**
 - **What it emits.** Whole **units** whenever a unit is not trivially single-part; **items** is the
@@ -1061,8 +1062,9 @@ port.
 
 ### 8.2 Cursors
 
-`CsvReaderWorker` and `MultiFileReaderWorker` carry a real positional cursor — `(fileIndex, position)` —
-detaching the open reader at `captureMigrationState` so the rebuilt instance resumes at the exact byte.
+`CsvReaderWorker` and `MultiFileReaderWorker` carry a real cursor — the detached open reader itself,
+whose position is implicit in its buffer, plus `MultiFileReaderWorker`'s `fileIndex` — detached at
+`captureMigrationState` so the rebuilt instance resumes at the exact record.
 Both data readers inherit that: the open `DataCursor` is the handle, detached across the migration and
 driven onward by the new instance's control (§4, §5.2, §5.4). For plugin-format readers positional resume
 is out of reach either way (framers are stateful); J3 already records restart-on-edit as the acceptable

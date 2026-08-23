@@ -259,7 +259,11 @@ the CC-21 pointer to `FlatDataSource`. KDoc on `DataOpener` / `DataCursor` per P
 
 In DS0's `server/data/FileListingAction`, split `scanInfo` into a blocking `scanInfoBlocking` core plus
 the existing suspend method delegating via `withContext(Dispatchers.IO)`, so Report's callers are
-untouched and `FileDataSource` can call the core through `context.blocking`.
+untouched and `FileDataSource` can call the core through `context.blocking`. ⚠ The
+`Files.isRegularFile` / `Files.isDirectory` pre-checks currently run **before** the
+`withContext(Dispatchers.IO)` block — fold them into the blocking core too, or a source calling the
+core still does uncounted filesystem IO on the engine dispatcher for exactly the paths the split
+exists to protect.
 
 ### Step 4 — `FileDataOpener` + `FileDataCursor` + `DataOpenerLookup` (jvm)
 

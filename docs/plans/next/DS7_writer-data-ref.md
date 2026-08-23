@@ -108,6 +108,11 @@
    delegates. Job writers inspect their pattern's non-reserved names, read those Job parameters in
    `onStart`, accept text-canonical scalar values and reject a complex value with its name/type. Opening
    remains in `onStart`, so an empty input still produces a deterministic empty file.
+   ⚠ `resolvePattern` is `private` in `OutputExportSpec`'s companion, and after replacement it collapses
+   consecutive underscores (`Regex("_+")` → `"_"`) across the **whole** resolved path. That collapse is
+   Report sanitization and **stays in `OutputExportSpec`** alongside the reserved-variable preparation;
+   the neutral helper performs replacement only — otherwise a Job path like `out/my__file_${date}.csv`
+   would be silently rewritten. Pin it in `PathPatternSubstitutionTest` (underscores survive).
 3. **Finalize before yield.** Each writer has one idempotent finalizer. Successful `onComplete` calls it,
    then stats the completed path and yields; `onClose` calls it as fallback. Zip entries and gzip trailers
    therefore exist before the fingerprint is captured.
