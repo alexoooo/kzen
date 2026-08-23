@@ -4,13 +4,15 @@
 > review. Rationale
 > **[`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md) §5.5a**
 > (correction C2) and **§5.4a** (O6). Constituent plan: **—** (analysis doc is the record; delete on
-> landing, as-built → analysis **§14**). Anchors verified 2026-08-21. Sized **S**; kzen-auto-jvm only.
+> landing, as-built → analysis **§14**). Anchors verified 2026-08-21; **re-checked 2026-08-23** (third-pass
+> review, §15 — the registry's role reworded, dependencies updated). Sized **S**; kzen-auto-jvm only.
 > Ledger row 51. **May ride inside DS1** — it is separate here because it is a *standing bug*
 > independent of the arc, and worth landing on its own merits.
 >
 > **The bug, in one line:** every classifier outside an eleven-entry hardcoded whitelist is erased to
-> `Any` before it reaches a lane, so a `DataUnit` on a Job channel would type as `Any` and the
-> expression route's headline case (`items(payload.part("main"))`) would not compile.
+> `Any` before it reaches a lane, so a `DataUnit` on a Job channel would type as `Any` — `ReadWorker
+> emit: units` would publish the wrong type, `ReadPartWorker.payloadFlow` could not validate its input,
+> and a downstream `FormulaWorker` could not see `.attributes`.
 
 ## Scope & goal
 
@@ -30,7 +32,10 @@ analysis §5.5a.
 ## Dependencies & coordination
 
 - **No prerequisite.** Independent of DS0/DS1; sequence it wherever convenient before **DS3** (which
-  publishes `DataUnit` as a payload type) and **DS5** (which compiles expressions against it).
+  publishes `DataUnit` as a payload type under `emit: units`) and **DS5** (`ReadPartWorker` validates
+  that its input lane *is* `DataUnit`). *(2026-08-23: no session compiles expressions against
+  data-source types any more — the expression route is withdrawn, analysis §15 D7 — but the unit lane
+  still has to type correctly, so this stays a prerequisite.)*
 - **`FormulaStepTest` is the canary** (AGENTS gotcha): it reads the compiler's inferred `KType` through
   this exact class. A regression here surfaces as a *wrong inferred type*, not a build failure.
 - **Script shares the mechanism.** `StepExpressionCompiler` uses the same probe contract, so a Script
@@ -90,7 +95,11 @@ analysis §5.5a.
 3. **Nested / inner classes.** `qualifiedName` uses `.` where the JVM uses `$`. Generation already uses
    the Kotlin form; a nested public class is nameable and should stay concrete.
 4. **`ObjectRegistry`'s fate (O17).** Keep the document, keep the parameter threading, but make the scan
-   a **widening** set — consulted only for classes the predicate rejected. Empty the shipped
+   a **widening** set — consulted only for classes the predicate rejected. **What it legitimately widens
+   (2026-08-23):** a predicate *false negative* — a class that generated code *can* import but the
+   predicate could not prove it for (e.g. a Java class for which `KClass.visibility` reflects null). It
+   does **not** make an `internal` / private class importable — generated code in another module still
+   cannot name it — and the KDoc must not describe it as overriding Kotlin visibility. Empty the shipped
    `IntRange` entry from `registry-jvm.yaml`, since the predicate now covers it. Retiring the document
    entirely is a **separate, user-facing decision** and is not taken here.
 5. **Rename or overload for `isStreamType`?** Rename, and update both `FormulaSourceWorker` call sites.
@@ -99,7 +108,7 @@ analysis §5.5a.
 6. **Element type for the three stream kinds.** One helper, projecting onto whichever of
    `Iterable` / `Sequence` / `Iterator` the classifier reaches, reusing the existing
    `allSupertypes.firstOrNull` + type-parameter-substitution logic verbatim. A type implementing more
-   than one (e.g. `DataItems : Sequence`) resolves through the first match; the element type is the
+   than one (a class implementing both `Iterable` and `Sequence`) resolves through the first match; the element type is the
    same either way, but fix the probe order and state it.
 
 ## Step-by-step implementation
@@ -139,7 +148,10 @@ All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
 5. **Nullability survives erasure** — an erased type keeps `isMarkedNullable`, unchanged behaviour.
 6. **The registry still widens** — a class the predicate rejects but the scan declares stays concrete
    (adapt the existing `java.util.UUID` test, whose premise flips: UUID is public, so it now passes on
-   the predicate alone; pick an `internal` class for the widening case instead).
+   the predicate alone). Use a class the predicate rejects for a *provable-false-negative* reason (a Java
+   class whose `visibility` reflects null, if one exists on the test classpath; otherwise a test double
+   where the predicate is stubbed) — **not** an `internal` class, which would assert that the registry
+   can force an unimportable type through, the exact misreading Pre-resolved 4 rules out.
 7. **Stream classification** — `listOf(1)` → stream of `Int`; `sequenceOf("a")` → stream of `String`;
    `(1..5)` → stream of `Int`; `listOf(1).iterator()` → stream of `Int`; a nullable `List<String>?` →
    stream, nullable; a non-stream (`"x"`, `42`) → not a stream.
@@ -182,5 +194,6 @@ All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
 ## Out of scope (this session)
 
 - Retiring the `ObjectRegistry` document (O17) — user's call.
-- `CalculatedColumnEval` generated-class changes (object scope, `setObjects`) — **DS5**.
+- `CalculatedColumnEval` generated-class changes — none are planned in the arc any more (objects in
+  expression scope left with the third-pass review, analysis §15 D7).
 - Anything data-source-specific: this session must not mention `DataUnit` outside a test fixture.

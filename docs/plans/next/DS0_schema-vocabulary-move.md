@@ -8,7 +8,7 @@
 > goes into the analysis doc **§14**). Anchors verified 2026-08-21. Sized **S**; **mechanical,
 > import-only, zero behaviour change**. Ledger row 49.
 >
-> **Why it goes first.** DS1 introduces `DataSource.schema` / `itemType` in a data-domain package that
+> **Why it goes first.** DS1 introduces `DataShape.Tabular(header: HeaderListing)` in a data-domain package that
 > would otherwise `import tech.kzen.auto.common.objects.document.report.listing.HeaderListing` — a
 > flavour-neutral package depending on Report's *document* package. Doing the move after DS1–DS6 means
 > re-touching every new file. Doing it first costs one mechanical commit.

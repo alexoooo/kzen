@@ -3,15 +3,23 @@
 > **Status: ready to execute.** Session 4 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
 > **§6.4** (UI binds on the source object's attributes; the two editor mechanics), **§6.4a** (where a
-> source lives — the `Contexts` pattern), §5.2a (the trivial-case walk-through and the in-card source
-> summary), §3.3 (minting the durable id), O10; and
+> source lives — graph-wide discovery; the `DataSources` document deferred), §5.2a (the trivial-case
+> walk-through and the in-card source summary), §4 (the generic `DataSourceActions`), O10, O21; and
 > [`../../analysis/2026-08-21_extension-points.md`](../../analysis/2026-08-21_extension-points.md) §2.1 (generic
 > editors + detached protocol — this session is its first customer). Constituent plan: **—** (analysis
 > doc is the record; delete on landing, as-built → analysis **§14**). Depends on **DS2**; DS3 in
 > parallel is fine (the smoke needs both). Anchors verified 2026-08-21. **Revised 2026-08-21b** by the
-> second-pass review (§13 C5, C6, D3). Sized **L** with a split point (steps 1–3 / steps 4–6).
-> kzen-auto-js + notation yaml; minimal server code. Ledger row 54. **The step that makes the whole
-> thing usable rather than expert-only.**
+> second-pass review (§13 C5, C6, D3) and **2026-08-23** by the third (§15 C15, D8, D10, D11). Sized
+> **L** with a split point (steps 1–3 / steps 4–6). kzen-auto-js + notation yaml; minimal server code.
+> Ledger row 54. **The step that makes the whole thing usable rather than expert-only.**
+>
+> **What changed 2026-08-23:** **no `DataSourceId` minting** (deferred past the arc, O15 — the insert
+> command no longer upserts an `id`, and there is no duplicate-id report); Resolve goes through the
+> generic **`DataSourceActions`** object with `source=<location>`, not a `DetachedAction` on the source
+> (D10), and renders **`DataResolveResult.diagnostics`** rather than a bare skipped count; the
+> **`DataSources` document is not built** (O21) — the picker is still graph-wide, so a source in another
+> Job's `sources:` branch appears; the smoke adds **delete-the-bound-source** (C15, the O14 spike's
+> third verdict).
 
 ## Scope & goal
 
@@ -21,9 +29,10 @@
    capability** (`DataSourceConventions.isDataSource`), not by archetype name.
 2. **Source card** (`DataSourceCard`): title + rename, an `AttributeEditorManager` editor per
    non-managed attribute (exactly how `WorkerDisplayDefault.renderAttributeEditors` does it), and
-   **generic chrome**: a "Resolve" control that calls the object's `DetachedAction` `action=resolve` and
-   renders the returned manifest as a small table (units × attributes × parts), plus the skipped count
-   when `missing: skip` dropped units. No file-specific code in the card.
+   **generic chrome**: a "Resolve" control that calls `DataSourceActions` (`source=<this card's
+   location>`, `action=resolve`) and renders the returned `DataResolveResult` — the manifest as a small
+   table (units × attributes × parts) plus each diagnostic as a line. No file-specific code in the card,
+   and **nothing implemented on the source** for it.
 3. **`FileSelectionEditor`** — `MultiFileInputEditor` rewritten as `FileDataSource`'s attribute editor
    for `files` (directory / filter browse via the existing `/file-listing` route, pick/unpick/reorder,
    per-file format + encoding), writing the DS2 `FileSelectionSpec` notation; bound by `editor:` on
@@ -31,18 +40,18 @@
    browser *reads* as its starting point (one source of truth — the browser does not keep its own).
    ⚠ The `filter` field must be labelled for what it **is** (C6, below).
 4. **`SelectDataSourceEditor`** — `ReadWorker.source` picker: lists sources **graph-wide** by capability
-   (`DataSourceConventions.allDataSources`), so a Job's own `sources/` objects and a shared
-   `DataSources` document both appear; **auto-bind** when the Job has exactly one source and the
-   attribute is blank.
-5. **Minting `DataSourceId` on insert** — the insert command sequence also upserts `id` with a fresh
-   UUID, and duplicate ids are **reported** by validation.
-6. **Smoke** of the trivial case end to end in a browser — the session's real deliverable.
+   (`DataSourceConventions.allDataSources`), so a Job's own `sources/` objects and another Job's appear
+   (grouped by document; the `DataSources` document, when it lands later, will appear through the same
+   query — O21); **auto-bind** when the Job has exactly one source and the attribute is blank.
+5. **Smoke** of the trivial case end to end in a browser — the session's real deliverable. *(The
+   2026-08-21b item 5, minting `DataSourceId` on insert, is **gone** — O15 is deferred past the arc.)*
 
 ## Dependencies & coordination
 
-- **DS2 landed**: the `FileDataSource` archetype (with `id`, `missing`, and **no `editor:` keys**),
-  `FileSelectionSpec` (commonMain `common/data/file/`), `sources` meta on `Job`, the `DataSources`
-  document, `DataSourceConventions`, and the `resolve` detached action.
+- **DS2 landed**: the `FileDataSource` archetype (with `missing`, **no `id`**, and **no `editor:`
+  keys**), `FileSelectionSpec` (commonMain `common/data/file/`), `sources` meta on `Job`,
+  `DataSourceConventions`, the generic `DataSourceActions` detached object, and **the O14 spike's delete
+  verdict** (C15) — it decides what the Read card shows when its bound source is deleted.
   **DS3** gives the `ReadWorker` archetype; if DS3 has not landed, build the editors anyway (they are
   keyed by the `editor:` name) and smoke with DS3 later.
 - ⚠ **`editor:` keys and their registrations land together** (C5). `AttributeEditorManager` resolves
@@ -88,15 +97,19 @@
   (`…common/edit/select/`) — lists candidate `ObjectLocation`s by a predicate; `ReferenceLinkAttributeView`
   renders the chosen reference as a link in summary mode (the in-card summary's link half).
 - **Detached call from the client**: `ClientRestApi.performDetached(objectLocation, vararg
-  parameters: Pair<String, String>): ExecutionResult` — the manifest arrives as an `ExecutionValue`
-  tree; decode with `DataManifest.ofExecutionValue` (DS1, commonMain).
+  parameters: Pair<String, String>): ExecutionResult` — `objectLocation` is the **`DataSourceActions`**
+  object (one well-known location; put it in `DataSourceConventions`), the source's location goes in as
+  the `source` parameter (wire form: whatever `ObjectLocation` encoding `ModelDetachedExecutor` already
+  accepts — DS2 pinned it); the result arrives as an `ExecutionValue` tree; decode with
+  `DataResolveResult.ofExecutionValue` (DS1, commonMain).
 - **Ribbon registration**: `job-js.yaml` `JobGroup_Sources` / `*Tool` (`is: RibbonTool, parent:,
   delegate:`), `archetype: Job` on the group.
 - **Nested-object rendering precedent**: the parameters branch (`LogicSignatureEditor` rows over
   `main.parameters/*`) — rows, add/remove/rename, drag order; the sources section is the same shape
   with a card body instead of a one-line row.
 - **Duplicate-report precedent**: `LogicContextAnalysis` reports duplicate Context keys graph-wide as a
-  finding rather than preventing them — the shape for duplicate `DataSourceId`s.
+  finding rather than preventing them — *not needed this session* (no ids are minted); recorded for the
+  day provider-bound sources arrive (O15).
 
 ## Pre-resolved questions
 
@@ -115,15 +128,15 @@
    (**never** an implicit detached call per render — Pre-resolved 4).
 3. **Where the source card's attribute editors come from** — `AttributeEditorManager` per attribute,
    which dispatches on `editor:` metadata; `FileDataSource.files` names `FileSelectionEditor`, `missing`
-   uses `SelectValuesEditor`, `id` is **hidden** (signature-managed style — it is minted, not authored),
-   everything else `DefaultAttributeEditor`. **Zero file-specific code in `DataSourceCard` or
-   `JobController`** — that is the acceptance criterion for "general".
-4. **What "Resolve" shows, and when** — the lowered `DataManifest`: one row per unit (attributes as
-   columns, then `role: id` per part), capped at a teaser count with "… and N more" (the progress-teaser
-   convention), plus "N unit(s) skipped" when `missing: skip` dropped any; errors rendered as text in the
-   card. Invoked **on click and on an explicit refresh only** — never on every render (analysis §4 /
-   §6.2 discipline; a directory walk per keystroke is not acceptable, and a future non-file source may
-   be far more expensive).
+   uses `SelectValuesEditor`, everything else `DefaultAttributeEditor`. **Zero file-specific code in
+   `DataSourceCard` or `JobController`** — that is the acceptance criterion for "general".
+4. **What "Resolve" shows, and when** — the lowered `DataResolveResult`: one row per unit (attributes as
+   columns, then `role: id` per part — the fingerprint keys `size` / `modified` are shown but greyed, so
+   a user sees what the manifest records), capped at a teaser count with "… and N more" (the
+   progress-teaser convention), plus one line per diagnostic (`skipped: <path>`); errors rendered as
+   text in the card. Invoked **on click and on an explicit refresh only** — never on every render
+   (analysis §4 / §6.2 discipline; a directory walk per keystroke is not acceptable, and a future
+   non-file source may be far more expensive).
    **There is no row preview** (§9, deliberately): columns are the design-time data surface, and
    "read me ten rows" assumes rows are meaningful and cheap, which a source whose items come out of a
    pipeline cannot promise. The **Columns** action lands in DS6.
@@ -132,16 +145,16 @@
    blank, the insert command sequence also upserts `source` to that location. (Scope the auto-bind to
    the *document*, not the graph: a project with six shared sources must not silently pick one.) Also
    offered by the picker as the preselected option. Never rebinds an existing value.
-6. **Minting the id** — the source-insert command sequence upserts `id` with a fresh UUID after the
-   object is created. Client-side generation is fine (the id is opaque); use the same helper for any
-   future source archetype so it is one call site (CC-05). A pasted/duplicated document yields duplicate
-   ids: report them (item 5 above), do not auto-remint — a remint would silently orphan every persisted
-   `DataRef`.
-7. **Renaming a source** — with a **structural** `source:` reference (DS3), kzen-lib's rename refactor
-   rewrites it like any other reference; verify in the browser smoke. If DS2's O14 spike failed and DS3
-   fell back to `by: Nominal`, confirm `NotationReducerRefactor` handles the weak reference too (the
-   `RunWorker.instructions` rename is the precedent to test against). Either way, a persisted `DataRef`
-   is unaffected — that is what the minted id is for (§3.3).
+6. **No id minting.** *(Removed 2026-08-23 — O15 is deferred past the arc; file refs are plain. When a
+   provider-bound source arrives, the mint-on-insert helper described in the 2026-08-21b plan — one call
+   site, client-side UUID, never auto-remint a duplicate — is the shape to build.)*
+7. **Renaming and deleting a source** — with a **structural** `source:` reference (DS3), kzen-lib's
+   rename refactor rewrites it like any other reference; verify in the browser smoke. If DS2's O14 spike
+   failed and DS3 fell back to `by: Nominal`, confirm `NotationReducerRefactor` handles the weak
+   reference too (the `RunWorker.instructions` rename is the precedent to test against). **Delete** (C15):
+   the spike's verdict and DS3's Pre-resolved 1 decision say what happens to the Read card — the smoke
+   verifies the card shows a clear "source missing" state (or degrades, if DS3 chose that) and does not
+   silently vanish or throw at render. A persisted `DataRef` is unaffected either way — it is a path.
 
 ## Step-by-step implementation
 
@@ -152,12 +165,12 @@
 rename command; remove via the existing remove-object command; attribute editors per Pre-resolved 3.
 Section header "Data sources" with the empty state "Add a data source from the ribbon".
 
-### Step 2 — ribbon + insert branch + mint
+### Step 2 — ribbon + insert branch
 
 `job-js.yaml`: `JobGroup_Data` (`is: RibbonGroup, title: "Data", archetype: Job`) +
 `FileDataSourceTool` (`delegate: FileDataSource`). `JobController` insert handler: if
 `DataSourceConventions.isDataSource(graphNotation, archetypeLocation)` → append under `sources` (no gap
-mode) **and upsert a fresh `id`**; else the existing worker path. Keep the decision in one place (CC-05).
+mode); else the existing worker path. Keep the decision in one place (CC-05). No id upsert.
 
 ### Step 3 — `FileSelectionEditor` (client) + `editor:` bindings
 
@@ -174,16 +187,18 @@ change as the registrations**.
 ### Step 4 — `SelectDataSourceEditor` + auto-bind
 
 `…job/edit/SelectDataSourceEditor.kt` over `SelectReferenceEditorBase`: candidates =
-`DataSourceConventions.allDataSources(graphNotation)` (graph-wide, so a `DataSources` document appears),
-grouped by document with the current Job's own sources first; preselect when the document has exactly
-one. `JobController` insert sequence per Pre-resolved 5. `job-js.yaml` registration, and
-`job-worker.yaml` gains `ReadWorker.meta.source.editor: SelectDataSourceEditor` **in the same change**.
+`DataSourceConventions.allDataSources(graphNotation)` (graph-wide, so another Job's `sources:` — and,
+later, a `DataSources` document — appear), grouped by document with the current Job's own sources
+first; preselect when the document has exactly one. `JobController` insert sequence per Pre-resolved 5.
+`job-js.yaml` registration, and `job-worker.yaml` gains `ReadWorker.meta.source.editor:
+SelectDataSourceEditor` **in the same change**.
 
 ### Step 5 — Resolve chrome + in-card summary
 
-In `DataSourceCard`: a "Resolve" button → `performDetached(location, "action" to "resolve")` →
-`DataManifest.ofExecutionValue` → teaser table + skipped count. Busy / error states. In the Read card:
-the one-line bound-source summary (Pre-resolved 2b).
+In `DataSourceCard`: a "Resolve" button → `performDetached(dataSourceActionsLocation, "source" to
+<card location wire form>, "action" to "resolve")` → `DataResolveResult.ofExecutionValue` → teaser
+table + diagnostics lines. Busy / error states. In the Read card: the one-line bound-source summary
+(Pre-resolved 2b).
 
 ### Step 6 — defensive editor fallback (small, general)
 
@@ -203,8 +218,8 @@ verification is the browser smoke. Still:
 1. **`FileSelectionSpecTest`** (commonTest, DS2) is the parse contract the editor writes — extend with
    the exact notation the editor emits (ordered entries, blank format/encoding omitted).
 2. **`DataSourceConventionsTest`** additions (commonTest, DS2) — `allDataSources` returns a Job's own
-   `sources/` objects *and* a `DataSources` document's, in a deterministic order; the abstract archetype
-   is excluded (`drop(1)`).
+   `sources/` objects *and* another Job's, in a deterministic order; the abstract archetype is excluded
+   (`drop(1)`).
 3. **`AttributeEditorManager` fallback** (js test if the harness allows, else covered by the boot check)
    — an unknown `editor:` name renders the default editor plus a warning, not bare text.
 4. **Client compile gate**: `./gradlew :kzen-auto-js:compileKotlinJs`; then the AGENTS "client-graph
@@ -219,15 +234,18 @@ verification is the browser smoke. Still:
    - New Job → ribbon **Data → File** → a source card appears under "Data sources"; directory typed;
      the browser lists the directory; **`filter` typed as `sales csv` narrows it, and the field does not
      advertise globs**; click a CSV → `files` shows one entry; **Resolve** shows one unit, one part, the
-     path.
-   - The source's notation carries a non-blank `id` that did **not** change when the source was renamed.
+     path, and the greyed fingerprint.
+   - The source's notation carries **no `id`** (O15 deferred — if one appears, something re-grew the
+     2026-08-21b shape).
    - Ribbon **Sources → Read** → card appears with `source` **already bound** and rendered as a one-line
      summary; ribbon **Read → Summary**; Run → Summary count = line count.
    - Rename the source → the Read card's `source` follows (or record the finding, Pre-resolved 7).
-   - Two sources in the document → Read's picker offers both, **no** auto-bind; a source in a separate
-     `DataSources` document also appears in the picker.
-   - `missing: skip` over a selection with one absent file → Resolve shows the reduced unit count and
-     "1 skipped".
+   - **Delete the source** → the Read card shows the state DS3 decided (C15) — a clear "source missing"
+     message, not a vanished card and not a render error; undo restores it.
+   - Two sources in the document → Read's picker offers both, **no** auto-bind; a source in a *second
+     Job document* also appears in the picker, grouped under that document.
+   - `missing: skip` over a selection with one absent file → Resolve shows the reduced unit count and a
+     `skipped: <path>` diagnostic line.
    - Collapse/expand, delete source, undo — no console errors.
    - The **`MultiFileReaderWorker`** card in an existing document still shows its editor (alias
      registration) — open one of the test fixtures, not the user's `main/`.
@@ -242,11 +260,11 @@ verification is the browser smoke. Still:
   does not remove it (a missing *registration* is still a missing editor).
 - **`editor:` key without its registration bricks the field** (C5) — the ordering rule above is the
   fix; step 6 is the belt.
-- **Do not call the source's detached action on render.** Resolve is click-driven. A directory walk per
+- **Do not call `DataSourceActions` on render.** Resolve is click-driven. A directory walk per
   keystroke is bad; a JDBC round-trip per keystroke is unacceptable, and the card must be written now as
   if the next source is that one.
-- **Never auto-remint a duplicate `DataSourceId`.** A remint silently orphans every persisted `DataRef`
-  pointing at the old id. Report and let the user decide.
+- **Do not mint an `id`, and do not add `DetachedAction` to the source.** Both are the 2026-08-21b shape;
+  both left for a reason (analysis §15 D8, D10).
 - **Observer rules** — the source card observes its own location; guard `objectLocation !in
   graphNotation.coalesce` on stale locations (a just-deleted source), the `SortSpecEditor` pattern.
 - **Do not fetch in `onCommandSuccess`** — derive, then `async { }`.
@@ -258,6 +276,9 @@ verification is the browser smoke. Still:
 ## Out of scope (this session)
 
 - Inline-nested source under the Read card (O10) — recorded, demoted, not attempted.
+- **The `DataSources` document** and its controller (O21) — deferred past the arc; the picker is
+  already graph-wide, so it will be additive.
+- `DataSourceId` minting / duplicate reporting (O15) — deferred past the arc.
 - Column dropdowns / the **Columns** card action / schema chrome — **DS6**.
 - A row-level data preview — **not planned** (§9).
 - Generic editor vocabulary growth (extension-points §2.1) beyond what these two editors need — its own
