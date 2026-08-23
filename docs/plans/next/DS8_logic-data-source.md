@@ -1,4 +1,4 @@
-# DS8 — `LogicDataSource` + named host arguments + the dated-path example — implementation plan
+# DS8 — `LogicDataSource` + the dated-path example — implementation plan
 
 > **Status: ready to execute.** Session 8 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
@@ -6,9 +6,9 @@
 > arguments — O13), §1 (parameterized resolution, multi-part units), §3.4 (flat list of self-describing
 > units), §4.2–4.3 (source/format axes; self-opening plain refs), §5.6 (child Logic per unit), §8.1
 > (resolve once), O16. Constituent plan: **—** (analysis doc
-> is the record; delete on landing, as-built → analysis **§13**). Depends on **DS2, DS3, DS5** (DS7 for
-> the full ETL round-trip). Anchors verified 2026-08-21.
-> Sized **M**; kzen-auto-jvm + one common `JobControl` overload + yaml + one notation example. Ledger
+> is the record; delete on landing, as-built → analysis **§13**). Depends on **DS2, DS3, DS5, DS7**.
+> Anchors verified 2026-08-21.
+> Sized **S–M**; kzen-auto-common + kzen-auto-jvm + yaml + one notation example. Ledger
 > row 58. **Closes the arc.**
 
 ## Scope & goal
@@ -37,34 +37,29 @@ LogicDataSource(
 
 ## Dependencies & coordination
 
-- **DS2** — `DataSource` / `DataContext` (including suspend `host`), `FileDataOpener` / `DataOpenerLookup`,
+- **DS2** — `DataSource` / the initial `DataContext`, `FileDataOpener` / `DataOpenerLookup`,
   `DataSourceConventions`. **DS3** — `ReadWorker` (`emit: units` is the no-code way to get the unit lane)
-  and `WorkerDataContext` (whose `host` this session wires to the new overload). **DS5** —
-  `ReadPartWorker` (the child Job's reader). **DS7** — the writer half of the round-trip.
+  and `WorkerDataContext`. **DS5** — `ReadPartWorker` (the child Job's reader). **DS7** — the named
+  `JobControl.host` overload, generic `RunWorker.arguments`, writer parameter substitution and the writer half of
+  the round-trip.
 - **DS1's construction helpers are what make the Script expression readable** (`DataUnit.of`,
   `DataPart.ofPath`). **DS1b's visibility predicate is what makes them nameable** from a Script
   expression at all — without it `DataUnit` is not in scope's type vocabulary. Both are hard
   prerequisites for the example, not just for the plan's prose.
-- **`${…}` substitution** — unit attributes are text (§3.5), so a writer's `out/${date}.csv` is direct
-  substitution; J4's `${group}` convention must use the **same** helper. One
-  `PathPatternSubstitution` in commonMain, used by the writers and available to a source. (The dated
-  *Script* does not need it — a Kotlin expression interpolates natively — but the writers do, and this is
-  the session that has a reason to write it.)
+- **`${…}` substitution and per-unit binding landed in DS7.** The outer `RunWorker.arguments` binds
+  `date: attributes["date"]`; the child writer resolves `${date}` from that named Job parameter through
+  the shared helper. This session only reuses the mechanism.
 - **Reference data as a lookup** (§5.7 `LookupWorker`) is *not* built; the `reference` role is read by a
   second `ReadPartWorker` inside the child Job in the fixture — the idiom the docs teach (§5.6 b).
 
 ## Current-state findings (anchors verified 2026-08-21)
 
-- **`JobControl.host(instructions: ObjectLocation, input: Any?): TupleValue`** is `suspend` and binds
-  `input` as the child's **first declared parameter**; `EngineJobControl.host` already builds the
-  `TupleValue(listOf(TupleComponentValue(firstParameter, input)))` it passes to `Execution.host(…,
-  inputs = …)`. **A named overload is a few lines**: `suspend fun host(instructions, arguments:
-  TupleValue): TupleValue` that passes the tuple straight through, with the existing single-input form
-  delegating to it. `Execution.host` takes a `TupleValue` already — no kzen-lib change. Default
-  implementation on the interface (CC-09) so third-party controls still compile.
+- **Named `JobControl.host` landed in DS7.** This session adds `DataContext.host` with its first caller:
+  `WorkerDataContext` delegates to that overload, while `DesignDataContext` throws the explicit
+  requires-a-run failure below.
 - **Design-time hosting does not exist cheaply.** `ServerLogicController` is the *interactive* run
   controller (submit / status / one visible run); driving it from a detached card action would collide
-  with the user's own run. So `DesignDataContext.host` throws (DS2), and this source's card says so via
+  with the user's own run. So `DesignDataContext.host` throws (this session), and this source's card says so via
   `DataSourceActions` returning the failure text.
 - **`ParameterBinding` / `JobParameters`** — typed parameters (String / Boolean / Int / Long / Double
   defaults; a `DataUnit` parameter arrives as a run argument, `ParameterDefaultDefiner` is not involved).
@@ -126,7 +121,7 @@ LogicDataSource(
    the session's risk budget on the gate first.
 7. **Does a written output become readable?** Out of scope. A `LogicDataSource` whose logic returns refs
    to previously written paths does it trivially, with no new feature — note it as the answer if asked
-   (DS7 Pre-resolved 5 points here).
+   (DS7 Pre-resolved 8 points here).
 8. **Fingerprints.** The Script mints refs without `size` / `modified`; the opener reads them fine and
    DS6's cache simply does not cache them (no fingerprint → no cache). A later helper
    (`DataPart.ofPathStamped`) could stat the file from the Script — not now.
@@ -135,46 +130,41 @@ LogicDataSource(
 
 1. **Gate first (Pre-resolved 1).** Write the Script by hand in a temp project and compile it. If it
    compiles, everything below is straightforward; if not, the session's shape is decided by what broke.
-2. **Named host overload** (common `JobControl` + jvm `EngineJobControl` + DS3's `WorkerDataContext.host`
-   wired to it) — default on the interface, existing single-input form delegates.
-3. **`PathPatternSubstitution`** (commonMain; `${name}` over a `Map<String,String>`, unknown name → error
-   naming it — CC-08) + adopt it in `ExportWriterWorker` / `CsvWriterWorker`'s path attributes so J4
-   inherits one helper.
-4. **`LogicDataSource`** (jvm, `…/server/objects/datasource/`, `@Reflect`, **`DataSource` only**):
+2. **`DataContext.host`** (common API + jvm implementations): `WorkerDataContext` delegates to DS7's
+   named `JobControl.host`; `DesignDataContext` throws the explicit requires-a-run failure.
+3. **`LogicDataSource`** (jvm, `…/server/objects/datasource/`, `@Reflect`, **`DataSource` only**):
    `instructions: {is: ObjectLocation, nullable: true, by: Nominal, editor: SelectLogicEditor, summary:
    ReferenceLinkAttributeView}` (the `RunWorker.instructions` shape verbatim), `arguments: []`, plus the
    declared-schema attribute DS6 added to every source. `resolve` per Pre-resolved 2–3.
-5. **Notation + ribbon**: the archetype in `data-source-jvm.yaml` (body defaults for every attribute);
+4. **Notation + ribbon**: the archetype in `data-source-jvm.yaml` (body defaults for every attribute);
    a `LogicDataSourceTool` in `JobGroup_Data`; the `editor:` key and its registration together (`SelectLogicEditor` already exists and is
    registered, so this one is free).
-6. **The shipped example**: a `Dated Sales` Script under the test notation, and — **only if the user
+5. **The shipped example**: a `Dated Sales` Script under the test notation, and — **only if the user
    wants it discoverable** — as a project archetype candidate. Ship it as a *fixture* by default; a
    shipped user-visible example is a separate call.
-7. **Fixture: the ETL round-trip** over a temp tree of `2026-01-01..03/main.csv` + `ref/<date>.csv`.
+6. **Fixture: the ETL round-trip** over a temp tree of `2026-01-01..03/main.csv` + `ref/<date>.csv`.
 
 ## Tests
 
-1. **`PathPatternSubstitutionTest`** (commonTest) — substitution, unknown name error, `$` escapes,
-   ordering irrelevance.
-2. **`JobControlHostTest`** (jvm) — the named overload passes the tuple through; the single-input form
-   still binds the first parameter; a name mismatch surfaces as a clear failure.
-3. **`LogicDataSourceTest`** (jvm) — with a fake `DataContext` whose `host` records the tuple and returns
+1. **`LogicDataSourceTest`** (jvm) — with a fake `DataContext` whose `host` records the tuple and returns
    a canned `TupleValue`: `resolve` forwards the declared `arguments` **by name** as tuple components; a
    non-list main result fails naming the actual type; an empty result is an empty manifest; the refs it
    mints are plain and **`FileDataOpener` reads one identically to a `FileDataSource`-minted ref over the
    same file** (the shared-opener pin — one test that both sources' refs read identically).
-4. **`DataSourceActionsTest`** addition — `action=resolve` on a `LogicDataSource` returns the "requires a
+2. **`DataSourceActionsTest`** addition — `action=resolve` on a `LogicDataSource` returns the "requires a
    run" failure with a message a user can act on, not a stack trace.
-5. **`JobDatedEtlNotationTest`** (jvm, engine-level) — the §7.1 worked shape end to end:
+3. **`JobDatedEtlNotationTest`** (jvm, engine-level) — the §7.1 worked shape end to end:
    outer Job (`parameters: from, to`; `sources/dated: LogicDataSource`) → `ReadWorker(source: dated,
-   emit: units)` → `RunWorker` over a per-day child Job → child: `FormulaSourceWorker("unit")` →
+   emit: units)` → `RunWorker(arguments: {date: 'attributes["date"]'})` over a per-day child Job whose
+   parameters are `unit: DataUnit, date: String` → child: `FormulaSourceWorker("unit")` →
    `ReadPartWorker(role: main, attributes: columns)` and a second `ReadPartWorker(role: reference)`, a
-   `FormulaWorker` or two, `ExportWriterWorker(path: "out/${date}.csv", result: output)` → outer
+   `FormulaWorker` or two, `ExportWriterWorker(path: "out/${date}.csv", result: main)` with the child's
+   declared `results: {main: DataRef}` → outer
    `ResultSinkWorker(keep: all)` collects three `DataRef`s. Assert: three child runs, three output
    files, each equal to the per-day transform of its input. **This is the arc's acceptance test** — it
    exercises DS1 (model), DS1b (types), DS2 (SPI + opener), DS3 (reader), DS5 (`ReadPartWorker` + child
    self-opening), DS7 (yield) and this session at once, with **no expression opening anything**.
-6. **The example Script itself** compiles and returns three units for a three-day window — the
+4. **The example Script itself** compiles and returns three units for a three-day window — the
    Pre-resolved 1 gate, as a permanent regression.
 
 ## Verification

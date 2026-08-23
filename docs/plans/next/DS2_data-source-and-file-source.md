@@ -8,8 +8,8 @@
 > layering). Constituent plan: **—**
 > (analysis doc is the record; delete this file on landing, as-built note → analysis **§13**). Depends on
 > **DS0** and **DS1**. Anchors verified 2026-08-21.
-> Sized **M–L**; kzen-auto-common (API) + kzen-auto-jvm (implementation, generic action, notation, one
-> package move) + fixtures. Ledger row 52.
+> Sized **M**; kzen-auto-common (API) + kzen-auto-jvm (implementation, generic action, notation) +
+> fixtures. Ledger row 52.
 >
 > ⚠ **Start with the O14 spike** (below), **including the delete case**. One structural decision in DS3
 > rests on it, and it is fifteen minutes.
@@ -30,29 +30,35 @@
    (`FileFlatDataSource`) and **existing** format-plugin SPI (`ReportDefiner` via
    `ReportDefinitionRepository`, driven by `ReportInputChain`) into a `DataCursor` whose `shape` is
    `Tabular(header)`. A third-party format works in a Job with zero new code, closing J3a's goal.
-   `staticShape` / `inspectShape` return null in this session (DS6 fills them).
+   `inspectShape` returns null in this session (DS6 fills it). `FileDataSource.staticShape` inherits
+   null until DS6 wires the source's declared schema.
 4. **`DataOpenerLookup`** (jvm): `ref.source == null` → `FileDataOpener`; `ref.source != null` → a
    clear `IllegalStateException` ("provider-bound refs are not supported yet: <id>") — the one place the
    dispatch lives, and the one place O15's deferral is visible in code.
 5. **`DataSourceActions`** (jvm `@Reflect` `DetachedAction`, one object): `source=<location>`,
    `action=resolve` → instantiate the named source from the full graph (`GraphInstanceCache`, the
    `ModelDetachedExecutor` path), build a `DesignDataContext`, call `resolve`, lower the
-   `DataResolveResult`. `action=shape` lands in DS6 on the same object.
+   `DataResolveResult`. `action=shape` lands in DS6 on the same object. The two action names are
+   constants; unknown actions fail clearly. One dispatcher avoids two registered objects and two
+   well-known locations without putting UI protocol on a source.
 6. **The Job `sources:` branch + `DataSourceConventions`** — graph-wide discovery by capability (the
    `Contexts` pattern's *discovery* half; the `DataSources` *document* is deferred, O21).
-7. **Package move:** the input plumbing out of `server/objects/report/…` into `server/data/…` (§10).
+7. **Blocking-core split:** DS0 already moved the input plumbing to `server/data/`; split
+   `FileListingAction.scanInfoBlocking` here for `FileDataSource` to call through `context.blocking`.
 
 After this session nothing user-facing changes yet.
 
 ## Dependencies & coordination
 
-- **DS0 landed** — `common/data/schema/HeaderListing` + `DataShape` (DS1). **DS1 landed** — the model
+- **DS0 landed** — `common/data/schema/HeaderListing` and the input plumbing under `server/data/`.
+  **DS1 landed** — the model
   types under `common/data/model/`, including `DataResolveResult` / `DataDiagnostic` and the reserved
   fingerprint keys.
 - **DS1b is independent** but should land before DS3; nothing here needs it.
 - **DS3** consumes the SPI, `FileDataOpener` / `DataOpenerLookup` and the structural reference; **DS4**
   the generic action, the archetype's attribute metadata and the conventions; **DS5** the opener lookup
-  (for `ReadPartWorker`); **DS6** adds `staticShape` / `inspectShape` + `action=shape`; **DS8** adds a
+  (for `ReadPartWorker`); **DS6** adds `DataSource.staticShape` / `DataOpener.inspectShape` +
+  `action=shape`; **DS8** adds a
   second `DataSource` that also mints plain refs and reads through the same opener.
 - **J3 supersession.** `FileDataOpener.open` *is* J3 Step 1's `PluginReaderWorker` core (the
   synchronous `ReportInputChain` driver over a definer), relocated from a worker into the opener. Read
@@ -141,11 +147,11 @@ After this session nothing user-facing changes yet.
    ```kotlin
    interface DataSource {
        suspend fun resolve(context: DataContext): DataResolveResult
+       fun staticShape(role: DataRole?): DataShape? = null
    }
 
    interface DataOpener {
        suspend fun open(context: DataContext, part: DataPart): DataCursor
-       fun staticShape(role: DataRole?): DataShape? = null                                  // null in DS2
        suspend fun inspectShape(context: DataContext, part: DataPart): DataShape? = null    // null in DS2
    }
 
@@ -155,9 +161,7 @@ After this session nothing user-facing changes yet.
 
    interface DataContext {
        fun argument(name: String): Any?
-       fun contextValue(key: String): Any?
        suspend fun <R> blocking(block: () -> R): R
-       suspend fun host(instructions: ObjectLocation, arguments: TupleValue): TupleValue   // DS8
    }
    ```
    `resolve` returns a resolved **list** — a point-in-time snapshot (§8.1), not a lazy walk. `DataCursor`
@@ -167,15 +171,14 @@ After this session nothing user-facing changes yet.
    control — O20). `shape is Tabular` ⇒ `FlatFileRecord` items; that is how DS3/DS5 choose `ofFlat` vs
    `ofPayload` with no class switch (CC-17).
 2. **Why `open` is suspend but the cursor is not** — stated in `DataOpener`'s KDoc in two sentences:
-   `open` may need `context.blocking` (a JDBC connect) or `context.host`; a cursor is a *handle*, and
+   `open` may need `context.blocking` (a JDBC connect); a cursor is a *handle*, and
    handles are driven by their owner. One sentence on `DataCursor` pointing at `CsvRecordReader` as the
    precedent (CC-21).
 3. **Context implementations in this session.** Only `DesignDataContext` (jvm, beside the action):
-   `argument` reads the detached `ExecutionRequest` parameters, `contextValue` returns null (O12 — a
-   request-scoped session comes later, and nothing stateful exists yet), `blocking` =
+   `argument` reads the detached `ExecutionRequest` parameters; `blocking` =
    `withContext(Dispatchers.IO)` (a detached call is off the engine; the uncounted dispatcher is fine
-   *here*), `host` throws `UnsupportedOperationException` with a message naming the limitation ("resolve
-   requires a run"). DS3 supplies the run-time context over `JobControl`.
+   *here*). DS3 supplies the run-time context over `JobControl`. `DataContext.host` lands with its first
+   caller in DS8; `contextValue` lands with the first stateful source.
 4. **`FileDataSource` attributes (its query).** `directory: String` (blank = none), `filter: String` (the
    **contains-all-words** match above), `files: List` of maps `{location, format?, encoding?}` (explicit
    picks; if non-empty it *is* the selection and directory+filter are only the browser's starting point),
@@ -252,16 +255,11 @@ the CC-21 pointer to `FlatDataSource`. KDoc on `DataOpener` / `DataCursor` per P
   `allDataSources(graphNotation)`. Modelled on `ContextConventions` line for line, minus the document
   half.
 
-### Step 3 — package move (§10)
+### Step 3 — `FileListingAction` blocking core
 
-`git mv` the input plumbing from `server/objects/report/exec/input/connect/…`,
-`…/exec/input/ReportInputChain`, `…/exec/input/stages/ReportHeaderReader`, `…/report/service/
-FileListingAction` + `ColumnListingAction`, and `service/plugin/ReportDefinitionRepository` into
-`server/data/…`, rewriting packages. Report consumes them from the new home; **no logic changes**. Split
-`FileListingAction.scanInfo` into a blocking `scanInfoBlocking` core plus the existing suspend method
-delegating via `withContext(Dispatchers.IO)`, so Report's callers are untouched and `FileDataSource` can
-call the core through `context.blocking`. Keep this a separate commit from Step 4 — a mixed diff here is
-unreviewable.
+In DS0's `server/data/FileListingAction`, split `scanInfo` into a blocking `scanInfoBlocking` core plus
+the existing suspend method delegating via `withContext(Dispatchers.IO)`, so Report's callers are
+untouched and `FileDataSource` can call the core through `context.blocking`.
 
 ### Step 4 — `FileDataOpener` + `FileDataCursor` + `DataOpenerLookup` (jvm)
 
@@ -269,8 +267,8 @@ unreviewable.
 coordinate = `part.format` ?: infer-by-extension; charset = `part.encoding` ?: definer default /
 `ReportUtils`; open via `FileFlatDataSource` (inside `context.blocking`), build the `ReportInputChain`,
 return a `FileDataCursor` whose `shape = Tabular(header)` from the definer, whose `next()` drives the chain
-one record (honouring skip, prototyping rows out), and whose `close()` releases the handle. `staticShape`
-/ `inspectShape` return null (DS6). Register the lookup in `KzenAutoContext`'s graph environment.
+one record (honouring skip, prototyping rows out), and whose `close()` releases the handle.
+`inspectShape` returns null (DS6). Register the lookup in `KzenAutoContext`'s graph environment.
 
 ### Step 5 — `FileDataSource` (jvm)
 
@@ -325,8 +323,8 @@ a shared `ServerGraphDefinition` under `service/exec/` — a three-line change t
 7. **`JobNotationTest`-style smoke** that a Job document carrying a `sources/` branch still compiles and
    runs its workers unchanged (the branch is invisible to derivation), **and** that a source with a blank
    required-looking attribute still *creates* (the `createGraph`-throws hazard).
-8. **Report suites untouched and green** — the package move and the `scanInfo` split are the only
-   Report-visible edits, and both are behaviour-preserving.
+8. **Report suites untouched and green** — the `scanInfo` split is the only Report-visible edit in this
+   session and is behaviour-preserving.
 
 ## Verification
 
@@ -337,7 +335,7 @@ a shared `ServerGraphDefinition` under `service/exec/` — a three-line change t
    "source=main/X.yaml#main.sources/input" --data-urlencode "action=resolve"` returns the result JSON
    (check the exact parameter encoding `ModelDetachedExecutor` expects for an `ObjectLocation` — the
    `SelectLogicEditor` / `RunWorker.instructions` wire form is the precedent).
-3. `:kzen-auto-js:compileKotlinJs` — the common-module package move crosses to the client.
+3. `:kzen-auto-js:compileKotlinJs` — the new common API crosses to the client.
 4. As-built note → analysis doc **§13** (include the O14 spike's three verdicts — especially **delete** —
    and the diagnostics shape); tick ledger row 52; delete this file.
 
@@ -360,8 +358,8 @@ a shared `ServerGraphDefinition` under `service/exec/` — a three-line change t
   calls every source (analysis §4), and a file ref is plain (§3.3).
 - **Do not call `FileListingAction.scanInfo` (the suspend one) from a source.** That is the uncounted
   dispatcher. Use the blocking core through `context.blocking`.
-- **Package move discipline** — Step 3 is a separate commit, import-only. Anything else in that diff is a
-  mistake (the DS0 rule, one layer up).
+- **Blocking-core discipline** — `scanInfoBlocking` contains the existing traversal; the suspend method
+  delegates through `Dispatchers.IO`. Do not change filtering semantics while extracting it.
 - **Glob vs contains-all-words** — do not "improve" `parseFilter` while moving it. One dialect; DS4
   labels it honestly.
 
@@ -369,11 +367,12 @@ a shared `ServerGraphDefinition` under `service/exec/` — a three-line change t
 
 - `ReadWorker` — **DS3**. The sources editor, `SelectDataSourceEditor`, `FileSelectionEditor`, card
   chrome — **DS4**. `ReadPartWorker` — **DS5**.
-- `staticShape` / `inspectShape` bodies, `action=shape`, the schema cache — **DS6**. `LogicDataSource`
-  and named host arguments — **DS8**.
+- `DataSource.staticShape` / `DataOpener.inspectShape` bodies, `action=shape`, the schema cache — **DS6**.
+  Named `JobControl.host` arguments and writer path binding — **DS7**; `DataContext.host` and
+  `LogicDataSource` — **DS8**.
 - **`DataSourceId` minting, the id→location scan, duplicate-id validation, and any run-time resolver**
   — deferred past the arc, with the first provider-bound source (O15, analysis §3.3).
 - **The `DataSources` document** and its controller — deferred (O21).
 - Dynamic jar loading of third-party sources — extension-points §1, its own arc.
-- A design-time `DesignSession` (O12) — `DesignDataContext.contextValue` returns null and nothing stateful
-  exists yet.
+- A design-time `DesignSession` and `DataContext.contextValue` (O12) — both land with the first stateful
+  source.

@@ -1,11 +1,11 @@
-# DS1b — expression type-visibility fix (`isNameable` predicate + `isStreamType`) — implementation plan
+# DS1b — expression type visibility + registry retirement — implementation plan
 
 > **Status: ready to execute.** Session 1b of the **DS** arc. Rationale
 > **[`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md) §5.5**
-> (the erasure bug and the `isStreamType` widening — O6). Constituent plan: **—** (analysis doc is the
-> record; delete on landing, as-built → analysis **§13**). Anchors verified 2026-08-21. Sized **S**;
-> kzen-auto-jvm only. Ledger row 51. **May ride inside DS1** — it is separate here because it is a
-> *standing bug* independent of the arc, and worth landing on its own merits.
+> (the erasure bug, `isStreamType` widening — O6, and registry disposition — O17). Constituent plan: **—** (analysis doc is the
+> record; delete on landing, as-built → analysis **§13**). Anchors verified 2026-08-21. Sized **M**;
+> kzen-auto-common + kzen-auto-jvm + kzen-auto-js + notation. Ledger row 51. It is separate because it
+> fixes a *standing bug* independent of the arc and removes the registry surface made redundant by the fix.
 >
 > **The bug, in one line:** every classifier outside an eleven-entry hardcoded whitelist is erased to
 > `Any` before it reaches a lane, so a `DataUnit` on a Job channel would type as `Any` — `ReadWorker
@@ -14,13 +14,15 @@
 
 ## Scope & goal
 
-Two changes in `ExpressionReturnTypeInference`, both general and neither data-source-specific:
+Three general changes, none data-source-specific:
 
-1. **Replace the visibility whitelist with a predicate.** `visibleBuiltins` + `ObjectRegistryScan` →
+1. **Replace the visibility whitelist with a predicate.** `visibleBuiltins` →
    *is this class nameable from generated code?* — public, has a qualified name, not synthetic.
 2. **Widen the stream classification.** `isIterable` → `isStreamType` covering
    `Iterable | Sequence | Iterator`; `iterableElementType` → `streamElementType`. This is **O6**, and
    without it every lazy read silently becomes a single message.
+3. **Retire `ObjectRegistry`.** The predicate makes its scan's only use redundant, and no real public,
+   importable false negative exists to justify an escape hatch.
 
 Deliberately **not** in scope: adding the DS model types to `visibleBuiltins` (hardcoding first-party
 names into a general mechanism) or declaring them in an `ObjectRegistry` document (routing first-party
@@ -69,8 +71,8 @@ analysis §5.5.
   `payloadFlow`). Script's loop typing goes through `toTypeMetadata` only. Confirm with a grep before
   renaming — a rename is safer than an overload here.
 - **Tests**: `ExpressionReturnTypeInferenceTest` exists and already has an `emptyScan` and a
-  registry-scan case (`ObjectRegistryScan(setOf(ClassName("java.util.UUID")))`) — that second test is
-  the one whose *premise* changes.
+  registry-scan case (`ObjectRegistryScan(setOf(ClassName("java.util.UUID")))`; remove the fixture
+  parameter and keep UUID as a predicate-only public-Java row.
 
 ## Pre-resolved questions
 
@@ -90,13 +92,11 @@ analysis §5.5.
    them. The tests below pin this.
 3. **Nested / inner classes.** `qualifiedName` uses `.` where the JVM uses `$`. Generation already uses
    the Kotlin form; a nested public class is nameable and should stay concrete.
-4. **`ObjectRegistry`'s fate (O17).** Keep the document, keep the parameter threading, but make the scan
-   a **widening** set — consulted only for classes the predicate rejected. **What it legitimately widens:** a predicate *false negative* — a class that generated code *can* import but the
-   predicate could not prove it for (e.g. a Java class for which `KClass.visibility` reflects null). It
-   does **not** make an `internal` / private class importable — generated code in another module still
-   cannot name it — and the KDoc must not describe it as overriding Kotlin visibility. Empty the shipped
-   `IntRange` entry from `registry-jvm.yaml`, since the predicate now covers it. Retiring the document
-   entirely is a **separate, user-facing decision** and is not taken here.
+4. **`ObjectRegistry`'s fate (O17).** Retire it in this session. Its only reader is the visibility gate;
+   `java.util.UUID` and every other real public test class pass the predicate directly, while an
+   `internal`, local or synthetic class is genuinely unnameable. A stubbed-predicate test would test the
+   stub, not a supported runtime case. Remove the document archetype, scan/cache, notation, tests and the
+   `WorkerLaneContext` / `ScriptDefinitionContext` threading.
 5. **Rename or overload for `isStreamType`?** Rename, and update both `FormulaSourceWorker` call sites.
    A leftover `isIterable` would be a trap: it would keep compiling and keep classifying a `Sequence` as
    single-emission.
@@ -118,35 +118,34 @@ expression is streamed").
 ### Step 2 — `isNameable`
 
 Replace the `className !in visibleBuiltins && className !in objectRegistryScan.classNames` gate in
-`toTypeMetadata` with `!isNameable(kClass) && className !in objectRegistryScan.classNames`. Delete
-`visibleBuiltins`. Keep the `objectRegistryScan` parameter (Pre-resolved 4) and rewrite the class KDoc
-to state the predicate instead of the whitelist — including *why* it is not a loadability check.
+`toTypeMetadata` with `!isNameable(kClass)`. Delete `visibleBuiltins` and the `objectRegistryScan`
+parameter. Rewrite the class KDoc to state the predicate instead of the whitelist — including *why* it
+is not a loadability check.
 
-### Step 3 — empty the shipped registry
+### Step 3 — retire `ObjectRegistry`
 
-`registry-jvm.yaml`: `classes: []`. One line, and the `IntRange` test below is what proves it is safe.
+Remove `ObjectRegistry`, `ObjectRegistryDocument`, `ObjectRegistryScan`, the scan cache, their common
+spec/reflection types, JS add/edit/controller, archetype/ribbon notation and tests, and the now-dead scan
+fields/parameters threaded through Job and Script definition contexts. Preserve the Contexts document;
+its KDoc comparison to the old registry becomes historical wording or is rewritten without a live type
+reference. The `IntRange` and public first-party tests below prove the predicate replaces the shipped entry.
 
 ## Tests
 
 All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
 
 1. **Builtins stay concrete without a whitelist** — `kotlin.Int`, `kotlin.String`,
-   `kotlin.collections.List<String>` (generic argument concrete too), and **`kotlin.ranges.IntRange`**
-   with an **empty** registry scan. The IntRange row is the one that pins Pre-resolved 2 and licenses
-   Step 3.
-2. **A first-party public class stays concrete** with an empty scan — use a real one from the tree
+   `kotlin.collections.List<String>` (generic argument concrete too), and **`kotlin.ranges.IntRange`**.
+   The IntRange row proves the shipped registry entry is unnecessary.
+2. **A first-party public class stays concrete** — use a real one from the tree
    (after DS1, `DataUnit`; before it, any public kzen-auto value class), asserting the exact
    `ClassName`, not just "not Any".
 3. **An `internal` class erases to `Any`** — declare one in the test source. This is the property the
    whitelist existed to protect and the single most important row.
 4. **A local / anonymous type erases to `Any`** (`qualifiedName == null`) — an object expression.
 5. **Nullability survives erasure** — an erased type keeps `isMarkedNullable`, unchanged behaviour.
-6. **The registry still widens** — a class the predicate rejects but the scan declares stays concrete
-   (adapt the existing `java.util.UUID` test, whose premise flips: UUID is public, so it now passes on
-   the predicate alone). Use a class the predicate rejects for a *provable-false-negative* reason (a Java
-   class whose `visibility` reflects null, if one exists on the test classpath; otherwise a test double
-   where the predicate is stubbed) — **not** an `internal` class, which would assert that the registry
-   can force an unimportable type through, the exact misreading Pre-resolved 4 rules out.
+6. **A public Java class stays concrete** — adapt the existing `java.util.UUID` row to use the predicate
+   alone. This is the regression that proves dynamically loaded/public JVM types need no registry.
 7. **Stream classification** — `listOf(1)` → stream of `Int`; `sequenceOf("a")` → stream of `String`;
    `(1..5)` → stream of `Int`; `listOf(1).iterator()` → stream of `Int`; a nullable `List<String>?` →
    stream, nullable; a non-stream (`"x"`, `42`) → not a stream.
@@ -168,7 +167,8 @@ All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
    than widening scope.
 4. `./gradlew :kzen-auto-js:compileKotlinJs` — `TypeMetadata` crosses to the client; nothing should
    change, and the compile is the cheap proof.
-5. As-built → analysis **§13**; tick ledger row 51; delete this file.
+5. Grep for `ObjectRegistry` / `ObjectRegistryScan`; no production, test or notation reference remains.
+6. As-built → analysis **§13**; tick ledger row 51; delete this file.
 
 ## Risks & gotchas
 
@@ -178,8 +178,6 @@ All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
   generated `import` fails to compile, the symptom is a user-visible compile error in an expression that
   used to work (it would previously have been `Any`). Test 2's assertion is the guard; if a real case
   surfaces, the fix is in `ClassNames.asTopLevelImport`, not in re-adding a whitelist.
-- **Do not delete `ObjectRegistry`** in this session (O17). It is user-facing, and the decision is the
-  user's; emptying its shipped entry is enough to prove the predicate covers it.
 - **Do not add DS model types anywhere in this file.** If the fix is correct they need no registration,
   and a registration would hide a failure of the fix.
 - **`code-cache` staleness** — generated-class shape is unchanged by this session, so cached artifacts
@@ -188,7 +186,6 @@ All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
 
 ## Out of scope (this session)
 
-- Retiring the `ObjectRegistry` document (O17) — user's call.
 - `CalculatedColumnEval` generated-class changes — none are planned in the arc: no expression ever
   initiates source IO (analysis §4).
 - Anything data-source-specific: this session must not mention `DataUnit` outside a test fixture.

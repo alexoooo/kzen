@@ -19,15 +19,15 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
     -> item lane | unit lane
 ```
 
-- **`emit: items`** (default): resolve once → for each unit, open the part of `role` (default: the unit's
-  only role) via `DataOpenerLookup` → drive the cursor, emitting each item as a `JobMessage` —
+- **`emit: items`** (default): resolve once → for each unit, open `partsOf(role)` in order (default: the
+  unit's sole distinct role) via `DataOpenerLookup` → drive each cursor, emitting each item as a `JobMessage` —
   `ofFlat(header, record)` when `cursor.shape is Tabular`, else `ofPayload`. The lane carries records,
   so `SummaryWorker` counts lines.
 - **`attributes: columns`** (under `items`): each flat record is widened with the unit's attributes as
   **leading** columns — header = attribute names (in display order) + the part header. Under `ignore`
   (default) the unit is gone once the item is emitted. This is the unit-identity-on-the-item-lane that
-  J4's grouped export consumes (analysis §3.5, §9). A `Tabular` shape is required for `columns`; an
-  `Object` shape under `columns` is a validation error naming the knob (attributes have nowhere to go).
+  J4's grouped export consumes (analysis §3.5, §9). A `Tabular` shape is required for `columns`; a
+  `Payload` shape under `columns` is a validation error naming the knob (attributes have nowhere to go).
 - **`emit: units`**: resolve → one `JobMessage.ofPayload(unit)` per `DataUnit`. Multi-role units are
   never split here (analysis §5.6 **[decided]**); under `items` a unit that is not single-role and has no
   `role` pinned is a **run failure naming the roles**, not a silent concatenation.
@@ -36,9 +36,9 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
   **manifest is carried, never re-resolved** — that closes the changed-directory hazard rather than
   detecting it — and adoption is guarded on the source's **definition digest** plus this worker's own
   config.
-- **`payloadFlow`:** `units` → `payloadType = DataUnit`, columns unknown; `items` → from the opener's
+- **`payloadFlow`:** `units` → `payloadType = DataUnit`, columns unknown; `items` → from the source's
   `staticShape(role)` (notation-only, null in DS2/DS3; DS6 fills it and adds the cache) — `Tabular` →
-  `flatColumns` (+ attribute columns when `columns`), `Object` → `payloadType`. No IO on the walk (O3).
+  `flatColumns` (+ attribute columns when `columns`), `Payload` → `payloadType`. No IO on the walk (O3).
 - Replaces `CsvReaderWorker` and `MultiFileReaderWorker` **in the ribbon**; their archetypes stay
   (the user's `notation/main/*.yaml` reference them — retirement is the user's call, see Out of scope).
 
@@ -79,10 +79,11 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
   `suspend produce(emit, control)`; the framework owns end-of-stream, batching, the per-batch checkpoint
   and progress publication (`Emitter.sourceCadence`). `WorkerBase`: `onStart` / `onClose` /
   `captureMigrationState` / `loadMigrationState` / `payloadFlow(input, context)` / `progress(snapshot)`.
-- **`JobControl.runBlockingIo(block: () -> R)` and `JobControl.host(…)` are both `suspend`**
-  (`common/paradigm/job/control/JobControl.kt`); `runBlockingIo` offloads through `Execution.blocking` —
-  counted by the `CountingDispatcher`, interruptible by cancel / migrate. **`WorkerDataContext.blocking`
-  / `.host` are suspend and delegate directly** — that is the whole reason the SPI is suspend.
+- **`JobControl.runBlockingIo(block: () -> R)` is `suspend`**
+  (`common/paradigm/job/control/JobControl.kt`); it offloads through `Execution.blocking` — counted by
+  the `CountingDispatcher`, interruptible by cancel / migrate. **`WorkerDataContext.blocking` delegates
+  directly** — that is why the SPI is suspend. DS7 adds the named `JobControl.host` overload;
+  `DataContext.host` lands with `LogicDataSource` in DS8.
 - **The cursor precedent is `CsvReaderWorker` + `CsvRecordReader`**: `produce` does
   `control.runBlockingIo { reader.readRecord() }` **per record**; `ReaderState` holds the open reader;
   `captureMigrationState` **detaches** it (`detached = true` so `onClose` skips closing) and hands it to
@@ -134,20 +135,19 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
    DS4 smokes it), because a reader whose source was deleted *should* not run. Record the decision.
 2. **Knob vs split (O11)** — the `emit` knob, per the analysis recommendation. The card's published type
    differs per mode and nothing else does.
-3. **`role` attribute** — `String`, blank = "the unit's only role" (`DataUnit.isSingleRole`), else the
-   named role; under `emit: units` it is ignored (units flow whole). A non-single-role unit under
-   `items` with blank `role` → `IllegalStateException` listing the roles (CC-08).
+3. **`role` attribute** — `String`, blank = the unit's sole distinct role (`DataUnit.isSingleRole`),
+   else the named role; every `partsOf(role)` entry is read in order, and zero matches fails naming the
+   role. Under `emit: units` it is ignored (units flow whole). A non-single-role unit under `items` with
+   blank `role` → `IllegalStateException` listing the roles (CC-08).
 4. **`attributes` attribute (O22)** — `String`, `ignore` (default) | `columns`; `SelectValuesEditor`.
    Under `columns`: attribute names become leading header labels in the unit's display order; values are
    the text attribute values. **Collision** between an attribute name and a part column → fail naming
    both (CC-08), never shadow. Under `units` it is ignored.
 5. **The run-time `DataContext`.** `WorkerDataContext(control)` in this package — a small class, not an
-   object: `argument(name)` → `control.parameter(name)` (**named**, per O13); `contextValue(key)` → the
-   run's Context registry via `control` (a `JobControl` addition if none exists — keep it to a read, and
-   if it is more than a few lines, defer it with a `null` return and record it: nothing in DS2–DS8 needs
-   a Context yet); `blocking { }` → `control.runBlockingIo { }` (**suspend → suspend**, direct); `host(…)`
-   → the named `JobControl.host` overload when DS8 adds it, until then `UnsupportedOperationException`.
-   Built once in `produce`, passed to `resolve` and every `open`. **Never handed to a cursor.**
+   object: `argument(name)` → `control.parameter(name)` (**named**, per O13); `blocking { }` →
+   `control.runBlockingIo { }` (**suspend → suspend**, direct). Built once in `produce`, passed to
+   `resolve` and every `open`. **Never handed to a cursor.** DS8 adds `host`; the first stateful source
+   adds `contextValue`.
 6. **The drain loop** — `while (control.runBlockingIo { cursor.hasNext() }) { val item =
    control.runBlockingIo { cursor.next() }; claim itemIndex; emit }` — or one offload per
    `hasNext+next` pair; either way **every cursor call is inside `runBlockingIo`**. The source
@@ -166,7 +166,7 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
    definition, so it does no IO and is safe at capture time.
 9. **`emit: items` header handling** — take `cursor.shape` per part; if a later part's `Tabular` header
    differs from the first, **fail** naming both headers and the unit (§5.3) rather than re-synthesize.
-   A mix of `Tabular` and `Object` shapes, or of `Object` types, across parts → fail the same way.
+   A mix of `Tabular` and `Payload` shapes, or of `Payload` types, across parts → fail the same way.
    `MultiFileReaderWorker`'s per-file header-skip semantics are the opener's concern (`FileDataOpener`
    honours the definer's skip). DS6 replaces the failure with superset normalization (O19).
 10. **Where the ribbon tools go** — `ReadTool` joins `JobGroup_Sources`; `CsvReaderTool` and
@@ -220,7 +220,7 @@ columns"}}`, `selfLocation`. `job-js.yaml`: `ReadTool` in `JobGroup_Sources`; de
    two-role unit (hand-built `DataSource` + `DataOpener` fakes); blank `role` on a two-role unit under
    `items` fails naming both roles; **`attributes: columns`** over a `groupPattern` source → each record
    has the `date` column first, then the file's columns, header accordingly; attribute/column name
-   collision fails naming both; `columns` over an `Object`-shaped fake → validation error;
+   collision fails naming both; `columns` over a `Payload`-shaped fake → validation error;
    **migration**: capture mid-file → load with same config resumes at the exact record (no duplicates, no
    gaps — mirror `carriesFileCursorAcrossLiveEdit…`) **driven by a different control instance**, **the
    carried manifest is reused even when the directory changed underneath** (add a file between capture
@@ -286,8 +286,8 @@ columns"}}`, `selfLocation`. `job-js.yaml`: `ReadTool` in `JobGroup_Sources`; de
 ## Out of scope (this session)
 
 - `SelectDataSourceEditor`, source cards, the sources section, `editor:` keys, auto-bind — **DS4**.
-- `ReadPartWorker` and the 1:N transform cadence — **DS5** (uses this session's `DataReadCore`).
-- Static columns under `items` from `staticShape` / the schema cache, and **superset normalization**
+- `ReadPartWorker` and migration-safe 1:N execution — **DS5** (uses this session's `DataReadCore`).
+- Static columns under `items` from `source.staticShape` / the schema cache, and **superset normalization**
   replacing the heterogeneous-header failure (O19) — **DS6**.
 - Publishing the resolved manifest to the trace — **DS7** (it belongs with "data out").
 - Deleting `CsvReaderWorker` / `MultiFileReaderWorker` archetypes — **user decision** after DS4 is

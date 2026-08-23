@@ -12,8 +12,8 @@
 > **Arc map** (one file per session, each independently useful): **DS0** schema vocabulary move →
 > DS1 model → **DS1b** inference visibility fix → DS2 suspend runtime (`DataSource` / `DataOpener` /
 > `DataCursor` / `DataContext`, `FileDataSource` + `FileDataOpener`, `DataSourceActions`) → DS3
-> `ReadWorker` → DS4 sources editing surface → DS5 `ReadPartWorker` + 1:N cadence → DS6 design-time
-> shape → DS7 writer yields `DataRef` → DS8 `LogicDataSource` + named host arguments + the dated example.
+> `ReadWorker` → DS4 sources editing surface → DS5 `ReadPartWorker` + migration-safe 1:N execution → DS6 design-time
+> shape → DS7 writer refs + named child arguments + per-unit paths → DS8 `LogicDataSource` + the dated example.
 > DS0–DS4 are the "capture the idea of a data source, generally and ergonomically" ask; DS5–DS6
 > complete composition and the design-time surface; DS7–DS8 are the ETL port. **DS supersedes J3**
 > (`J3_report-subsumption-a.md`): DS2's `FileDataOpener` over format plugins replaces
@@ -40,7 +40,7 @@ data class DataResolveResult(manifest: DataManifest, diagnostics: List<DataDiagn
 data class DataDiagnostic(kind: String, message: String)        // text-canonical; `kind` is a plain open string (skipped, unsupported, …)
 
 // package tech.kzen.auto.common.data.schema  (beside DS0's HeaderListing)
-sealed interface DataShape { Tabular(header: HeaderListing); Object(type: TypeMetadata) }
+sealed interface DataShape { Tabular(header: HeaderListing); Payload(type: TypeMetadata) }
 ```
 
 `DataRef.source` is a **`DataSourceId`** — a UUID that a *provider-bound* source (JDBC, authenticated
@@ -82,7 +82,7 @@ provider-bound source.
   runs under ChromeHeadless too). `DataLocation` is `@Serializable(with = DataLocationSerializer::class)`
   — a `KSerializer` whose wire form is the value's own canonical string; `DataLocationInfo` is a plain
   `@Serializable` DTO. **`DataSourceId` / `DataRole` are `value class`es over `String`**, so kotlinx
-  serializes them as strings with no hand-written serializer. `TypeMetadata` (for `DataShape.Object`)
+  serializes them as strings with no hand-written serializer. `TypeMetadata` (for `DataShape.Payload`)
   already has a wire form — check how `WorkerLane` / `JobValidation` DTOs carry it and reuse that.
 - **Plugin coordinate / encoding.** `CommonPluginCoordinate` and `CommonDataEncodingSpec`
   (`…common/objects/document/plugin/model/`) already have canonical string forms used by
@@ -121,7 +121,8 @@ provider-bound source.
    `DataUnit.of(attributes, parts)`, `DataUnit.ofPath(path)`. Keep it small and additive; these are
    convenience over the constructors, never a second construction path with different validation.
 9. **`DataShape`** — `sealed interface` in `common/data/schema/`: `Tabular(header: HeaderListing)`,
-   `Object(type: TypeMetadata)`. Both `@Serializable` (a closed sealed hierarchy serializes with kotlinx's
+   `Payload(type: TypeMetadata)`. The name matches the existing flat-versus-payload Job vocabulary and
+   includes scalar payloads; `Object` would not. Both `@Serializable` (a closed sealed hierarchy serializes with kotlinx's
    class discriminator; pin the JSON). Not `Digestible` — shapes are not part of a manifest.
 10. **`DataResolveResult` / `DataDiagnostic`** — plain data classes, `@Serializable`, with
     `asExecutionValue` / `ofExecutionValue`. `DataDiagnostic.kind` is an open string (constants for the

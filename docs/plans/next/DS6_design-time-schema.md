@@ -1,4 +1,4 @@
-# DS6 — design-time shape: `staticShape` / `inspectShape`, the schema cache service, superset normalization, editor dropdowns — implementation plan
+# DS6 — design-time shape: source declaration + opener inspection, schema cache, schema policy, editor dropdowns — implementation plan
 
 > **Status: ready to execute.** Session 6 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
@@ -26,15 +26,16 @@
    pluginCoordinate)` only, so an edited file serves stale columns until the cache is cleared by hand.
    Report's callers pass size/mtime (they have `DataLocationInfo` / `Path` at hand) and share
    `SchemaCache`'s key; Report benefits too.
-4. **`staticShape(role)`** — the static shape, answerable from **notation alone**, supplied by a declared
-   schema document (item 6); null for a plain file opener with no declaration.
+4. **`DataSource.staticShape(role)`** — the static shape, answerable from **notation alone**, supplied
+   directly by a source's declared schema document (item 6).
 5. **Heterogeneous-header superset normalization (O19)** — replaces DS3's loud failure: resolve the
    superset from the pre-scan and normalize every item to it, exactly as Report's
-   `DatasetInfo.headerSuperset()` does; behind `mergeSchemas: strict | superset` on both readers.
+   `DatasetInfo.headerSuperset()` does; behind `schemaMode: strict | superset` on both readers.
 6. **The declared-schema route** — rename the orphaned `DataFormat` document to `DataSchema` (or delete
    it) and let a source name one, so `staticShape` can answer with no IO at all.
 7. **`DataSourceActions` `action=shape`** (beside `resolve`) — `source=<location>`, `part=<lowered
-   part>` → the opener's `inspectShape`, lowered as a `DataShape`.
+   part>` → `source.staticShape(part.role) ?: opener.inspectShape(context, part)`, lowered as a
+   `DataShape`. A declaration therefore wins without IO.
 8. **Editor consumers**: `JobUpstreamSchema` gains an ordered provider list; `SortSpecEditor` (and the
    other spec editors that take column names) offer a dropdown when columns are known with no run;
    source-card **Columns** chrome beside **Resolve**.
@@ -109,20 +110,16 @@ null.
    `FilterIndex` uses, so Report's "clear cache" purge still reaches it — migrating old `columns.csv`
    entries is not worth it; they are simply unused (note in as-built).
 2. **Who owns the cache** — `SchemaCache` (jvm, `server/data/`, a `@Service`), used by
-   `FileDataOpener.inspectShape` (declaration → cache hit → bounded read → store) and by
+   `FileDataOpener.inspectShape` (cache hit → bounded read → store) and by
    `ColumnListingAction` for Report (same key, same store). **`SchemaCache.peek(key)`** is the walk's
    read-only entry and **must not** fall through to a read. Nothing is added to the `DataOpener` SPI for
    caching.
 3. **`staticShape` supply** — a source may declare a schema document nominally
    (`schema: {is: ObjectLocation, nullable: true, by: Nominal}` on the `DataSource` archetype), read as
-   data through a conventions object (the `ContextConventions.descriptorOrNull` shape). The *opener*
-   answers `staticShape(role)` from it — for the shared `FileDataOpener`, which has no source object,
-   the declaration reaches it how? **Decision:** `DataOpenerLookup` gains a `staticShape(source:
-   DataSource?, role)` entry that consults the *source's* declaration when the source is known (the
-   `ReadWorker` case — it holds its source) and returns null otherwise (the `ReadPartWorker` case — no
-   source in hand; its lane stays unknown until a declaration mechanism for plain refs is wanted, which
-   is not now). `FileDataOpener` itself returns null from `staticShape`. Record this asymmetry in KDoc; it
-   is §5.5's honest reduction.
+   data through a conventions object (the `ContextConventions.descriptorOrNull` shape). The concrete
+   source answers `staticShape(role)` directly from that declaration. `ReadWorker` holds its source and
+   asks it; `ReadPartWorker` has no source and remains statically unknown. `DataOpenerLookup` stays keyed
+   only on refs and gains no walk-facing entry point.
 4. **Resolution order in `JobUpstreamSchema`** — an ordered list of column providers evaluated until
    one answers: live summary → (J4 slot) → **declared schema** → pre-scan via the validation slice's
    `flatColumns` on the upstream lane → none. The editor asks "columns on my input lane", not "columns of
@@ -134,26 +131,27 @@ null.
    manifest** for the selected role, in manifest order, de-duplicated (Report's `toSet().toList()`), with
    the `attributes: columns` attribute names prepended once. Every emitted item is normalized to it. If
    any part's shape is **unknown** (cache miss and the opener declines a bounded read), fall back to
-   DS3's behaviour: fail rather than guess. `mergeSchemas: strict | superset` on **both** readers
-   (**default `superset`** once this lands) so a pipeline that *wants* the strict failure keeps it — and
-   so the DS3 → DS6 behaviour change is visible in notation rather than silent. Implemented once in
+   DS3's behaviour: fail rather than guess. `schemaMode: strict | superset` on **both** readers
+   (**default `superset`** once this lands). `strict` is a semantic data contract that rejects unexpected
+   schema drift; `superset` accepts variation without losing later columns. Implemented once in
    `DataReadCore`.
 7. **Cost** — the superset costs one bounded read per part at resolve time. For a many-file selection
-   that is a real cost; it is bounded (header only), cached, and only paid under `mergeSchemas:
+   that is a real cost; it is bounded (header only), cached, and only paid under `schemaMode:
    superset`. Measure on a 100-file selection and record the number in the as-built either way.
-8. **`Object` shapes and the superset** — the superset applies to `Tabular` parts only; mixed
-   `Tabular`/`Object` or differing `Object` types across parts keep DS3's failure under both modes.
+8. **`Payload` shapes and the superset** — the superset applies to `Tabular` parts only; mixed
+   `Tabular`/`Payload` or differing `Payload` types across parts keep DS3's failure under both modes.
 
 ## Step-by-step implementation
 
 1. **`SchemaCache` + `SchemaCacheKey`** (jvm, `server/data/`) + the `ColumnListingAction` key fix;
    Report's callers pass size/mtime. Report's suites prove no behaviour change except staleness.
-2. **`FileDataOpener.inspectShape`** (jvm) over the cache; `DataSourceActions action=shape`.
+2. **`FileDataOpener.inspectShape`** (jvm) over the cache; `DataSourceActions action=shape` first asks
+   the source for `staticShape(part.role)`, then falls back to opener inspection.
 3. **The declared-schema route** — O18's rename (or its deferral), the `schema:` nominal attribute on
-   the `DataSource` archetype, the conventions read, `DataOpenerLookup.staticShape(source, role)`.
-4. **Readers**: `payloadFlow` under `items` publishes `staticShape` → `flatColumns` / `payloadType` and,
+   the `DataSource` archetype, the conventions read, concrete sources' `staticShape(role)`.
+4. **Readers**: `ReadWorker.payloadFlow` under `items` publishes `source.staticShape` → `flatColumns` / `payloadType` and,
    for a source whose query **names its parts statically** (explicit `files`) and whose cache is primed,
-   `SchemaCache.peek` columns; `mergeSchemas` knob on both; superset resolution + per-item normalization
+   `SchemaCache.peek` columns; `schemaMode` knob on both; superset resolution + per-item normalization
    in `DataReadCore` replacing the failure. ⚠ A directory-walk source is unknown at walk time even when
    primed, because the walk must not resolve. Document it.
 5. **Client**: `JobUpstreamSchema` provider list; `SortSpecEditor` dropdown branch; source-card
@@ -168,15 +166,16 @@ null.
    extractor calls).
 2. **`FileDataOpenerTest`** additions — `inspectShape(part)` on a headered CSV returns
    `Tabular(header)`; on a headerless coordinate returns positional names; a second call is a cache hit;
-   a **declared** schema (via the lookup) answers `staticShape` with **zero** file reads.
-3. **`DataSourceActionsTest`** addition — `action=shape`.
+   a **declared** schema (via the source) answers `staticShape` with **zero** file reads.
+3. **`DataSourceActionsTest`** addition — `action=shape`; a declared static shape wins with zero opener
+   calls, while an undeclared shape falls back to bounded inspection.
 4. **`JobValidatorTest`** additions — `ReadWorker(items)` over a source with explicit `files` and a
    primed cache publishes `flatColumns`; unprimed → unknown; directory-walk source → unknown even when
    primed. **A spy opener asserting zero `inspectShape` / `resolve` calls during `JobValidator.validate`**
    is what pins O3 structurally.
-5. **`ReadWorkerTest` / `ReadPartWorkerTest`** additions — `mergeSchemas: superset` over two CSVs with
+5. **`ReadWorkerTest` / `ReadPartWorkerTest`** additions — `schemaMode: superset` over two CSVs with
    different headers emits every item under the union header with `<missing>` for absent columns, in
-   manifest order (attribute columns first under `columns`); `mergeSchemas: strict` still fails naming
+   manifest order (attribute columns first under `columns`); `schemaMode: strict` still fails naming
    both headers; one part's shape unknown under `superset` fails rather than guessing; **an A/B against
    Report** over the same two files (Report's `headerSuperset` path vs the reader's) yields the same
    column set.
@@ -197,9 +196,9 @@ null.
 ## Risks & gotchas
 
 - **IO on the walk** is the failure mode to guard structurally — `peek` must not fall through to a
-  read; test 4's spy pins it. If a future opener is tempted to "just peek", the answer is `staticShape`,
-  which is notation-only.
-- **The superset changes DS3's behaviour.** Ship it behind `mergeSchemas` with the default flipped in
+  read; test 4's spy pins it. If a future reader is tempted to inspect an opener, the answer is the
+  source's `staticShape`, which is notation-only.
+- **The superset changes DS3's behaviour.** Ship it behind `schemaMode` with the default flipped in
   this session, so the change is visible in notation and revertible per document.
 - **`FilterIndex` path coupling** — Report's storage-manager "clear cache" UI lists that area; the new
   digest-named files must land under the same managed area so the purge still reaches them.
@@ -215,7 +214,7 @@ null.
 ## Out of scope (this session)
 
 - Column *types* end to end (§6.3) — this session **consumes** a declared `TypeMetadata` for
-  `DataShape.Object` / a declared header for `Tabular`; it does not make `HeaderListing` /
+  `DataShape.Payload` / a declared header for `Tabular`; it does not make `HeaderListing` /
   `FlatFileRecord` / `ColumnValue` typed.
 - A declaration mechanism for plain refs without a source in hand (`ReadPartWorker`'s static shape) —
   noted in Pre-resolved 3, not built.

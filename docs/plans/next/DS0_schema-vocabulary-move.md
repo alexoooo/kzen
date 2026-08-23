@@ -1,10 +1,10 @@
-# DS0 — schema vocabulary out of Report — implementation plan
+# DS0 — data-layer package moves out of Report — implementation plan
 
 > **Status: ready to execute.** Session 0 of the **DS** arc (Job data sources). Rationale
 > **[`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md) §10**
 > ("Package layering — Job must stop reaching into Report"). Constituent plan: **—** (the
 > analysis doc is the permanent design record, so this file **is deleted on landing**; its as-built note
-> goes into the analysis doc **§13**). Anchors verified 2026-08-21. Sized **S**; **mechanical,
+> goes into the analysis doc **§13**). Anchors verified 2026-08-21. Sized **M**; **mechanical,
 > import-only, zero behaviour change**. Ledger row 49.
 >
 > **Why it goes first.** DS1 introduces `DataShape.Tabular(header: HeaderListing)` in a data-domain package that
@@ -14,7 +14,8 @@
 
 ## Scope & goal
 
-Move exactly three files out of Report's document package into a new data domain, and nothing else:
+Perform the arc's two mechanical package moves before new consumers are written. First, move exactly
+three files out of Report's document package into a new data domain:
 
 | From | To |
 |---|---|
@@ -24,6 +25,16 @@ Move exactly three files out of Report's document package into a new data domain
 
 New package: `tech.kzen.auto.common.data.schema`, under a **new top-level `common/data/`** that the rest
 of the arc fills in (`data/model/` in DS1, `data/api/` + `data/file/` in DS2).
+
+Second, move the existing input plumbing from `server/objects/report/…` into `server/data/…`:
+
+- `FlatDataSource` / `FileFlatDataSource` / `FlatDataStream` / `FlatDataLocation`;
+- `ReportInputChain` / `ReportHeaderReader`;
+- `FileListingAction` / `ColumnListingAction`;
+- `ReportDefinitionRepository`.
+
+This session changes packages and imports only. The `FileListingAction.scanInfoBlocking` extraction is
+behavioral and remains in DS2 with its first source-side consumer.
 
 **Why a new top-level `data/` rather than `paradigm/data/`.** `paradigm/` holds
 `{detached, flow, job, logic}` — *execution paradigms*. A schema vocabulary and a data model are not
@@ -35,11 +46,11 @@ would turn a mechanical commit into a judgement call.
 ## Dependencies & coordination
 
 - **No prerequisite.** Nothing in the arc has been built yet.
-- **Blocks DS1 and DS2** — both declare types that reference `HeaderListing`.
+- **Blocks DS1 and DS2** — both declare types that reference the moved vocabulary or plumbing.
 - **Report is the biggest consumer and is not otherwise touched.** This is an import rewrite; no Report
   source logic, notation, or behaviour changes.
-- **Stage nothing new by hand** beyond the three moved files: use `git -C ../kzen-auto mv` so history
-  follows, then `git -C ../kzen-auto add -- <the three new paths>` only if the mv did not stage them.
+- **Stage nothing new by hand** beyond the moved files: use `git -C ../kzen-auto mv` so history
+  follows, then `git -C ../kzen-auto add -- <explicit new paths>` only if the mv did not stage them.
   Never `git add -A`.
 
 ## Current-state findings (anchors verified 2026-08-21)
@@ -57,8 +68,8 @@ would turn a mechanical commit into a judgement call.
   gains an import.
 - **Job's remaining Report coupling is much wider** — `kzen-auto-jvm`'s `job/` packages import ~25
   distinct Report types (`CalculatedColumnEval`, `ColumnValue`, `PivotBuilder`, the export formatters,
-  the spec classes…). **That is not this session.** DS2 moves the *input plumbing* (§10); the expression
-  engine and everything pivot/export/filter stay put and are J-arc business.
+  the spec classes…). **That is not this session.** The expression engine and everything
+  pivot/export/filter stay put and are J-arc business.
 - **No notation references these classes.** They are values, not archetypes — checked: no `class:` key
   in `notation/**` names them. So no yaml changes, and no user `main/` document can break.
 
@@ -73,8 +84,8 @@ would turn a mechanical commit into a judgement call.
    `FlatDataHeaderDefinition`. Promoting `HeaderListing` to the published plugin artifact would add a
    cross-repo publish step to a mechanical commit — **out of scope**, and record it as a later question
    only if a plugin author actually needs it.
-4. **Do the js and jvm planes both need touching?** Yes — the import lives in all three modules. One
-   IDE-driven move handles all of them; verify with a full build, not a grep.
+4. **Do the js and jvm planes both need touching?** Yes — the schema imports live in all three modules;
+   the input plumbing is JVM-only. Verify with a full build, not a grep.
 
 ## Step-by-step implementation
 
@@ -91,7 +102,13 @@ three modules in one pass and it is the whole point of doing this mechanically.
 `build/`) must come back empty. A wildcard `import …report.listing.*` would survive the refactor
 silently — grep for that form too.
 
-### Step 3 — KDoc
+### Step 3 — input-plumbing move
+
+`git mv` the input-plumbing files listed in Scope into focused packages under `server/data/`, rewrite
+their package/import declarations, and update Report's consumers. Do not change method bodies or split
+`scanInfo` here.
+
+### Step 4 — KDoc
 
 One sentence on `HeaderListing`: that it is the flavour-neutral column vocabulary shared by Report, the
 Job workers and the DS data sources, and that Report's remaining `listing/` types are Report's own. No
@@ -106,8 +123,8 @@ point of the session is that they are untouched apart from imports.
 
 1. `cd ../kzen-auto && ./gradlew build` — the full build, on purpose: this is the one session where a
    scoped compile would miss the point. All three planes compile and every existing suite is green.
-2. `git -C ../kzen-auto diff --stat` — the diff should be ~70 files of pure `import` churn plus three
-   renames. **Any file with a non-import hunk is a mistake** and must be justified or reverted; that
+2. `git -C ../kzen-auto diff --stat` — the diff should contain moves plus package/import churn.
+   **Any method-body hunk is a mistake** and must be justified or reverted; that
    review is the session's real quality gate.
 3. `./gradlew :kzen-auto-js:compileKotlinJs` and the AGENTS "client-graph boot check" — a moved class is
    not a `@Reflect` wrapper, so the client graph cannot break, but the boot check is cheap insurance
@@ -119,7 +136,7 @@ point of the session is that they are untouched apart from imports.
 - **Wildcard imports.** IntelliJ collapses imports past a threshold; a `report.listing.*` wildcard is
   rewritten correctly by the refactor but is invisible to a grep for the specific class name. Grep for
   the package, not the type.
-- **Do not widen the move.** `FilteredHeaderListing` will *look* like it belongs with the others. It is
+- **Do not widen either move.** `FilteredHeaderListing` will *look* like it belongs with the others. It is
   Report's filter projection, nothing in the DS arc uses it, and moving it drags `report/spec/filter`
   behind it. Resist; note it in the as-built if it keeps coming up.
 - **Do not "tidy" other Report imports while in there.** Job's ~25 other Report imports are real
@@ -131,7 +148,6 @@ point of the session is that they are untouched apart from imports.
 ## Out of scope (this session)
 
 - `util/data/` (`DataLocation` and friends) — stays where it is.
-- The **input plumbing** move (`FlatDataSource` / `ReportInputChain` / `FileListingAction` /
-  `ColumnListingAction` → `server/data/`) — **DS2**, where it has a consumer.
+- The behavioral `FileListingAction.scanInfoBlocking` extraction — **DS2**, where it has a consumer.
 - `CalculatedColumnEval` / `ColumnValue`, and everything pivot / export / filter — J-arc.
 - Any behaviour change whatsoever.

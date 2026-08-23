@@ -1,30 +1,29 @@
 # Job data sources — review of the design and the DS plans
 
-**Date:** 2026-08-23 · **Status:** findings, **not applied.** The design record is
+**Date:** 2026-08-23 · **Status:** dispositions applied to the design record and DS plans. The design record is
 [`2026-08-20_job-data-source.md`](./2026-08-20_job-data-source.md) and the execution layer is
-`docs/plans/next/DS0`–`DS8`; both currently describe the design *as planned*, and everything below is a
-change I think should be made to them. Each finding states what breaks or what it costs, the evidence in
-the tree, and a recommendation. Claims were checked against `kzen-auto` at review time; per CC-20 no line
-numbers are cited.
+`docs/plans/next/DS0`–`DS8`. This file records the review and its disposition; the owning rationale is in
+the design record. Claims were checked against `kzen-auto` at review time; per CC-20 no line numbers are
+cited.
 
 ## Verdict
 
-The design is coherent and the sequencing is sound. The core commitments — resolution and reading are
+The design's core is coherent. The core commitments — resolution and reading are
 effects owned by workers, refs are plain paths until a provider needs otherwise, a plain pull cursor the
 worker drives, the manifest carried rather than re-resolved, source and opener split — each *removed*
 machinery rather than adding it, and none of them should be re-opened.
 
-One finding below will actually fail as written (F1, the arc's own acceptance fixture). The rest are
-places where the plans carry more surface than the design needs, and are worth taking before DS2 starts
-because they are cheaper now than after there is code.
+F1, F9, F10 and F12 would fail or corrupt the arc's own acceptance behavior as written. F11 is a direct
+model/reader contradiction. The remaining findings simplify the API or plan shape before code makes
+them expensive.
 
 ---
 
-## F1 — the per-unit output path is unfunded, and the acceptance test depends on it
+## F1 — the per-unit output path was unfunded, and three fixtures depended on it
 
-**Severity: blocking for DS7 and DS8.**
+**Severity: blocking for DS5, DS7 and DS8.**
 
-DS7's fixture and DS8's acceptance fixture both write per-unit output:
+DS5's child-Job fixture, DS7's fixture and DS8's acceptance fixture wrote per-unit output:
 
 ```
 ExportWriterWorker(path: "out/${date}.csv", result: output)
@@ -49,14 +48,14 @@ and then assert three distinct output files, one per day. Nothing produces that 
 As written, the three child runs all write one file and DS8 test 5 fails. Since DS8 test 5 is the arc's
 acceptance test — it is what proves DS1 through DS7 compose — this is not a fixture detail.
 
-**Recommendation.** Fund it as one mechanism rather than a fixture workaround: give `RunWorker` an
-`arguments:` mapping (unit attributes → named child parameters) built on the **named
-`host(instructions, arguments: TupleValue)` overload DS8 already adds**, and let path substitution resolve
-`${name}` against `control.parameter(name)`. The child then declares `date: String`, the overload earns
-its keep twice, and per-unit output — which any ETL port wants — becomes a first-class capability instead
-of an accident of the fixture. Alternative if that is too much: defer per-unit paths, have the child write
-to one path and the outer collect refs, and say so in §7.1 — but that weakens the worked shape the design
-is built around. Either way, decide it at the top of DS7, not inside it.
+**Disposition: applied in DS7.** `RunWorker.arguments` maps child parameter names to Kotlin expressions
+evaluated against the incoming message with the existing formula-expression scope. The incoming value
+still binds the first child parameter; expressions supply additional parameters by name through the named
+`host(instructions, arguments: TupleValue)` overload. The dated shape binds
+`date: attributes["date"]`; the child declares `date: String`; writers resolve `${date}` from
+`control.parameter("date")` in `onStart`. This is generic Logic call binding, not a `DataUnit` branch in
+`RunWorker`. DS5 uses a fixed-path, single-unit boundary fixture; DS7 owns the binding and per-unit fixture;
+DS8 reuses it for the full acceptance test.
 
 ## F2 — `PathPatternSubstitution` duplicates a shipped helper
 
@@ -66,9 +65,10 @@ source". `OutputExportSpec.resolvePattern` already **is** that helper: it lives 
 `resolvePath`. Writing a second one is a straight CC-12 duplication, and it would leave two substitution
 dialects on two writers.
 
-**Recommendation.** Generalize the existing helper (it needs a wider vocabulary for F1 regardless) and
-give it a neutral home — it currently sits in `common/objects/document/report/spec/output/`, which is the
-same layering inversion §10 is already correcting. Do not write a new one.
+**Disposition: applied in DS7.** Extract one neutral commonMain `PathPatternSubstitution` primitive.
+`OutputExportSpec` retains ownership of Report's sanitization and reserved vocabulary but delegates the
+actual replacement; the Job writers add scalar Job parameters. Unknown placeholders fail clearly. This
+avoids both a copied implementation and an accidental widening of Report-specific semantics.
 
 ## F3 — `staticShape` is on the wrong interface, and DS6 pays for it
 
@@ -84,7 +84,7 @@ same layering inversion §10 is already correcting. Do not write a new one.
 So the walk-facing call is declared on the one participant that never answers it, and reached through a
 lookup keyed on something the walk does not have.
 
-**Recommendation.** Move `staticShape(role)` to `DataSource`. `ReadWorker` holds its source and asks it
+**Disposition: applied.** Move `staticShape(role)` to `DataSource`. `ReadWorker` holds its source and asks it
 directly; `ReadPartWorker` has no source and stays statically unknown — which DS6 already concedes as the
 honest v1 answer. That removes one SPI member from `DataOpener`, the whole second lookup entry point, and
 the asymmetry note. `DataOpener` is left with exactly what an opener does: `open` and `inspectShape`.
@@ -99,26 +99,23 @@ Of the four members, two are inert for the entire arc:
   means adding an accessor to `JobControl` for a feature no source in the arc uses.
 - `host(...)` throws in `DesignDataContext` and throws in `WorkerDataContext` until DS8 wires it.
 
-**Recommendation.** v1 `DataContext` is `argument(name)` + `blocking(block)`. `host` lands in DS8 with its
-only caller; `contextValue` lands with the first stateful source, together with the `JobControl` accessor
-it needs. This is safe to defer precisely because third parties *consume* `DataContext` rather than
+**Disposition: applied.** v1 `DataContext` is `argument(name)` + `blocking(block)`. DS7 adds only the
+named `JobControl.host` overload needed by generic `RunWorker` binding; `DataContext.host` lands in DS8
+with its first caller, `LogicDataSource`. `contextValue` lands with the first stateful source, together
+with the `JobControl` accessor it needs. This is safe to defer precisely because third parties *consume* `DataContext` rather than
 implement it — the implementations are ours — so adding members later is source-compatible for every
 `DataSource` / `DataOpener` author. Two fewer stubs, and the Context-borrow model (§4) is documented
 rather than half-built.
 
-## F5 — `mergeSchemas` is a cost knob wearing a semantics name
+## F5 — `mergeSchemas` has a poor name, but strictness is semantic
 
-DS6 adds `mergeSchemas: strict | superset` to both readers and flips the default to `superset`. But the
-stated reason for failing loudly (§5.3: `SummaryWorker` fixes its columns from the first record and
-`CsvWriterWorker` writes the header from the first batch, so mixed headers lose data *silently*) is
-exactly what superset fixes. Once superset exists, `strict` has no semantic user.
+The original finding overstated the case. Superset prevents silent loss, but `strict` is a real data
+contract: it rejects an unexpected added or removed column instead of accepting schema drift. Its lower
+pre-scan cost is a consequence, not its meaning.
 
-What `strict` actually buys is skipping **one bounded read per part at resolve time** — DS6's own
-Pre-resolved 7 flags this as a real cost on a 100-file selection.
-
-**Recommendation.** Either name it for what it is (a pre-scan cost switch) or drop it and always
-normalize. This matters beyond tidiness because it is the fifth attribute on the card the design promises
-as "three cards, no code": `source`, `emit`, `role`, `attributes`, `mergeSchemas`.
+**Disposition: corrected.** Keep both behaviors, default to `superset`, and rename the attribute
+`schemaMode: strict | superset`. The name describes the policy without implying that `strict` is a kind
+of merge.
 
 ## F6 — DS2 carries a mechanical package move that belongs in DS0
 
@@ -128,7 +125,7 @@ a mistake"). DS2's Step 3 moves the input plumbing (`FlatDataSource`, `ReportInp
 `server/data/` — the same kind of change, bundled into a session that also lands the SPI, two
 implementations, a cursor, a lookup, a detached action, notation, conventions and a spike.
 
-**Recommendation.** Fold the pure move into DS0 and keep only the `FileListingAction.scanInfo`
+**Disposition: applied.** Fold the pure move into DS0 and keep only the `FileListingAction.scanInfo`
 blocking-core split in DS2 — that one is behaviour-adjacent and belongs with its consumer. DS2 is the
 largest session in the arc and this is free relief with no design consequence.
 
@@ -141,20 +138,73 @@ null, if one exists on the test classpath; otherwise a test double where the pre
 A widening hatch with no reachable case is either evidence the predicate is right and the hatch is dead
 code, or evidence the predicate is wrong. A stubbed-predicate test proves neither.
 
-**Recommendation.** This is O17 and it is the user's call, so make the call rather than shipping the
-ambiguity: if no real false negative can be produced, retire `ObjectRegistry` and its `ObjectRegistryScan`
-threading in the same session that replaces the whitelist. If one can, test it for real and keep the
-document. Either outcome is clean; carrying an untestable hatch is not.
+**Disposition: retire it in DS1b.** No real false negative is available; a stubbed predicate does not
+prove the hatch. Remove `ObjectRegistry`, `ObjectRegistryScan`, their cache and their context threading in
+the same session that replaces the whitelist.
 
 ## F8 — naming and a small dispatch smell
 
-- **`DataShape.Object`.** It is the only name in the new vocabulary that is not self-describing, it reads
-  badly beside `Any` in JVM code, and it invites confusion with `java.lang.Object` and Kotlin's `object`
-  keyword. `Typed(type)` pairs naturally with `Tabular(header)`. Cheap now, annoying later.
+- **`DataShape.Object`.** Rename it to `DataShape.Payload(type)`, matching the existing flat-versus-payload
+  `JobMessage` / `WorkerLane` vocabulary. `Object` excludes scalar payloads conceptually and invites
+  confusion with `java.lang.Object` and Kotlin's `object` keyword.
 - **`DataSourceActions` with an `action=` parameter** is a string-dispatched mini-router, with an
   unknown-action failure path to write and test. Two single-purpose detached objects would drop that
-  branch entirely. Low stakes — the generic-action decision itself (a source carries no UI protocol) is
-  right and should stand — but worth a moment before DS2 writes the dispatch.
+  branch entirely. On balance, keep the one generic action object: two operations do not justify two
+  registered objects and two well-known locations. Bind action names to constants and retain the explicit
+  unknown-action failure.
+
+---
+
+## F9 — DS5 checkpoints after removing its input batch from the channel
+
+**Severity: blocking for DS5.**
+
+`TransformWorker.drive` receives a whole batch into a local variable and then calls `onElement`. DS5's
+planned `Emitter.expandCadence` checkpoints inside `onElement` and claims the current unit will be
+redelivered from `JobChannel.drainBuffered`. It cannot be: the current element and the rest of that batch
+have already left the channel and exist only on the old coroutine stack. A migration at that checkpoint
+loses them.
+
+**Disposition: applied.** DS5 introduces `ExpandingTransformWorker`, a distinct 1:N execution base that
+owns the active batch and element index as migratable fields. Its snapshot composes those with the
+subclass's unit/part/item cursor. It flushes and checkpoints at output-batch cadence; after migration the
+current element is replayed against the adopted cursor and the rest comes from the carried batch. The 1:1
+`TransformWorker` invariant remains true.
+
+## F10 — DS7 fingerprints writers before their containers are finalized
+
+**Severity: blocking for DS7.**
+
+`SinkWorker` calls `onComplete` before `WorkerBase` reaches `onClose`. Both writers close there, and the
+export writer finalizes gzip/zip containers there. Yielding and statting the path in `onComplete` can
+therefore publish an incomplete size/mtime and, for a compressed output, an unfinished container.
+
+**Disposition: applied.** On successful completion each writer finalizes/closes idempotently, then stats
+and yields. `onClose` calls the same idempotent finalizer as the failure/cancellation fallback. Tests pin
+that the yielded fingerprint matches the bytes visible after completion, including compressed output.
+
+## F11 — DS5 promises several same-role parts but calls the single-part accessor
+
+DS1 deliberately defines `DataUnit.part(role)` as exactly-one-or-throw and `partsOf(role)` as the ordered
+multi-part accessor. DS5's scope calls `unit.part(role)` while its own Pre-resolved 2 promises to read
+several same-role parts in order.
+
+**Disposition: applied.** Both readers select `partsOf(role)` and read the resulting parts in order. Zero
+matches fails naming the role; a blank role selects the unit's sole distinct role and still permits several
+parts carrying it.
+
+## F12 — the child yields `output`, but `RunWorker` reads `main`
+
+**Severity: blocking for DS7 and DS8.**
+
+The worked child Job declared `results: output: DataRef`, while `RunWorker` emits
+`result.mainComponentValue()`. A writer yielding `output` therefore completes successfully but the outer
+lane receives null. Keeping a trailing `ResultSinkWorker(result: output)` does not fix that mismatch and
+is redundant once the writer itself yields the ref.
+
+**Disposition: applied.** The child declares `results: main: DataRef`; its writer explicitly uses
+`result: main`; the redundant child `ResultSinkWorker` is removed. The outer sink may still use the named
+`outputs` component because it is the final collector, not a value harvested by another `RunWorker`.
 
 ---
 
@@ -187,12 +237,12 @@ These were verified against the tree and the reasoning holds:
 | Plan | Findings that touch it |
 |---|---|
 | DS0 | F6 — takes the input-plumbing move |
-| DS1 | — |
-| DS1b | F7 — decide O17 rather than shipping an untestable hatch |
+| DS1 | F8 — `DataShape.Payload` |
+| DS1b | F7 — retire the untestable registry hatch |
 | DS2 | F3 (SPI shape), F4 (`DataContext` members), F6 (drop Step 3), F8 (action dispatch) |
-| DS3 | F5 (knob count), F8 (`DataShape.Object`) |
+| DS3 | F8 (`DataShape.Payload`) |
 | DS4 | — |
-| DS5 | F3 (static shape for a source-less reader becomes simply "unknown") |
-| DS6 | F3 (no second lookup entry point), F5 (`mergeSchemas`) |
-| DS7 | **F1** — settle the output path before writing the fixture; F2 |
-| DS8 | **F1** (acceptance test), F2 (`PathPatternSubstitution`), F4 (`host` lands here) |
+| DS5 | F1 (remove premature dated-path fixture), F3 (source-less static shape is unknown), **F9** (migration-safe expansion), F11 (`partsOf`) |
+| DS6 | F3 (no second lookup entry point), F5 (`schemaMode`) |
+| DS7 | **F1** (generic named arguments + per-unit path), F2 (shared substitution), **F10** (finalize before yield), **F12** (child yields `main`) |
+| DS8 | F1 (reuse the funded mechanism), F4 (`DataContext.host` lands with its first caller), F12 (acceptance fixture reads `main`) |

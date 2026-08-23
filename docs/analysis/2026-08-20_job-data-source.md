@@ -95,13 +95,14 @@ either knows it is a file.
 |---|---|---|
 | **Query** | what do I want? | `DataQuery` — config, may reference run parameters |
 | **Resolve** | what does that actually name, right now? | `suspend DataSource.resolve(context)` → `DataResolveResult(manifest, diagnostics)` (§4) |
-| **Describe** | what shape is it? | `DataOpener.staticShape(role)` → `DataShape?` (notation-only, walk-facing) and `suspend DataOpener.inspectShape(context, part)` → `DataShape?` (bounded read, editor-facing) (§6.1) |
+| **Describe** | what shape is it? | `DataSource.staticShape(role)` → `DataShape?` (notation-only, walk-facing) and `suspend DataOpener.inspectShape(context, part)` → `DataShape?` (bounded read, editor-facing) (§6.1) |
 | **Open** | give me the items | `suspend DataOpener.open(context, part)` → `DataCursor`, a plain pull reader the worker drives inside `runBlockingIo` (§4) |
 
 Report fuses query+resolve into `FileListingAction` (edit time only) and describe into a separate
 action with its own cache. Splitting them is what makes parameterized resolution and pluggable
-non-file sources possible at all. Resolve is on the **source**; describe and open are on the
-**opener** — a file source is only a source, and a shared file opener reads its plain refs (§4).
+non-file sources possible at all. Resolve and notation-only declaration are on the **source**;
+bounded inspection and opening are on the **opener** — a file source is only a source, and a shared
+file opener reads its plain refs (§4).
 
 ### 3.2 Value types
 
@@ -253,15 +254,15 @@ DS3** (§9).
 interface DataSource {
     /** Resolve the configured query into a point-in-time manifest (§8.1) plus diagnostics. */
     suspend fun resolve(context: DataContext): DataResolveResult
+
+    /** The shape of what `role` yields, answerable from NOTATION ALONE — never IO; the walk reads this (O3). */
+    fun staticShape(role: DataRole?): DataShape? = null
 }
 
 /** DESCRIBE + OPEN — for reading a ref. A file source is NOT one: the shared FileDataOpener reads its plain refs (§3.3). */
 interface DataOpener {
     /** Open a part. Returns a handle the CALLER drives (see [DataCursor]). */
     suspend fun open(context: DataContext, part: DataPart): DataCursor
-
-    /** The shape of what `role` yields, answerable from NOTATION ALONE — never IO; the walk reads this (O3). */
-    fun staticShape(role: DataRole?): DataShape? = null
 
     /** The shape of one concrete part, from a DECLARATION or a BOUNDED read (a header row, `LIMIT 0`). */
     suspend fun inspectShape(context: DataContext, part: DataPart): DataShape? = null
@@ -286,23 +287,24 @@ interface DataContext {
     /** A run parameter / detached request parameter, BY NAME (never positional — O13). */
     fun argument(name: String): Any?
 
-    /** The run's Context registry (`Execution.resourceValue`), or the design-time session. Null when absent. */
-    fun contextValue(key: String): Any?
-
     /** Quiescence-visible blocking offload: `JobControl.runBlockingIo` at run time, `Dispatchers.IO` at design time. */
     suspend fun <R> blocking(block: () -> R): R
-
-    /** Invoke a child Logic with NAMED arguments — `JobControl.host` at run time (§4.4); design time throws. */
-    suspend fun host(instructions: ObjectLocation, arguments: TupleValue): TupleValue
 }
 
 /** Tabular structure vs Kotlin payload type — two different things, and conflating them is what made
  *  the reader API and downstream inference ambiguous. */
 sealed interface DataShape {
     data class Tabular(val header: HeaderListing): DataShape      // widens to typed columns later (§6.3)
-    data class Object(val type: TypeMetadata): DataShape
+    data class Payload(val type: TypeMetadata): DataShape
 }
 ```
+
+`DataContext` starts with the two capabilities v1 sources use: named run arguments and counted blocking.
+Its `host(instructions, arguments)` member lands with `LogicDataSource` in DS8 (§4.4), delegating to the
+named `JobControl.host` overload that DS7 first needs for `RunWorker.arguments`. A Context-registry
+read lands with the first stateful source, together with the `JobControl` accessor it requires. Sources
+consume this interface; they do not implement it, so adding those capabilities with their consumers keeps
+the initial SPI smaller without creating a third-party implementation burden.
 
 **Why `resolve` and `open` are `suspend`, and why a cursor is not.** `JobControl.runBlockingIo` and
 `JobControl.host` are both **`suspend`** (`EngineJobControl` delegates to `Execution.blocking` / the
@@ -364,19 +366,21 @@ Two consequences of "design time" being on the list, both general rather than da
 - **The source object is NOT a `DetachedAction`; one generic action calls it.** The editor's
   resolve-preview / shape calls go through `ModelDetachedExecutor.execute(actionsLocation, request)` on
   the single `DataSourceActions` object, which instantiates the named source by location
-  (`GraphInstanceCache`, the `FileListingAction` / `ColumnListingAction` precedent) and calls `resolve` /
-  `inspectShape`. Card chrome in the Job editor (preview the resolved manifest, show columns) is generic
+  (`GraphInstanceCache`, the `FileListingAction` / `ColumnListingAction` precedent) and calls `resolve`,
+  or answers shape with `source.staticShape(part.role) ?: opener.inspectShape(context, part)`. Its
+  `resolve` / `shape` action names are constants and unknown names fail clearly; two
+  operations do not justify two registered objects and two well-known locations. Card chrome in the Job editor (preview the resolved manifest, show columns) is generic
   over sources because it only speaks this one protocol, and a source author implements nothing for it.
 - **Resource lifetime — a source BORROWS, it never OWNS.** A file source is stateless; a JDBC / API
   source needs a connection. It does **not** hold one. It declares the Context it uses
-  (`is: ObjectLocation, nullable: true, by: Nominal` — the `ContextBinder.binds` shape) and reads the
-  value through `DataContext.contextValue`. At run time that is the Context registry the engine already
+  (`is: ObjectLocation, nullable: true, by: Nominal` — the `ContextBinder.binds` shape) and, when the
+  first such source lands, reads it through a `DataContext.contextValue` capability added in that
+  session. At run time that is the Context registry the engine already
   has: `Execution.resource(key, policy,
   value, closer)` opens with a declared `ResourceClosePolicy`, `Execution.resourceValue(key)` reads, and
   the read walks ancestors (`RunEngineContextTest.resourceValueReadableFromHostedChildViaAncestorWalk`),
-  so a hosted child Job sees its caller's connection. ⚠ `JobControl` exposes no Context read today, so
-  the run-time `contextValue` needs one added — nothing in this arc has a stateful source, so it may
-  return null until one exists.
+  so a hosted child Job sees its caller's connection. ⚠ `JobControl` exposes no Context read today; the
+  first stateful source adds it together with `DataContext.contextValue` rather than shipping a null stub.
 
   This is what keeps the object itself stateless, which matters twice: `GraphInstanceCache`'s reuse
   contract stays satisfied at design time, and **`GraphCreator.createGraph` instantiates every object in
@@ -405,7 +409,7 @@ Components as the escape hatch, so a source ships zero JS in the common case.
 
 **Definition time is deliberately absent from the two contexts above.** A `payloadFlow` that called an
 effectful describe would mean IO during the payload-type walk, which runs on every notation revision.
-**O3 says never**: the walk reads `staticShape(role)` (notation-only) and the schema cache, and nothing
+**O3 says never**: the walk reads `DataSource.staticShape(role)` (notation-only) and the schema cache, and nothing
 else.
 
 ### 4.2 Two orthogonal extension axes, kept orthogonal
@@ -460,9 +464,9 @@ stepping, breakpoints and pause-on-error for free — `JobControl.host` already 
 SPI.
 
 Two prerequisites, both implied elsewhere: `DataContext.host(instructions, arguments: TupleValue)` —
-**named** arguments, a new `JobControl.host` overload beside the single-positional one (the existing
-implementation already builds a `TupleValue`, so it is a few lines, and the existing form delegates to
-it); and expression-constructible model types — the §5.5 visibility fix plus a small helper family
+added here with its first caller and delegating at run time to the **named** `JobControl.host` overload
+that DS7's `RunWorker` binding first needs; and expression-constructible model types — the §5.5
+visibility fix plus a small helper family
 (`DataUnit.of(attributes, parts)`, `DataPart.ofPath(role, path)`).
 
 **This is a better final session than a hand-written dated-path source** (§12): the dated case becomes a
@@ -541,7 +545,8 @@ removes the two-regions problem, which is the real complaint, while leaving the 
   degenerate single-role convenience (the trivial case), and the lane carries records so Summary
   counts lines. Multi-role units are *never* split uniformly by the reader — a unit with
   `main` + `reference` parts has no single item schema; turning such a unit into a uniform stream is
-  custom logic, not the reader's job (§5.6). `role:` selects the one role to open under `emit: items`;
+  custom logic, not the reader's job (§5.6). `role:` selects the role whose `partsOf(role)` are opened
+  in order under `emit: items`;
   heterogeneous schemas under `items` are a validation error, not a silent concatenation — **and the
   reason is downstream, not the reader** (§5.3).
 - **`attributes: ignore | columns`** (§3.5): under `columns`, every emitted flat record is widened with
@@ -549,8 +554,8 @@ removes the two-regions problem, which is the real complaint, while leaving the 
   can provide, and it is the `groupBy` parity J4 consumes. Attribute key sets differing across units are
   heterogeneous headers — §5.3 applies. An attribute name colliding with a part column fails naming both;
   it never shadows.
-- **`payloadFlow`.** Under `items`, publishes the opener's `staticShape(role)` (notation-only, no IO —
-  `Tabular` → `flatColumns`, `Object` → `payloadType`) and, in DS6, the schema **cache** for explicitly
+- **`payloadFlow`.** Under `items`, publishes the source's `staticShape(role)` (notation-only, no IO —
+  `Tabular` → `flatColumns`, `Payload` → `payloadType`) and, in DS6, the schema **cache** for explicitly
   named parts — a miss is "unknown", never IO on the walk, so O3 holds. Under `units`, `payloadType =
   DataUnit`. Nothing is resolved at walk time, so no call may take a `DataPart`.
 - **Cursor.** This is the one place a positional cursor lives — `(unitIndex, partIndex, itemIndex)` with
@@ -609,6 +614,12 @@ resolve the **superset** up front and normalize every item to it — which needs
 design-time schema work. **DS3 fails loudly with that reason in its KDoc; DS6 adds superset
 normalization** — **O19**.
 
+DS6 exposes the policy as `schemaMode: strict | superset`, default `superset`. This is not merely a
+pre-scan cost switch: `strict` is an explicit data contract that rejects an unexpected added or removed
+column, while `superset` accepts schema variation without losing later columns. The name describes the
+semantic choice; its bounded-read cost is a documented consequence of `superset`, not the meaning of the
+attribute.
+
 ### 5.4 The transform side is 1:1 — the one real gap, and `ReadPartWorker` fills it
 
 `FormulaWorker.payload` **replaces** the payload: one message in, one message out. Nothing existing
@@ -623,22 +634,24 @@ ReadPartWorker(input: <unit lane>, role: "main", attributes: ignore | columns)  
 ```
 
 It takes each incoming payload (must be a `DataUnit` — `payloadFlow` validates the upstream type, which
-is why §5.5 matters), picks `unit.part(role)`, opens it through the same `DataOpenerLookup` + drain core
+is why §5.5 matters), selects `unit.partsOf(role)` in order, opens them through the same
+`DataOpenerLookup` + drain core
 as `ReadWorker` (§5.2 "one implementation"), and emits `ofFlat` / `ofPayload` by `cursor.shape`. It is
 what the child-Logic idiom (§5.6b) reads with, what a grouped main-plus-reference pipeline uses per role
 (§5.6a), and the only place besides `ReadWorker` that opens anything. Its cursor is scoped to the
-*current unit*: migration carries `(inputElementIndex, itemIndex, open cursor)`; the unit is re-delivered
-by the channel's in-flight buffer, so no re-read.
+*current unit*: migration carries the active input batch, its element index, the unit, part/item position
+and open cursor.
 
 Two prerequisites it owns, both general:
 
-- **The 1:N transform emit cadence.** `Emitter.sourceCadence` is source-only. For a transform, `send`
-  merely buffers and `flush` runs once per *input* batch in `TransformWorker.drive`, with `checkpoint`
-  at the top of that loop. Expanding one unit into a million rows therefore buffers a million messages
-  before any flush, and the Job **cannot pause or cancel** for the whole expansion. So
-  `Emitter.expandCadence(control, onFlush)` lands beside `sourceCadence` — flush + checkpoint every
-  `batchSize` sends *within* `onElement` — and `TransformWorker`'s KDoc is amended to say 1:N workers opt
-  into the finer cadence and park with mid-element state. Small, and not optional at ETL scale.
+- **A migration-safe 1:N transform base.** `TransformWorker` removes a whole input batch from its
+  channel before calling `onElement`; a checkpoint inside that hook would strand the current element
+  and the rest of the local batch during migration. `ExpandingTransformWorker` therefore owns the
+  active batch and element index as fields, includes them in its migration snapshot, and flushes +
+  checkpoints every output `batchSize` while expanding the current element. The current element is
+  replayed against the adopted cursor after migration; the remaining elements come from the carried
+  batch, not from `JobChannel.drainBuffered`. This is the general 1:N execution strategy and the future
+  `ExpandWorker`'s base, not an `Emitter` mode bolted onto the 1:1 transform contract.
 - **Handle ownership** — the open cursor closed in `onClose` unless detached, and at exhaustion.
 
 A generic in-memory **`ExpandWorker`** — a stream-valued expression over an *already-materialized* value
@@ -690,13 +703,12 @@ mechanism). Small, entirely general, and `FormulaSourceWorker` gains identically
 Two follow-ons worth stating rather than discovering:
 
 - `ObjectRegistryScan` loses its only consumer — `ExpressionReturnTypeInference` is the sole reader;
-  `WorkerLaneContext` and `ScriptDefinitionContext` merely carry it. It survives as a **widening**
-  escape hatch for predicate *false negatives* — e.g. a Java class for which `KClass.visibility` reflects
-  null — never for an `internal` class, since generated code in another module still cannot name an
-  inaccessible type, and its KDoc must not describe it as overriding Kotlin visibility. Empty the shipped
-  `IntRange` entry. Whether to retire the document entirely is a separate, user-facing call — **O17**.
+  `WorkerLaneContext` and `ScriptDefinitionContext` merely carry it. No real public, importable class
+  rejected by the predicate has been produced, and a stubbed predicate would not prove one exists.
+  Retire the `ObjectRegistry` document and its scan/threading in this session rather than preserving an
+  untestable widening hatch — **O17**.
 - The visibility fix types the *unit*; it does **not** type a part's **items**. That is a schema question,
-  not a Kotlin-inference one, and its answer is the opener's `staticShape(role)` (§4) — notation-only, so the
+  not a Kotlin-inference one, and its answer is the source's `staticShape(role)` (§4) — notation-only, so the
   walk can read it with no IO. See §6.3 for where a source *gets* a declaration.
 
 ### 5.6 Scoping a unit's processing — three mechanisms
@@ -787,10 +799,10 @@ serving the first request).
 
 "What columns does this part have?" is tabular structure; "what Kotlin type is each emitted item?" is a
 payload type. A field map is not an item type, and treating both as "schema" makes the reader API and
-downstream inference ambiguous. The vocabulary is `DataShape` — `Tabular(header)` or `Object(type)`
+downstream inference ambiguous. The vocabulary is `DataShape` — `Tabular(header)` or `Payload(type)`
 (§4) — and the two calls are split by **what they may do**, not by what they return:
 
-- `DataOpener.staticShape(role): DataShape?` — answerable from **notation alone**, never I/O. This is what
+- `DataSource.staticShape(role): DataShape?` — answerable from **notation alone**, never I/O. This is what
   the payload-type walk reads (O3 holds by construction). A declared schema (§6.3) lives here.
 - `suspend DataOpener.inspectShape(context, part): DataShape?` — a **bounded** read of one concrete part
   (a header row, `LIMIT 0`), or null when the opener cannot answer cheaply. This is what the editor asks
@@ -815,14 +827,13 @@ only *after* a run. Resolution order for an editor asking "what columns can I of
 
 Columns are the *whole* design-time data surface: there is no row preview, deliberately (§9).
 
-**The payload-type walk** gets `staticShape(role)` and nothing else — never I/O. ⚠ The lookup is keyed on
-a *ref*, which the walk does not have, so `ReadWorker` consults its own source's declaration through a
-`DataOpenerLookup.staticShape(source, role)` entry, and `ReadPartWorker` — which has no source in hand —
-stays statically unknown. So:
+**The payload-type walk** gets `source.staticShape(role)` and nothing else — never I/O. `ReadWorker`
+already holds its source and asks it directly. `ReadPartWorker` has no source in hand, so it stays
+statically unknown. So:
 
 | Lane | Static scope for downstream expressions |
 |---|---|
-| declared `Object(type)` | the item type as receiver, members bare — full compile-time validation (needs §5.5, or every such type flattens to `Any`) |
+| declared `Payload(type)` | the item type as receiver, members bare — full compile-time validation (needs §5.5, or every such type flattens to `Any`) |
 | declared `Tabular(header)` | `flatColumns` known; expressions validate against the header |
 | nothing declared (a directory-walk file source) | statically unknown; `KotlinSyntaxValidator` syntax-only, as today's CSV lane — until the DS6 cache is primed for explicitly-named parts |
 | `emit: units` | `payloadType = DataUnit` (needs §5.5) |
@@ -867,7 +878,7 @@ reads it.** It is a shipped-but-unconsumed authoring surface.
 That matters three ways:
 
 1. **It is the natural supply for `staticShape(role)` (§6.1).** A source declares a schema document
-   nominally and its opener answers `staticShape` from the declaration — no IO, so the payload-type walk can read it
+   nominally and answers `staticShape` from the declaration — no IO, so the payload-type walk can read it
    (O3 holds by construction), and a source whose reading is expensive still gets design-time types. This
    is the *declared* half of §6.1's resolution order, above the pre-scan.
 2. **The name collides, and the document is the one that should move.** Report's own UI labels the
@@ -967,24 +978,35 @@ OuterJob(parameters: from: String, to: String)
   sources/dated: LogicDataSource(instructions: DatedSales, arguments: [from, to])
   ReadWorker(source: dated, emit: units)                       -> unit lane
       // `from` / `to` reach the Script through DataContext.argument(name) → named host arguments — §4.4
-  RunWorker(instructions: PerDayJob)                           -> result lane (one DataRef per day)
+  RunWorker(instructions: PerDayJob,
+            arguments: {date: 'attributes["date"]'})           -> result lane (one DataRef per day)
   ResultSinkWorker(result: outputs, keep: all)
 
-PerDayJob(parameters: unit: DataUnit; results: output: DataRef)
+PerDayJob(parameters: unit: DataUnit, date: String; results: main: DataRef)
   FormulaSourceWorker(code: "unit")                            -> the unit, once   [existing worker]
   ReadPartWorker(role: main, attributes: columns)              -> item lane (with `date` stamped)
   LookupWorker  <- ReadPartWorker(role: reference)
   FilterWorker / FormulaWorker …
-  ExportWriterWorker(path: "out/${date}.csv")  -> yields DataRef
-  ResultSinkWorker(result: output)
+  ExportWriterWorker(path: "out/${date}.csv", result: main)    -> yields DataRef
 ```
 
-⚠ **The per-unit output path in that shape is not funded yet.** `CsvWriterWorker` does no substitution at
-all, and `ExportWriterWorker` resolves `${…}` through `OutputExportSpec.resolvePattern`, whose vocabulary
-is `${report}` / `${group}` / `${time}` / `${extension}` and which runs in `onStart` — before any record
-arrives. Nothing carries a unit attribute to a writer, so `${date}` needs a decided source (a named
-`RunWorker` argument bound to a child parameter, or deferred open + substitution from the first record's
-columns). See the review doc.
+The per-unit path is explicit and generic. `RunWorker.arguments` is a map from child parameter name to a
+Kotlin expression evaluated against the incoming message with the same receiver/column/Job-parameter scope
+as `FormulaWorker.payload`; the incoming boundary value still binds the child's first parameter. Here
+`attributes["date"]` binds the child's named `date` parameter. Both writers resolve non-reserved `${name}`
+placeholders from `JobControl.parameter(name)` in `onStart`, so an empty unit still creates and yields its
+file. `RunWorker` knows nothing about `DataUnit`; it only evaluates declared bindings and hosts a named
+`TupleValue`.
+
+One neutral commonMain `PathPatternSubstitution` performs `${name}` replacement. `OutputExportSpec`
+prepares its sanitized `${report}` / `${group}` / `${time}` / `${extension}` values and delegates to it;
+the writers add scalar Job parameters. Unknown placeholders fail clearly. This is one substitution grammar,
+not a second writer-specific dialect.
+
+A writer yields only after successful finalization: close/finish the buffered or compressed container,
+stat the completed path, then publish its `DataRef`. `onClose` remains an idempotent fallback for failure or
+cancellation. Yielding or fingerprinting from `SinkWorker.onComplete` before the writer is finalized would
+publish an incomplete container.
 
 `ResultSinkWorker` keeps `first|last` today; collecting *all* per-unit refs into a list result wants a
 `keep: all` mode — **O2**, a separate small change, not entangled with the model.
@@ -1138,34 +1160,37 @@ argument lives in the section named.
 | O10 | Can a source nest **inline** under `ReadWorker.source`? (§5.2) | A refinement, not a requirement — the trivial case is three cards either way. Revisit only on evidence that the section split hurts |
 | O11 | `emit: items \| units` knob vs a `Resolve` + `Read` split (§5.2) | The knob — a source worker has no incoming lane, so there is no ordering or migration-state objection |
 | O12 | Design-time resource lifetime for stateful sources (§4) | **Open, and deferred.** Run time is solved by Contexts (borrow, never own). v1 design time is request-scoped open/close inside `DesignDataContext`; the explicit `DesignSession` later — no source changes either way |
-| O13 | Argument passing into `resolve` — positional or named (§4, §4.4) | **Named**, through `DataContext.argument(name)`, and into a hosted Logic through a named `host(instructions, arguments: TupleValue)` overload |
+| O13 | Argument passing into `resolve` and hosted Logic — positional or named (§4, §4.4, §7.1) | **Named.** Sources use `DataContext.argument(name)`; `RunWorker.arguments` evaluates expressions into named child parameters beside the positional input; `LogicDataSource` reuses the named `host(instructions, arguments: TupleValue)` overload |
 | O14 | Is a **nullable structural reference** usable for `ReadWorker.source`? (§5.2) | **Open — spike it first.** Evidence says yes, but there is no shipped precedent, and a deleted target prunes the holder from `transitiveSuccessful` rather than warning. Test blank / set / cross-document / **deleted**; fallback is `by: Nominal` + a resolver |
 | O15 | Durable identity for `DataRef.source` (§3.3) | A minted `DataSourceId` on the source's notation — **when a provider-bound source needs one**. The type lands in DS1; minting, the scan and duplicate validation land with the first JDBC-style source |
 | O16 | Is the last session a Kotlin `DatedPathDataSource` or `LogicDataSource` + an example Script? (§4.4) | `LogicDataSource` — it proves the extension point instead of adding a ninth Kotlin class. Kotlin source in reserve if date iteration in a Script proves clumsy |
-| O17 | Does the `ObjectRegistry` document survive the §5.5 visibility fix? | **Open — user's call.** It loses its only consumer; keep it as a widening hatch for predicate false negatives (never for `internal` types) and empty its shipped `IntRange` entry, or retire it |
+| O17 | Does the `ObjectRegistry` document survive the §5.5 visibility fix? | **No.** No real predicate false negative exists to test; retire the document and its scan/threading with the visibility fix rather than keep an untestable hatch |
 | O18 | `DataFormat` document — rename to `DataSchema`, or delete? (§6.3, §10) | **Open — user-facing.** Rename and consume it as the declared-schema supply is the recommendation; deleting is acceptable; leaving it orphaned under a colliding name is not |
-| O19 | When does heterogeneous-schema **superset normalization** land? (§5.3, §9) | With the design-time schema work, since it needs the pre-scan. Until then `ReadWorker` fails loudly — never silently, because both `SummaryWorker` and `CsvWriterWorker` lose data quietly |
+| O19 | When and how does heterogeneous-schema **superset normalization** land? (§5.3, §9) | With the design-time schema work, since it needs the pre-scan. `schemaMode: strict \| superset` names the semantic contract; default `superset`, while `strict` deliberately rejects schema drift |
 | O20 | `DataCursor` — suspend per item, or a plain pull reader the worker drives? (§4) | **Plain pull reader.** Matches `CsvRecordReader`, keeps the handle context-free across a migrate, keeps third-party cursors trivial. Batching several `next()` per offload is a worker-side optimization if a profile asks |
 | O21 | When does the `DataSources` document land? (§6.5) | **After the arc**, when a project has sources belonging to no Job. Discovery is graph-wide from DS2, so the follow-up is additive; pickers must be graph-wide now |
 | O22 | Unit attributes onto the item lane — reader knob or downstream expression? (§3.5, §5.6) | **Reader knob `attributes: ignore \| columns`** — the reader is the only thing still holding the unit when the item is emitted |
+| O23 | How may a 1:N transform checkpoint inside one input element? (§5.4) | Through an `ExpandingTransformWorker` that owns and migrates the active input batch and element position; never by adding a mid-element cadence to the 1:1 `TransformWorker` |
 
 ## 12. Build order
 
 Sequenced so each step is independently useful and nothing is built before its consumer exists. The
 elaborations in `docs/plans/next/DS*` are the execution layer and follow this.
 
-0. **Schema vocabulary move** (mechanical). `HeaderListing` / `HeaderLabel` / `HeaderLabelMap`
-   out of Report's document package (§10). Import-only, no behaviour, and it must come **first** or the
-   model types cement the wrong import.
+0. **Data-layer package moves** (mechanical). Move `HeaderListing` / `HeaderLabel` / `HeaderLabelMap`
+   out of Report's document package and move the input plumbing listed in §10 to `server/data/`.
+   Package/import-only, no behaviour, and it must come **first**; the `FileListingAction.scanInfoBlocking`
+   extraction remains in DS2 because that is a behavioural seam for its first consumer.
 1. **Model + lowering.** The §3.2 value types in kzen-auto-common — `DataRef.source` a nullable
    `DataSourceId` that nothing mints yet (§3.3), attribute order presentation-only with a canonical digest
    (§3.5), reserved fingerprint keys (§6.2), `DataShape`, `DataResolveResult` — with `ExecutionValue`
    round-trips, wire form and digests, plus `DataLocation` ⇄ `DataRef` conversion and the construction
    helpers §4.4 needs. No worker depends on it yet; the tests are the exercise.
-1b. **Inference visibility fix** (small). Replace `visibleBuiltins` + the registry scan with the
-   public-and-nameable predicate, and `isIterable` with `isStreamType` (§5.5). A standing bug
+1b. **Inference visibility fix + registry retirement** (medium). Replace `visibleBuiltins` with the
+   public-and-nameable predicate, retire `ObjectRegistry` / `ObjectRegistryScan` and their threading, and replace
+   `isIterable` with `isStreamType` (§5.5). A standing bug
    independent of this arc — the hardcoded `IntRange` is the tell — and the prerequisite for a unit lane
-   to type as `DataUnit`. May ride inside step 1.
+   to type as `DataUnit`.
 2. **The suspend runtime: `DataSource` + `DataOpener` + `DataCursor` + `DataContext`, `FileDataSource`
    (resolve only) + the shared `FileDataOpener` + `DataOpenerLookup`**, and the generic `DataSourceActions`
    detached object for design-time resolve (§4). Wire to the existing `FileListingAction` (splitting out a
@@ -1183,17 +1208,20 @@ elaborations in `docs/plans/next/DS*` are the execution layer and follow this.
    over `DataSourceActions`; the Job `sources:` section; the graph-wide source picker with auto-bind and
    the in-card source summary (§5.2). `editor:` keys land with their registrations (§6.4). Steps 3 and 4
    are one deliverable in two sessions — neither is demonstrable alone.
-5. **`ReadPartWorker` + the 1:N transform cadence** (§5.4) — the second reader, sharing step 3's
-   drain core; `Emitter.expandCadence`; handle ownership. This is what the child-Logic idiom (§5.6b) and
+5. **`ReadPartWorker` + migration-safe 1:N execution** (§5.4) — the second reader, sharing step 3's
+   drain core; an `ExpandingTransformWorker` that carries its active input batch across migration;
+   ordered `partsOf(role)` reading; handle ownership. This is what the child-Logic idiom (§5.6b) and
    role fan-out (§5.6a) read with.
-6. **Design-time shape** (§6.1–6.2): `inspectShape` on the file opener through `DataSourceActions`
-   (`action=shape`), the schema cache as a service keyed on the stamped fingerprint (fixing
+6. **Design-time shape** (§6.1–6.2): `DataSourceActions action=shape` tries the source's static
+   declaration before bounded `inspectShape` on the file opener; the schema cache is a service keyed on the stamped fingerprint (fixing
    `ColumnListingAction`'s stale-key bug for Report too), the declared-schema supply for `staticShape`
-   (§6.3, O18), superset normalization (O19), editor dropdowns; `ReadWorker`'s `payloadFlow` reads the
+   (§6.3, O18), `schemaMode: strict | superset` normalization (O19), editor dropdowns; `ReadWorker`'s `payloadFlow` reads the
    cache for explicitly-named parts.
-7. **The writer yielding its ref** (§7) — a plain path; `ResultSinkWorker keep: all`; the resolved
-   manifest published to the trace. Same-run composition only.
-8. **`LogicDataSource` + named host arguments + the dated example** (§4.4) — the first parameterized
+7. **The writer yielding its ref + generic hosted-argument/path binding** (§7) — a plain path,
+   finalized before it is fingerprinted and yielded; `RunWorker.arguments` expressions + the named `JobControl.host`
+   overload; one shared path-substitution helper; `ResultSinkWorker keep: all`; the resolved manifest
+   published to the trace. Same-run composition only.
+8. **`LogicDataSource` + `DataContext.host` + the dated example** (§4.4) — the first parameterized
    source, the one the ETL port needs, the proof that a user can author a source, and the arc's acceptance
    fixture (the §7.1 worked shape end to end). The first *stateful* source after it is what exercises the
    Context borrow (§4) and O12.
