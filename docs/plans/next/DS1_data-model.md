@@ -2,12 +2,11 @@
 
 > **Status: ready to execute.** Session 1 of the **DS** arc (Job data sources). Rationale is
 > **[`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)**
-> (§3 value types, §3.3–3.5 decisions, §4 `DataShape`, §7.2 lowering, **§15** third-pass record) plus
+> (§3 value types, §3.3–3.5 decisions, §4 `DataShape`, §7.2 lowering) plus
 > [`../../analysis/2026-08-21_extension-points.md`](../../analysis/2026-08-21_extension-points.md);
 > decisions are pre-made there — do not re-litigate. Constituent plan: **—** (the analysis doc is the
 > permanent design record, so this file **is deleted on landing**; its as-built note goes into the
-> analysis doc **§14 As-built**). Anchors verified 2026-08-21. **Revised 2026-08-21b** by the
-> second-pass review (§13) and **2026-08-23** by the third (§15). Sized **S–M**; **kzen-auto-common
+> analysis doc **§13 As-built**). Anchors verified 2026-08-21. Sized **S–M**; **kzen-auto-common
 > only** (commonMain + commonTest), kzen-lib untouched. Ledger row 50.
 >
 > **Arc map** (one file per session, each independently useful): **DS0** schema vocabulary move →
@@ -19,13 +18,6 @@
 > complete composition and the design-time surface; DS7–DS8 are the ETL port. **DS supersedes J3**
 > (`J3_report-subsumption-a.md`): DS2's `FileDataOpener` over format plugins replaces
 > `PluginReaderWorker` (J3a) and DS6 absorbs the column pre-scan / `JobUpstreamSchema` fallback (J3b).
->
-> **What changed in the 2026-08-23 revision (§15):** `DataRef.source` stays a nullable `DataSourceId`
-> but **nothing mints one in this arc** — every v1 ref is plain (D8); `DataUnit.attributes` order is
-> **presentation-only** and the digest canonicalizes by key (C13); `DataRef.attributes` gains **reserved
-> fingerprint keys** (`size`, `modified`) a resolver stamps (D9); the model gains **`DataShape`**
-> (Tabular \| Object) and **`DataResolveResult`** (D9, D10). `DataItems` is gone (DS2's `DataCursor`
-> replaces it).
 
 ## Scope & goal
 
@@ -52,10 +44,9 @@ sealed interface DataShape { Tabular(header: HeaderListing); Object(type: TypeMe
 ```
 
 `DataRef.source` is a **`DataSourceId`** — a UUID that a *provider-bound* source (JDBC, authenticated
-API) would mint into its own notation at insert and never rewrite (analysis §3.3 **[decided
-2026-08-21b]**). It is **not** an `ObjectLocation` (not rewritten by refactors when it sits inside a
+API) would mint into its own notation at insert and never rewrite (analysis §3.3). It is **not** an `ObjectLocation` (not rewritten by refactors when it sits inside a
 value) and **not** an `ObjectStableId` (session-scoped). **This session — and this arc — mints nothing**
-(§3.3 "Deferred 2026-08-23", §15 D8): every ref a file or Logic source produces is *plain*
+(§3.3): every ref a file or Logic source produces is *plain*
 (`source == null`, id = path), and a plain ref is durable by construction. The type exists so the model
 shape is final; the minting, the id→location scan and the duplicate-id validation land with the first
 provider-bound source.
@@ -71,7 +62,7 @@ provider-bound source.
   not Report's. **Not** `objects/document/data/` or `server/objects/data/` — both are taken by the existing
   `DataFormat` document (analysis §6.3 / §10). `util/data/` keeps `DataLocation` / `DataLocationGroup` /
   `DataLocationInfo` (location arithmetic — the interop target, not the model's home).
-- **Naming is fixed** (analysis §10): `Data*`, never `Resource*`. Collision check re-run 2026-08-23:
+- **Naming is fixed** (analysis §10): `Data*`, never `Resource*`. Collision check:
   `DataRef`, `DataPart`, `DataUnit`, `DataManifest`, `DataRole`, `DataSourceId`, `DataShape`,
   `DataResolveResult`, `DataDiagnostic` are all free. ⚠ The *package* `data` is **not** free — see above.
 - **Stage new files** with `git -C ../kzen-auto add -- <path>`; never commit, never `git add -A`.
@@ -80,8 +71,7 @@ provider-bound source.
 
 - **Digest plane.** `tech.kzen.lib.common.util.digest.Digestible` / `Digest.Sink` — the precedent for a
   model value's digest is `FlatDataInfo.digest` (kzen-auto-jvm `…report/exec/input/model/data/`):
-  `sink.addDigestible(...)`, `addUtf8Nullable(...)`. **Maps are digested in sorted-key order** (2026-08-23,
-  C13) — `Map` equality is order-insensitive, so the digest must be too.
+  `sink.addDigestible(...)`, `addUtf8Nullable(...)`. **Maps are digested in sorted-key order** — `Map` equality is order-insensitive, so the digest must be too.
 - **`ExecutionValue` plane** (kzen-lib `…/exec/ExecutionValue.kt`): `MapExecutionValue`,
   `ListExecutionValue`, `TextExecutionValue`, `NullExecutionValue`; the `asCollection` / `ofCollection`
   pairs throughout (`LogicTraceSnapshot`, `LogicRunExecutionInfo`) are the shape to mirror. Lowering
@@ -120,8 +110,8 @@ provider-bound source.
    like one).
 5. **Attribute value type** — `Map<String, String>` (§3.5 **[decided]**); no typed attributes. Insertion
    order is **kept for display** (copy into a `LinkedHashMap`) but is **not semantic**: equality is
-   `Map` equality and the digest sorts keys (C13). Document both in the KDoc.
-6. **Reserved fingerprint keys on `DataRef.attributes`** (§6.2, D9) — `DataRef.sizeKey = "size"` and
+   `Map` equality and the digest sorts keys. Document both in the KDoc.
+6. **Reserved fingerprint keys on `DataRef.attributes`** (§6.2) — `DataRef.sizeKey = "size"` and
    `DataRef.modifiedKey = "modified"` (ISO-8601 text) as constants on the companion (CC-01); a resolver
    *may* stamp them, nothing requires them, and `DataRef.fingerprintOrNull()` reads them back as a
    `(size, modified)` pair or null. No dedicated field — the map is already text-canonical and digested.
@@ -195,8 +185,7 @@ and js):
    strings** (the `value class` property — assert the JSON text, not just the round-trip); `DataShape`
    sealed discriminator pinned.
 3. **`DataModelDigestTest`** — equal values ⇒ equal digests; **changing attribute *order* does NOT change
-   the digest, and two units equal under `==` digest equal** (C13 — this is the row that catches an
-   in-order digest); changing one attribute value changes it; `DataRef` with vs without `source` differ;
+   the digest, and two units equal under `==` digest equal** (the row that catches an in-order digest); changing one attribute value changes it; `DataRef` with vs without `source` differ;
    a stamped fingerprint changes the ref's digest (a changed file is a different manifest).
 4. **`DataRefLocationTest`** — `ofLocation(loc).asLocationOrNull() == loc`; a sourced ref's
    `asLocationOrNull()` is null; `id` of a plain ref equals `loc.asString()`; `fingerprintOrNull()` null
@@ -237,4 +226,4 @@ and js):
 - Notation (yaml) for the model — none is needed: values are minted by sources and carried as run
   state / wire DTOs; the only notation is the *source object's* attributes (DS2/DS4).
 - `WorkerLane` / `JobMessage` changes — none; a `DataUnit` is an ordinary payload. ⚠ It will not *type*
-  as one until **DS1b** lands (analysis §5.5a).
+  as one until **DS1b** lands (analysis §5.5).

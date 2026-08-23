@@ -2,23 +2,17 @@
 
 > **Status: ready to execute.** Session 5 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
-> **§5.3** (the 1:N gap and `ReadPartWorker`; `ExpandWorker` demoted — O1), **§5.4b** (the transform emit
-> cadence — the one expression-route cost that survives), §4.3 (self-opening refs; the child-Logic
+> **§5.4** (the 1:N gap, `ReadPartWorker`, the transform emit cadence, and why `ExpandWorker` is
+> demand-driven — O1), §4.3 (self-opening refs; the child-Logic
 > shape), §5.6 (a/b — role fan-out and the child-Logic idiom), §3.5 (attributes onto the item lane —
-> O22), **§15** (third-pass record — D7, D8, D12). Constituent plan: **—** (analysis doc is the record;
-> delete on landing, as-built → analysis **§14**). Depends on **DS1, DS1b, DS2, DS3**; independent of
-> DS4. Anchors verified 2026-08-21; **rewritten 2026-08-23** by the third-pass review (this file was
-> `DS5_expand-and-expression-scope.md`). Sized **M**; kzen-auto-jvm + yaml + ribbon entry. Ledger
+> O22). Constituent plan: **—** (analysis doc is the record;
+> delete on landing, as-built → analysis **§13**). Depends on **DS1, DS1b, DS2, DS3**; independent of
+> DS4. Anchors verified 2026-08-21. Sized **M**; kzen-auto-jvm + yaml + ribbon entry. Ledger
 > row 55. This is the **composition** reader: what the child-Logic idiom and grouped multi-role
 > pipelines read with.
 >
-> **What changed 2026-08-23 (vs the 2026-08-21b plan):** the whole expression half is **gone** —
-> objects in expression scope (`JobControl.objects()` / `obj()`, `CalculatedColumnEval.setObjects` /
-> `setDataAccess`, `JobObjectScope`), the `items()` / `DataUnit.items()` expression helpers,
-> `ExpressionDataAccess`, and the run-time `DataSourceResolver` fallback (D7). `ExpandWorker` as the
-> data bridge is gone with it; a *generic in-memory* `ExpandWorker` is **demand-driven, not built here**
-> (O1). What this session builds instead is the second data reader, **`ReadPartWorker`**, over DS3's
-> lifted `DataReadCore`, plus the cadence fix both 1:N workers need.
+> ⚠ **`ExpandWorker` is not built here.** A *generic in-memory* stream expander is demand-driven (O1);
+> nothing in this arc bridges an effectful read through an expression.
 
 ## Scope & goal
 
@@ -32,12 +26,12 @@ ReadPartWorker(input: <unit lane>, output: <item lane>, role: "main", attributes
    emit one message per item — `ofFlat` when `cursor.shape is Tabular`, else `ofPayload`;
    `attributes: columns` widens exactly as `ReadWorker` does (same helper). `payloadFlow` validates the
    input lane's `payloadType` is `DataUnit` (⚠ needs DS1b) and publishes the opener's `staticShape(role)`.
-2. **The 1:N transform emit cadence** (§5.4b) — `Emitter.expandCadence(control, onFlush)` beside
+2. **The 1:N transform emit cadence** (§5.4) — `Emitter.expandCadence(control, onFlush)` beside
    `sourceCadence`: after every `batchSize` sends *within* `onElement`, flush and `control.checkpoint()`.
    Without it a unit that expands to a million items buffers them all before one flush and the Job cannot
    pause or cancel during the expansion.
 3. **Handle ownership** — the open cursor is closed in `onClose` unless detached, and at exhaustion; the
-   drive is per-item `runBlockingIo` (DS3's core, C11).
+   drive is per-item `runBlockingIo` (DS3's core).
 4. **Migration** — `(inputElementIndex, itemIndex, open cursor)` carried; the current unit is
    re-delivered by the channel's in-flight buffer, the carried cursor continues from `itemIndex`, driven
    by the new control. Guarded on `role` / `attributes`.
@@ -63,13 +57,13 @@ After this session the child-Logic idiom (§5.6b) is expressible end to end: a c
   inside `onElement` parks with the input element consumed and part of its expansion emitted — that is
   exactly what its migration state records. Say so there.
 
-## Current-state findings (anchors verified 2026-08-21, re-checked 2026-08-23)
+## Current-state findings (anchors verified 2026-08-21)
 
 - **Transform cadence**: `TransformWorker.drive` — `control.checkpoint()` at the top of the loop, drain
   a batch, `onElement` per element, `emitter.flush()` once per *input* batch. `Emitter.send` buffers;
   `Emitter.sourceCadence(control, onFlush)` is the source-only flush+checkpoint-every-N. A 1:N
   transform emitting a million items per input element buffers them all before one flush (analysis
-  §5.4b).
+  §5.4).
 - **`TransformWorker.onElement` may call `emit.send` any number of times** — the framework permits 1:N;
   no shipped worker does it.
 - **`FormulaWorker`** — receiver = incoming payload type (`control.payloadType()`), 1:1; its own
@@ -94,7 +88,7 @@ After this session the child-Logic idiom (§5.6b) is expressible end to end: a c
 2. **Cursor scope = one unit.** The worker never holds more than the current unit's cursor; exhaustion
    closes it; the next element opens the next. Under `items`-style multi-part units (a unit with several
    parts of the *same* role) the parts are read in order, one cursor at a time, with the header-equality
-   rule of §5.2b applied across them (fail naming both).
+   rule of §5.3 applied across them (fail naming both).
 3. **Cadence** — `Emitter.expandCadence(control, batchSize, onFlush)`: a counter inside the per-item
    loop; every `batchSize` sends → `emitter.flush()` + `control.checkpoint()`. Same class as
    `sourceCadence`, one more entry point (CC-04). `TransformWorker.drive`'s own top-of-loop checkpoint
@@ -162,20 +156,21 @@ After this session the child-Logic idiom (§5.6b) is expressible end to end: a c
 2. `:kzen-auto-js:compileKotlinJs` (ribbon yaml).
 3. Editor smoke (if DS4 landed): a ReadPart card downstream of a Read(units) card shows no validation
    error; downstream of a Summary it shows the input-type error. Else record as smoke debt.
-4. As-built → analysis **§14** (note that `ExpandWorker` was not built and what would trigger it); tick
+4. As-built → analysis **§13** (note that `ExpandWorker` was not built and what would trigger it); tick
    row 55; delete this file.
 
 ## Risks & gotchas
 
 - **Do not copy the drain core.** `DataReadCore` is DS3's; a second loop here is the CC-12 violation the
   lift exists to prevent.
-- **Every cursor call inside `runBlockingIo`** — same regression as DS3 (C11); the offload counter in
+- **Every cursor call inside `runBlockingIo`** — same regression as DS3; the offload counter in
   test 1 is the net.
 - **Cadence vs `TransformWorker` invariants** — the drive-loop KDoc promise changes for 1:N workers;
   amend it, don't just violate it.
 - **Claim-before-send** on `itemIndex`; the carried cursor is live and must not be closed by the
   torn-down instance's `onClose`.
-- **Do not re-grow the expression route.** No `items()` helper "just for tests", no `JobControl.obj()`.
+- **Do not put reading into an expression.** No `items()` helper "just for tests", no object accessor
+  on `JobControl`: only a worker can own the handle, the cursor, cancellation and quiescence (§4).
   The child-Job fixture proves the boundary case without either.
 - **`DataOpenerLookup` at walk time has no ref** — Pre-resolved 6's plain-ref static accessor is the
   seam; do not resolve to get one (O3).
@@ -183,7 +178,7 @@ After this session the child-Logic idiom (§5.6b) is expressible end to end: a c
 ## Out of scope (this session)
 
 - A generic in-memory `ExpandWorker` (O1) — demand-driven.
-- Objects in expression scope, `items()` helpers, any `CalculatedColumnEval` change — withdrawn from the
-  arc (analysis §15 D7).
+- Objects in expression scope, `items()` helpers, any `CalculatedColumnEval` change — no expression ever
+  initiates source IO (analysis §4).
 - Writer yielding `DataRef`, `ResultSink keep: all` — **DS7**. `LogicDataSource` + named host arguments
   — **DS8**. `LookupWorker` / role fan-out ergonomics — demand-driven / J6.

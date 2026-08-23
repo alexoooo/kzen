@@ -3,21 +3,13 @@
 > **Status: ready to execute.** Session 6 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
 > **§6.1** (two questions, two calls, and only one of them is the walk), **§6.2** (the stamped fingerprint
-> and the cache-key bug), **§6.3** (column types and the shipped `DataFormat` document), **§5.2b + O19**
-> (heterogeneous-header superset), §4 (`DataShape`, `DataOpener`), §9 (no row preview), **§15**
-> (third-pass record — C12, D9, D10). Constituent plan: **—** (analysis doc is the record; delete on
-> landing, as-built → analysis **§14**). Depends on **DS2, DS3, DS4**. Anchors verified 2026-08-21;
-> **rewritten 2026-08-23** by the third-pass review. Sized **M–L**; kzen-auto-jvm + kzen-auto-js + yaml.
+> and the cache-key bug), **§6.3** (column types and the shipped `DataFormat` document), **§5.3 + O19**
+> (heterogeneous-header superset), §4 (`DataShape`, `DataOpener`), §9 (no row preview).
+> Constituent plan: **—** (analysis doc is the record; delete on
+> landing, as-built → analysis **§13**). Depends on **DS2, DS3, DS4**. Anchors verified 2026-08-21.
+> Sized **M–L**; kzen-auto-jvm + kzen-auto-js + yaml.
 > Ledger row 56. **Absorbs J3b** (the column pre-scan route + `JobUpstreamSchema` fallback +
 > `SortSpecEditor` dropdown) — do not execute `J3_report-subsumption-a.md` steps 2–3 separately.
->
-> **What changed 2026-08-23:** `schema()` / `itemType()` / `cachedSchema()` on the source are **gone**;
-> the calls are **`DataOpener.staticShape(role)`** (notation-only, walk-facing — no `part` exists at walk
-> time, C12) and **`suspend DataOpener.inspectShape(context, part)`** (bounded read, editor-facing), both
-> returning **`DataShape`** (`Tabular(header)` \| `Object(type)`, D9); the cache is a **service**
-> (`SchemaCache`) keyed on the **fingerprint DS2 already stamps into the ref** (`size`, `modified`), not a
-> member of the SPI; the editor reaches `inspectShape` through the generic **`DataSourceActions`**
-> (`action=shape`, D10), not a `DetachedAction` on the source.
 
 ## Scope & goal
 
@@ -71,7 +63,7 @@ null.
 - **DS3's superset deferral lands here.** Re-read `ReadWorker`'s heterogeneous-header failure and its
   KDoc reason before replacing it.
 
-## Current-state findings (anchors verified 2026-08-21, re-checked 2026-08-23)
+## Current-state findings (anchors verified 2026-08-21)
 
 - **`ColumnListingAction`** (after DS2's move, `server/data/`): `columnsCsvFilename = "columns.csv"`,
   `cachedHeaderListing(dataLocation, processorPluginCoordinate)` derives the cache path through
@@ -87,7 +79,7 @@ null.
   read against a header via `RecordHeaderIndex.indices(headerListing)`, which returns `-1` for a column
   the record lacks and `CalculatedColumnEval`'s generated `columnValue` renders `<missing>`. So the
   machinery for a normalized wide row already exists end to end.
-- **Why DS3 failed instead** (§5.2b, and the reason this session can fix it): the reader was never the
+- **Why DS3 failed instead** (§5.3, and the reason this session can fix it): the reader was never the
   problem — `SummaryWorker.ensureInitialized` fixes its column set from the **first** record's header
   and `CsvWriterWorker` writes the header from the first batch, so mixed headers lose data *silently*
   downstream. A **superset resolved up front** removes that, which is why it needs the pre-scan and
@@ -199,7 +191,7 @@ null.
    **Columns** again shows the new header (the staleness fix, visible — the fingerprint changed); a
    two-file selection with different headers runs green under `superset` and shows the union in Summary.
 3. Headless: `curl … action=shape` returns the shape JSON.
-4. As-built → analysis **§14** (including the superset cost number and O18's outcome); tick row 56;
+4. As-built → analysis **§13** (including the superset cost number and O18's outcome); tick row 56;
    mark J3 rows 1–2 superseded in the master ledger if not already; delete this file.
 
 ## Risks & gotchas
@@ -214,8 +206,8 @@ null.
 - **Size/mtime on network or virtual paths** — `BasicFileAttributes` may be unavailable at resolve; DS2's
   resolver then stamps nothing, and this session's rule is "no fingerprint → don't cache", never "cache
   without the key".
-- **Do not put caching on the SPI.** `cachedSchema` was the 2026-08-21b shape and leaked policy into
-  every opener (D9). The cache is a service the file opener *uses*.
+- **Do not put caching on the SPI.** A `cachedSchema` member would leak cache policy into every opener.
+  The cache is a service the file opener *uses*.
 - **Do not add a row preview.** It will be asked for; §9 records why it is not there, and a source whose
   items come from a pipeline cannot serve one cheaply.
 - **O18 is user-facing** — do not rename or delete a shipped document archetype without confirming.

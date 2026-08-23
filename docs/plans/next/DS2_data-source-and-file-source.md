@@ -4,25 +4,15 @@
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md) **§4**
 > (the SPI; why `resolve` / `open` are suspend and a cursor is not; the source/opener split; the generic
 > action), §3.3 (file refs are plain — `DataSourceId` deferred), §4.1 (third-party loading), §4.2 (axes),
-> §6.2 (fingerprint + cost discipline), §6.4a (where a source lives), §9 (Report parity), §10 (package
-> layering), **§15** (third-pass record — C10, C11, C15, D6, D8, D10, D11). Constituent plan: **—**
-> (analysis doc is the record; delete this file on landing, as-built note → analysis **§14**). Depends on
-> **DS0** and **DS1**. Anchors verified 2026-08-21; **rewritten 2026-08-23** by the third-pass review.
+> §6.2 (fingerprint + cost discipline), §6.5 (where a source lives), §9 (Report parity), §10 (package
+> layering). Constituent plan: **—**
+> (analysis doc is the record; delete this file on landing, as-built note → analysis **§13**). Depends on
+> **DS0** and **DS1**. Anchors verified 2026-08-21.
 > Sized **M–L**; kzen-auto-common (API) + kzen-auto-jvm (implementation, generic action, notation, one
 > package move) + fixtures. Ledger row 52.
 >
-> ⚠ **Start with the O14 spike** (below), **now including delete**. One structural decision in DS3 rests
-> on it, and it is fifteen minutes.
->
-> **What changed 2026-08-23 (vs the 2026-08-21b plan):** the SPI is **suspend** and takes a
-> `DataContext` (the non-suspend `DataScope` could not delegate to suspend `JobControl.runBlockingIo` /
-> `host` — C10); **`DataSource` = resolve only, `DataOpener` = describe + open** (D8); `DataItems:
-> Sequence` → **`DataCursor: Iterator`**, a plain pull reader the worker drives (C11, O20);
-> **`FileDataSource` mints plain refs** and a shared **`FileDataOpener`** reads them — so there is **no
-> `DataSourceId` minting, no `DataSourceResolver`, no duplicate-id validation** in this arc (D8, O15);
-> the source is **not** a `DetachedAction` — one generic **`DataSourceActions`** object is (D10);
-> `resolve` returns **`DataResolveResult(manifest, diagnostics)`** (D10); the **`DataSources` document
-> is deferred** (D11, O21).
+> ⚠ **Start with the O14 spike** (below), **including the delete case**. One structural decision in DS3
+> rests on it, and it is fifteen minutes.
 
 ## Scope & goal
 
@@ -78,18 +68,18 @@ After this session nothing user-facing changes yet.
   the `DataSource` archetype — the `ContextConventions.isContext` shape, CC-17), never by class name.
 - **File safety:** `notation/main/` is the user's — never edited. New archetypes are additive.
 
-## Current-state findings (anchors verified 2026-08-21, re-checked 2026-08-23)
+## Current-state findings (anchors verified 2026-08-21)
 
 - **`JobControl.runBlockingIo` and `JobControl.host` are both `suspend`**
   (`common/paradigm/job/control/JobControl.kt`): `suspend fun <R> runBlockingIo(block: () -> R): R`
   (offloads through `Execution.blocking` — counted by the `CountingDispatcher`, interruptible by cancel /
   migrate; its KDoc forbids a bare `withContext(Dispatchers.IO)` as "false quiescence") and
   `suspend fun host(instructions, input): TupleValue`. **This is why the SPI is suspend** — a
-  non-suspend method has no legal way to call either (C10).
+  non-suspend method has no legal way to call either.
 - **`CsvReaderWorker` / `CsvRecordReader` are the cursor precedent.** `CsvRecordReader`'s KDoc: "a plain
   pull reader the Worker drives inside `control.runBlockingIo`, one `readRecord` per blocking unit";
   `CsvReaderWorker.produce` does `control.runBlockingIo { reader.readRecord() }` per record and detaches
-  the reader across a migration. **`DataCursor` is that, generalized** (C11, O20).
+  the reader across a migration. **`DataCursor` is that, generalized** (O20).
 - **Nullable structural references are supported by kzen-lib.** `GraphCreator.constructionLevels`, on an
   empty `objectReference`, checks `reference.isNullable(objectMetadata)` and — when nullable — contributes
   no edge and records no unsatisfied reference; `GraphDefinitionAttempt` performs the same nullability
@@ -97,7 +87,7 @@ After this session nothing user-facing changes yet.
   `NotationMetadataReader` reads `nullable` from a map-shaped type notation. **No shipped precedent for
   the combination** (ports use `creator: JobChannelCreator`; `binds` / `contexts` use `by: Nominal`), and
   **a dangling hard reference (target deleted) prunes the host from `transitiveSuccessful`** rather than
-  warning (C15). Hence the spike.
+  warning. Hence the spike.
 - **The run graph already holds every object in the Job document.** `JobLogicCompiler` builds
   `synthesis.graphDefinition.filterTransitive(documentPath)`; `JobRun` calls
   `GraphCreator.createGraph(filteredDefinition, graphEnvironment)` — **the whole filtered definition**,
@@ -201,7 +191,7 @@ After this session nothing user-facing changes yet.
    renders diagnostics; the run logs them.
 6. **Units per file, not one unit with N parts.** One `DataUnit` per selected file, one part, role
    `main`, `ref = DataRef(source = null, id = path.asString(), attributes = {size, modified})` —
-   **plain**, with the fingerprint stamped from `DataLocationInfo` (§6.2, D9). `part.format` /
+   **plain**, with the fingerprint stamped from `DataLocationInfo` (§6.2). `part.format` /
    `part.encoding` = the explicit per-file pick, else the source's default, else **null** (the opener
    infers). Multi-part units come from DS8; the file source is deliberately single-role.
 7. **`FileDataOpener` — who owns it and how it is reached.** A plain jvm class
@@ -214,7 +204,7 @@ After this session nothing user-facing changes yet.
    by: NestedList`, beside `parameters:` / `workers:` — never under `workers:`, which would break
    `JobChannelDerivation`) is **the** authoring surface for this arc and is automatically in the run
    graph. Discovery is graph-wide by capability, so a source in another Job's branch is already pickable
-   (§6.4a). The `DataSources` document is **not** built (O21).
+   (§6.5). The `DataSources` document is **not** built (O21).
 9. **Caching / statelessness.** A `FileDataSource` instance is stateless; `GraphInstanceCache` reuse is
    correct. The `DataCursor` owns the file handle, never the source or the opener.
 10. **Extract the open+parse core once.** `FileDataCursor` (open + `ReportInputChain` drive + header +
@@ -254,7 +244,7 @@ the CC-21 pointer to `FlatDataSource`. KDoc on `DataOpener` / `DataCursor` per P
   `class:`, body defaults for **every** attribute (`directory: ""`, `filter: ""`, `files: []`,
   `format: ""`, `encoding: ""`, `groupPattern: ""`, `missing: "fail"` — the palette-insert gotcha),
   `meta` with `selfLocation: {is: ObjectLocation, by: Self}`. **No `editor:` keys yet** — they land in
-  DS4 with their registrations (§6.4 / C5). Also `DataSourceActions: {is: DetachedAction-style
+  DS4 with their registrations (§6.4). Also `DataSourceActions: {is: DetachedAction-style
   archetype, class: …}` — check how `FileListingAction` is declared and mirror it.
 - `common-document.yaml` `Job:` gains `meta.sources: {is: List, of: DataSource, by: NestedList}`.
 - `DataSourceConventions` (commonMain, beside the SPI): `dataSourceObjectName`, `sourcesAttributeName` /
@@ -306,7 +296,7 @@ a shared `ServerGraphDefinition` under `service/exec/` — a three-line change t
    ordered units, one part each, role `main`, `ref.source == null`, `ref.id` = path, **fingerprint keys
    stamped** and equal to the file's size/mtime; explicit `files` beats directory; **`filter` is
    contains-all-words** — `"sales csv"` matches `2026-sales.csv` and `"*.csv"` matches nothing (pin the
-   dialect, C6); `groupPattern` named captures → attributes (`(?<date>\d{4}-\d{2}-\d{2})`), single
+   dialect); `groupPattern` named captures → attributes (`(?<date>\d{4}-\d{2}-\d{2})`), single
    unnamed group → `group`; `missing: fail` throws naming the path, `missing: skip` drops the unit and
    emits one `skipped` diagnostic per unit; per-file explicit format/encoding land on the part, blank
    leaves them null.
@@ -348,7 +338,7 @@ a shared `ServerGraphDefinition` under `service/exec/` — a three-line change t
    (check the exact parameter encoding `ModelDetachedExecutor` expects for an `ObjectLocation` — the
    `SelectLogicEditor` / `RunWorker.instructions` wire form is the precedent).
 3. `:kzen-auto-js:compileKotlinJs` — the common-module package move crosses to the client.
-4. As-built note → analysis doc **§14** (include the O14 spike's three verdicts — especially **delete** —
+4. As-built note → analysis doc **§13** (include the O14 spike's three verdicts — especially **delete** —
    and the diagnostics shape); tick ledger row 52; delete this file.
 
 ## Risks & gotchas
@@ -364,10 +354,10 @@ a shared `ServerGraphDefinition` under `service/exec/` — a three-line change t
 - **Event reuse / skip semantics** — the two J3 gotchas, both still live: retaining `event.row` aliases
   every later record; forgetting `event.skip` shifts the A/B by one.
 - **Do not make the cursor suspend, and do not let it capture a context.** It is driven by whoever owns
-  it, inside *their* `runBlockingIo`. A cursor that offloads for itself is re-introducing C11 one layer
-  down; a cursor that holds a context is dead after a live-edit migrate (O20).
-- **Do not add `DetachedAction` to `FileDataSource`**, and do not give it an `id`. Both are the
-  2026-08-21b shape and both are gone for a reason (D8, D10).
+  it, inside *their* `runBlockingIo`. A cursor that offloads for itself puts the read back on the
+  engine thread one layer down; a cursor that holds a context is dead after a live-edit migrate (O20).
+- **Do not add `DetachedAction` to `FileDataSource`**, and do not give it an `id`. One generic action
+  calls every source (analysis §4), and a file ref is plain (§3.3).
 - **Do not call `FileListingAction.scanInfo` (the suspend one) from a source.** That is the uncounted
   dispatcher. Use the blocking core through `context.blocking`.
 - **Package move discipline** — Step 3 is a separate commit, import-only. Anything else in that diff is a

@@ -4,17 +4,14 @@
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
 > **§7.1** (data flows out as well as in; the worked outer/inner shape; same-run composition vs a
 > persisted result), O2 (`keep: all`), §8.1 (the resolved manifest as run record), §3.3 (a written
-> file's ref is a plain path), **§15** (third-pass record — D7, D8). Constituent plan: **—** (analysis
-> doc is the record; delete on landing, as-built → analysis **§14**). Depends on **DS1, DS3, DS5**.
-> Anchors verified 2026-08-21. **Revised 2026-08-21b** by the second-pass review (§13 C7, C9) and
-> **2026-08-23** by the third. Sized **M**; kzen-auto-jvm + yaml. Ledger row 57. This closes the
+> file's ref is a plain path). Constituent plan: **—** (analysis
+> doc is the record; delete on landing, as-built → analysis **§13**). Depends on **DS1, DS3, DS5**.
+> Anchors verified 2026-08-21. Sized **M**; kzen-auto-jvm + yaml. Ledger row 57. This closes the
 > same-run composition loop: "invoke a Job for a specific input, then take the output file".
 >
-> **What changed 2026-08-23:** the fixture's child Job reads with **`FormulaSourceWorker("unit")` →
-> `ReadPartWorker`** (no expression I/O — D7); the yielded ref is a **plain path** by construction and
-> the 2026-08-21b "durability regression" (rename-then-restart resolution via `DataSourceResolver`) is
-> **gone** — there is no resolver and nothing to resolve (D8); the session is explicitly **same-run
-> composition only** — a persisted cross-run result registry is a separate, later feature (§7.1).
+> ⚠ **Same-run composition only.** A persisted cross-run result registry is a separate, later feature
+> (§7.1), and the per-unit output path in the §7.1 worked shape needs a decided substitution source
+> before the fixture in item 4 can assert distinct files — settle it at the top of the session.
 
 ## Scope & goal
 
@@ -54,7 +51,7 @@
   place a result tuple is lowered for the wire/trace must call `asExecutionValue()` (or the value stays
   in-process only, which is fine for `RunWorker` but not for a REST read of the outer result).
 
-## Current-state findings (anchors verified 2026-08-21, re-checked 2026-08-23)
+## Current-state findings (anchors verified 2026-08-21)
 
 - **Results plumbing**: `JobControl.yieldResult(component, value)`; `JobResultCollector` gathers yields
   per run (last-write-wins) into the `TupleValue` the run returns; `ResultSinkWorker` (`keep: first|last`,
@@ -93,7 +90,7 @@
 4. **Manifest on the trace** — `ReadWorker` emits the lowered `DataManifest` once, at resolve, on its
    own node, capped to a teaser if very large (count + first N units), **full digest always**. That
    digest is `DataManifest`'s one surviving consumer: the resume guard it was originally built for was
-   retired when the reader started carrying its manifest instead of re-resolving (§8.1, C7). With the
+   retired when the reader started carrying its manifest instead of re-resolving (§8.1). With the
    stamped fingerprints the digest also records *which file contents* were read. Say so in the KDoc so
    nobody "restores" a comparison that no longer has a counterpart.
 5. **Why the ref is a plain path** — a written file is not a `DataSource`; do not mint an id for it. A
@@ -141,7 +138,7 @@
 1. `cd ../kzen-auto && ./gradlew :kzen-auto-jvm:test` — the above + `exec/job` + `objects/job` nets.
 2. Headless: run the fixture's outer Job through the logic REST route and read the result tuple back
    (JSON) — three refs (or record that the result route does not expose tuples, per test 5).
-3. As-built → analysis **§14**; tick row 57; delete this file.
+3. As-built → analysis **§13**; tick row 57; delete this file.
 
 ## Risks & gotchas
 
@@ -153,8 +150,8 @@
 - **Paths are plain refs** — do not mint a `DataSourceId` for a written file (Pre-resolved 5), and do
   not build a resolver to "find" it later.
 - **Do not restore a manifest-digest resume guard.** It has no counterpart since the reader carries its
-  manifest (C7); the digest here is a *record*, not a comparison.
-- **`DataRef` must type as `DataRef`** on the boundary check — that needs DS1b (§5.5a). If the declared-
+  manifest; the digest here is a *record*, not a comparison.
+- **`DataRef` must type as `DataRef`** on the boundary check — that needs DS1b (§5.5). If the declared-
   vs-inferred check passes suspiciously easily, confirm it is not passing because both sides are `Any`.
 - **`ofArbitrary` will not lower a `DataRef`** — a `TODO("Not supported (yet)")` from `ExecutionValue.of`
   on a result path is this gotcha surfacing; wire `asExecutionValue()` at that boundary.

@@ -2,24 +2,15 @@
 
 > **Status: ready to execute.** Session 4 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
-> **§6.4** (UI binds on the source object's attributes; the two editor mechanics), **§6.4a** (where a
-> source lives — graph-wide discovery; the `DataSources` document deferred), §5.2a (the trivial-case
+> **§6.4** (UI binds on the source object's attributes; the two editor mechanics), **§6.5** (where a
+> source lives — graph-wide discovery; the `DataSources` document deferred), §5.2 (the trivial-case
 > walk-through and the in-card source summary), §4 (the generic `DataSourceActions`), O10, O21; and
 > [`../../analysis/2026-08-21_extension-points.md`](../../analysis/2026-08-21_extension-points.md) §2.1 (generic
 > editors + detached protocol — this session is its first customer). Constituent plan: **—** (analysis
-> doc is the record; delete on landing, as-built → analysis **§14**). Depends on **DS2**; DS3 in
-> parallel is fine (the smoke needs both). Anchors verified 2026-08-21. **Revised 2026-08-21b** by the
-> second-pass review (§13 C5, C6, D3) and **2026-08-23** by the third (§15 C15, D8, D10, D11). Sized
+> doc is the record; delete on landing, as-built → analysis **§13**). Depends on **DS2**; DS3 in
+> parallel is fine (the smoke needs both). Anchors verified 2026-08-21. Sized
 > **L** with a split point (steps 1–3 / steps 4–6). kzen-auto-js + notation yaml; minimal server code.
 > Ledger row 54. **The step that makes the whole thing usable rather than expert-only.**
->
-> **What changed 2026-08-23:** **no `DataSourceId` minting** (deferred past the arc, O15 — the insert
-> command no longer upserts an `id`, and there is no duplicate-id report); Resolve goes through the
-> generic **`DataSourceActions`** object with `source=<location>`, not a `DetachedAction` on the source
-> (D10), and renders **`DataResolveResult.diagnostics`** rather than a bare skipped count; the
-> **`DataSources` document is not built** (O21) — the picker is still graph-wide, so a source in another
-> Job's `sources:` branch appears; the smoke adds **delete-the-bound-source** (C15, the O14 spike's
-> third verdict).
 
 ## Scope & goal
 
@@ -38,23 +29,22 @@
    per-file format + encoding), writing the DS2 `FileSelectionSpec` notation; bound by `editor:` on
    the `FileDataSource` archetype. The `directory` / `filter` attributes are plain text editors that the
    browser *reads* as its starting point (one source of truth — the browser does not keep its own).
-   ⚠ The `filter` field must be labelled for what it **is** (C6, below).
+   ⚠ The `filter` field must be labelled for what it **is** (below).
 4. **`SelectDataSourceEditor`** — `ReadWorker.source` picker: lists sources **graph-wide** by capability
    (`DataSourceConventions.allDataSources`), so a Job's own `sources/` objects and another Job's appear
    (grouped by document; the `DataSources` document, when it lands later, will appear through the same
    query — O21); **auto-bind** when the Job has exactly one source and the attribute is blank.
-5. **Smoke** of the trivial case end to end in a browser — the session's real deliverable. *(The
-   2026-08-21b item 5, minting `DataSourceId` on insert, is **gone** — O15 is deferred past the arc.)*
+5. **Smoke** of the trivial case end to end in a browser — the session's real deliverable.
 
 ## Dependencies & coordination
 
 - **DS2 landed**: the `FileDataSource` archetype (with `missing`, **no `id`**, and **no `editor:`
   keys**), `FileSelectionSpec` (commonMain `common/data/file/`), `sources` meta on `Job`,
   `DataSourceConventions`, the generic `DataSourceActions` detached object, and **the O14 spike's delete
-  verdict** (C15) — it decides what the Read card shows when its bound source is deleted.
+  verdict** — it decides what the Read card shows when its bound source is deleted.
   **DS3** gives the `ReadWorker` archetype; if DS3 has not landed, build the editors anyway (they are
   keyed by the `editor:` name) and smoke with DS3 later.
-- ⚠ **`editor:` keys and their registrations land together** (C5). `AttributeEditorManager` resolves
+- ⚠ **`editor:` keys and their registrations land together**. `AttributeEditorManager` resolves
   `AttributeWrapperLookup.wrapperName(…) ?: DefaultAttributeEditor.wrapperName` — the fallback fires when
   an attribute has **no `editor:` metadata**. A declared-but-unregistered name is a `find` miss and
   `render` emits the literal text `[Attribute editor not found: <name>]` with **no input**. So every
@@ -75,7 +65,7 @@
   the wrapper name once (`?: DefaultAttributeEditor.wrapperName`), then
   `props.attributeEditors.find { it.name() == editorWrapperName }`; `render` emits
   `+"[Attribute editor not found: ${state.attributeEditorName}]"` and returns when that find is null.
-  **A name miss is not a fallback** — this is C5, and it is also worth a small defensive fix (below).
+  **A name miss is not a fallback** — hence the ordering rule above, and a small defensive fix (below).
 - **`JobController`** (`…client/objects/document/job/JobController.kt`): mounts `LogicSignatureEditor`
   (parameters) and `ResultSignatureEditor` top-right; renders worker cards via `JobObjectSlot` in
   document order from `directNestedObjectPaths(main, workers)`; ribbon insert-mode inserts the
@@ -114,11 +104,11 @@
 ## Pre-resolved questions
 
 1. **Section or inline (O10)?** A **section** (`main.sources/*`), not inline nesting under the Read
-   card. **O10 was demoted 2026-08-21b** from load-bearing to a refinement: the trivial case is three
-   cards either way (analysis §5.2a), so this is no longer a compromise, it is the shape. What carries
+   card. **O10 is a refinement, not a requirement**: the trivial case is three
+   cards either way (analysis §5.2), so this is the shape rather than a compromise. What carries
    the ergonomics is item 4's auto-bind plus item 2b's in-card summary. Revisit O10 only on evidence
    that the section split actually hurts.
-   **A composite "Read File" ribbon tool inserting two objects was considered and rejected** (§5.2a):
+   **A composite "Read File" ribbon tool inserting two objects was considered and rejected** (§5.2):
    a palette entry that expands into several objects leaves the user with objects they did not knowingly
    create, and the card they clicked is not the card they must edit.
 2. **(2b) The in-card bound-source summary.** The Read card renders its bound source as a read-only
@@ -145,13 +135,13 @@
    blank, the insert command sequence also upserts `source` to that location. (Scope the auto-bind to
    the *document*, not the graph: a project with six shared sources must not silently pick one.) Also
    offered by the picker as the preselected option. Never rebinds an existing value.
-6. **No id minting.** *(Removed 2026-08-23 — O15 is deferred past the arc; file refs are plain. When a
-   provider-bound source arrives, the mint-on-insert helper described in the 2026-08-21b plan — one call
-   site, client-side UUID, never auto-remint a duplicate — is the shape to build.)*
+6. **No id minting** — file refs are plain and O15 is deferred past the arc. When a provider-bound
+   source arrives, the shape to build is one call site, a client-side UUID on insert, never an
+   auto-remint of a duplicate.
 7. **Renaming and deleting a source** — with a **structural** `source:` reference (DS3), kzen-lib's
    rename refactor rewrites it like any other reference; verify in the browser smoke. If DS2's O14 spike
    failed and DS3 fell back to `by: Nominal`, confirm `NotationReducerRefactor` handles the weak
-   reference too (the `RunWorker.instructions` rename is the precedent to test against). **Delete** (C15):
+   reference too (the `RunWorker.instructions` rename is the precedent to test against). **Delete**:
    the spike's verdict and DS3's Pre-resolved 1 decision say what happens to the Read card — the smoke
    verifies the card shows a clear "source missing" state (or degrades, if DS3 chose that) and does not
    silently vanish or throw at render. A persisted `DataRef` is unaffected either way — it is a path.
@@ -179,7 +169,7 @@ the old archetype still names `MultiFileInputEditor`, so keep a one-line alias r
 `job-js.yaml` pointing at the new wrapper). Reads `directory` / `filter` from the *object's* attributes
 (observer on the source location), writes `files` as `FileSelectionSpec.asNotation`; per-file format /
 encoding fields. **The `filter` field's placeholder/help says what it is** — "all of these words, e.g.
-`sales csv`" — and must not say "glob" or show `*.csv` (C6). `data-source-jvm.yaml` gains
+`sales csv`" — and must not say "glob" or show `*.csv`. `data-source-jvm.yaml` gains
 `meta.files: {…, editor: FileSelectionEditor}` and `meta.missing: {is: String, editor:
 SelectValuesEditor, values: {fail: "Fail if a file is missing", skip: "Skip the unit"}}` — **in the same
 change as the registrations**.
@@ -235,12 +225,11 @@ verification is the browser smoke. Still:
      the browser lists the directory; **`filter` typed as `sales csv` narrows it, and the field does not
      advertise globs**; click a CSV → `files` shows one entry; **Resolve** shows one unit, one part, the
      path, and the greyed fingerprint.
-   - The source's notation carries **no `id`** (O15 deferred — if one appears, something re-grew the
-     2026-08-21b shape).
+   - The source's notation carries **no `id`** (O15 deferred — if one appears, something minted it).
    - Ribbon **Sources → Read** → card appears with `source` **already bound** and rendered as a one-line
      summary; ribbon **Read → Summary**; Run → Summary count = line count.
    - Rename the source → the Read card's `source` follows (or record the finding, Pre-resolved 7).
-   - **Delete the source** → the Read card shows the state DS3 decided (C15) — a clear "source missing"
+   - **Delete the source** → the Read card shows the state DS3 decided — a clear "source missing"
      message, not a vanished card and not a render error; undo restores it.
    - Two sources in the document → Read's picker offers both, **no** auto-bind; a source in a *second
      Job document* also appears in the picker, grouped under that document.
@@ -251,20 +240,19 @@ verification is the browser smoke. Still:
      registration) — open one of the test fixtures, not the user's `main/`.
 3. If the session is headless, record every row above as manual smoke debt in the master plan (house
    precedent) — do not mark the row landed without it.
-4. As-built → analysis **§14**; tick row 54; delete this file.
+4. As-built → analysis **§13**; tick row 54; delete this file.
 
 ## Risks & gotchas
 
 - **Client graph boot** — every new `@Reflect` wrapper must be registered in `job-js.yaml` with the
   exact `$Wrapper` class; a typo is a blank UI, found only by the boot check. Step 6 softens this but
   does not remove it (a missing *registration* is still a missing editor).
-- **`editor:` key without its registration bricks the field** (C5) — the ordering rule above is the
+- **`editor:` key without its registration bricks the field** — the ordering rule above is the
   fix; step 6 is the belt.
 - **Do not call `DataSourceActions` on render.** Resolve is click-driven. A directory walk per
   keystroke is bad; a JDBC round-trip per keystroke is unacceptable, and the card must be written now as
   if the next source is that one.
-- **Do not mint an `id`, and do not add `DetachedAction` to the source.** Both are the 2026-08-21b shape;
-  both left for a reason (analysis §15 D8, D10).
+- **Do not mint an `id`, and do not add `DetachedAction` to the source** (analysis §3.3, §4).
 - **Observer rules** — the source card observes its own location; guard `objectLocation !in
   graphNotation.coalesce` on stale locations (a just-deleted source), the `SortSpecEditor` pattern.
 - **Do not fetch in `onCommandSuccess`** — derive, then `async { }`.

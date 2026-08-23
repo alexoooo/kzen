@@ -1,13 +1,11 @@
 # DS1b — expression type-visibility fix (`isNameable` predicate + `isStreamType`) — implementation plan
 
-> **Status: ready to execute.** Session 1b of the **DS** arc, added **2026-08-21b** by the second-pass
-> review. Rationale
-> **[`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md) §5.5a**
-> (correction C2) and **§5.4a** (O6). Constituent plan: **—** (analysis doc is the record; delete on
-> landing, as-built → analysis **§14**). Anchors verified 2026-08-21; **re-checked 2026-08-23** (third-pass
-> review, §15 — the registry's role reworded, dependencies updated). Sized **S**; kzen-auto-jvm only.
-> Ledger row 51. **May ride inside DS1** — it is separate here because it is a *standing bug*
-> independent of the arc, and worth landing on its own merits.
+> **Status: ready to execute.** Session 1b of the **DS** arc. Rationale
+> **[`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md) §5.5**
+> (the erasure bug and the `isStreamType` widening — O6). Constituent plan: **—** (analysis doc is the
+> record; delete on landing, as-built → analysis **§13**). Anchors verified 2026-08-21. Sized **S**;
+> kzen-auto-jvm only. Ledger row 51. **May ride inside DS1** — it is separate here because it is a
+> *standing bug* independent of the arc, and worth landing on its own merits.
 >
 > **The bug, in one line:** every classifier outside an eleven-entry hardcoded whitelist is erased to
 > `Any` before it reaches a lane, so a `DataUnit` on a Job channel would type as `Any` — `ReadWorker
@@ -27,15 +25,13 @@ Two changes in `ExpressionReturnTypeInference`, both general and neither data-so
 Deliberately **not** in scope: adding the DS model types to `visibleBuiltins` (hardcoding first-party
 names into a general mechanism) or declaring them in an `ObjectRegistry` document (routing first-party
 code through an unfinished third-party extension mechanism). Both were considered and rejected — see
-analysis §5.5a.
+analysis §5.5.
 
 ## Dependencies & coordination
 
 - **No prerequisite.** Independent of DS0/DS1; sequence it wherever convenient before **DS3** (which
   publishes `DataUnit` as a payload type under `emit: units`) and **DS5** (`ReadPartWorker` validates
-  that its input lane *is* `DataUnit`). *(2026-08-23: no session compiles expressions against
-  data-source types any more — the expression route is withdrawn, analysis §15 D7 — but the unit lane
-  still has to type correctly, so this stays a prerequisite.)*
+  that its input lane *is* `DataUnit`).
 - **`FormulaStepTest` is the canary** (AGENTS gotcha): it reads the compiler's inferred `KType` through
   this exact class. A regression here surfaces as a *wrong inferred type*, not a build failure.
 - **Script shares the mechanism.** `StepExpressionCompiler` uses the same probe contract, so a Script
@@ -95,8 +91,7 @@ analysis §5.5a.
 3. **Nested / inner classes.** `qualifiedName` uses `.` where the JVM uses `$`. Generation already uses
    the Kotlin form; a nested public class is nameable and should stay concrete.
 4. **`ObjectRegistry`'s fate (O17).** Keep the document, keep the parameter threading, but make the scan
-   a **widening** set — consulted only for classes the predicate rejected. **What it legitimately widens
-   (2026-08-23):** a predicate *false negative* — a class that generated code *can* import but the
+   a **widening** set — consulted only for classes the predicate rejected. **What it legitimately widens:** a predicate *false negative* — a class that generated code *can* import but the
    predicate could not prove it for (e.g. a Java class for which `KClass.visibility` reflects null). It
    does **not** make an `internal` / private class importable — generated code in another module still
    cannot name it — and the KDoc must not describe it as overriding Kotlin visibility. Empty the shipped
@@ -173,7 +168,7 @@ All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
    than widening scope.
 4. `./gradlew :kzen-auto-js:compileKotlinJs` — `TypeMetadata` crosses to the client; nothing should
    change, and the compile is the cheap proof.
-5. As-built → analysis **§14**; tick ledger row 51; delete this file.
+5. As-built → analysis **§13**; tick ledger row 51; delete this file.
 
 ## Risks & gotchas
 
@@ -194,6 +189,6 @@ All in `ExpressionReturnTypeInferenceTest` (jvm) unless noted.
 ## Out of scope (this session)
 
 - Retiring the `ObjectRegistry` document (O17) — user's call.
-- `CalculatedColumnEval` generated-class changes — none are planned in the arc any more (objects in
-  expression scope left with the third-pass review, analysis §15 D7).
+- `CalculatedColumnEval` generated-class changes — none are planned in the arc: no expression ever
+  initiates source IO (analysis §4).
 - Anything data-source-specific: this session must not mention `DataUnit` outside a test fixture.

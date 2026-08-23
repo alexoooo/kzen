@@ -1,11 +1,10 @@
 # DS0 — schema vocabulary out of Report — implementation plan
 
-> **Status: ready to execute.** Session 0 of the **DS** arc (Job data sources), added **2026-08-21b** by
-> the second-pass review. Rationale
+> **Status: ready to execute.** Session 0 of the **DS** arc (Job data sources). Rationale
 > **[`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md) §10**
-> ("Package layering — Job must stop reaching into Report") and §13. Constituent plan: **—** (the
+> ("Package layering — Job must stop reaching into Report"). Constituent plan: **—** (the
 > analysis doc is the permanent design record, so this file **is deleted on landing**; its as-built note
-> goes into the analysis doc **§14**). Anchors verified 2026-08-21. Sized **S**; **mechanical,
+> goes into the analysis doc **§13**). Anchors verified 2026-08-21. Sized **S**; **mechanical,
 > import-only, zero behaviour change**. Ledger row 49.
 >
 > **Why it goes first.** DS1 introduces `DataShape.Tabular(header: HeaderListing)` in a data-domain package that
@@ -113,7 +112,7 @@ point of the session is that they are untouched apart from imports.
 3. `./gradlew :kzen-auto-js:compileKotlinJs` and the AGENTS "client-graph boot check" — a moved class is
    not a `@Reflect` wrapper, so the client graph cannot break, but the boot check is cheap insurance
    against an unrelated stale bundle.
-4. As-built note → analysis doc **§14**; tick ledger row 49; delete this file.
+4. As-built note → analysis doc **§13**; tick ledger row 49; delete this file.
 
 ## Risks & gotchas
 

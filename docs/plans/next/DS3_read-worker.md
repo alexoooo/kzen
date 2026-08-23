@@ -2,23 +2,15 @@
 
 > **Status: ready to execute.** Session 3 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
-> **§5.2a** (the worker, the trivial-case walk-through, O11 knob, the `attributes` knob — O22), **§5.2b**
+> **§5.2** (the worker, the trivial-case walk-through, O11 knob, the `attributes` knob — O22), **§5.3**
 > (why heterogeneous schemas fail), §3.5 (unit attributes onto the item lane), §4 (suspend SPI;
-> worker-driven cursor — O20), §5.6 (whole-unit rule), §6.5 (run-graph access — D2), §8.1–8.2
-> (resolve-once manifest + positional cursor), **§15** (third-pass record — C10, C11, C12, C15, D6, D12).
-> Constituent plan: **—** (analysis doc is the record; delete on landing, as-built → analysis **§14**).
-> Depends on **DS1, DS2**; **DS1b** should have landed (see below). Anchors verified 2026-08-21;
-> **rewritten 2026-08-23** by the third-pass review. Sized **M–L**; kzen-auto-jvm + two yaml files + one
+> worker-driven cursor — O20), §5.6 (whole-unit rule), §8.1–8.2
+> (resolve-once manifest + positional cursor).
+> Constituent plan: **—** (analysis doc is the record; delete on landing, as-built → analysis **§13**).
+> Depends on **DS1, DS2**; **DS1b** should have landed (see below). Anchors verified 2026-08-21.
+> Sized **M–L**; kzen-auto-jvm + two yaml files + one
 > JS ribbon entry; no client editor work (DS4). Ledger row 53. **This plus DS4 is what makes "count the
 > lines of one file" three cards and no code.**
->
-> **What changed 2026-08-23:** the worker drives a **`DataCursor`** one `next()` per
-> `control.runBlockingIo` (the `CsvReaderWorker` precedent — not "plain iteration over a `Sequence`",
-> C11); the run-time **`WorkerDataContext`** is suspend-capable and wraps `control.runBlockingIo` /
-> `control.host` directly (the 2026-08-21b non-suspend `WorkerDataScope` could not, C10); parts open
-> through **`DataOpenerLookup`**, not through the source (D8); `payloadFlow` reads **`staticShape(role)`**
-> (no `part` exists at walk time, C12); new **`attributes: ignore | columns`** knob — the `groupBy`
-> parity path (D12, O22); the O14 spike's **delete** verdict decides the blank/dangling behaviour (C15).
 
 ## Scope & goal
 
@@ -57,14 +49,14 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
   O14 spike's three verdicts**, which decide this session's `source:` attribute kind **and** its
   dangling-reference behaviour. Re-verify those names before editing.
 - **DS1b should have landed.** Without it `emit: units` publishes `payloadType = Any` instead of
-  `DataUnit` (analysis §5.5a): the card display and every downstream expression are wrong, though
+  `DataUnit` (analysis §5.5): the card display and every downstream expression are wrong, though
   nothing fails loudly. If DS1b has not landed, land it first or record the wrong-type display as known
   and re-test after.
 - **DS4 (editing surface) is independent** and may run in parallel, but neither is demonstrable alone:
   together they are the trivial case. ⚠ **Do not declare `editor: SelectDataSourceEditor` in this
   session's notation.** `AttributeEditorManager` falls back to `DefaultAttributeEditor` only when an
   attribute has **no `editor:` metadata**; a declared-but-unregistered name renders the literal
-  `[Attribute editor not found: …]` with no input (C5). Ship `source:` with no `editor:` key — it then
+  `[Attribute editor not found: …]` with no input. Ship `source:` with no `editor:` key — it then
   gets the default text editor, which is enough for tests and the headless smoke — and let DS4 add the
   key alongside its `@Reflect` registration.
 - **DS5 (`ReadPartWorker`) shares this session's drain core** — write it as a lifted helper from the
@@ -81,7 +73,7 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
   concern; J9's writer/pivot/explore carry is unaffected. Note it in the as-built.
 - **File safety:** never edit `notation/main/`. Archetype changes additive.
 
-## Current-state findings (anchors verified 2026-08-21, re-checked 2026-08-23)
+## Current-state findings (anchors verified 2026-08-21)
 
 - **Worker framework** (`…server/objects/job/worker/`): `SourceWorker(output, selfLocation)` with
   `suspend produce(emit, control)`; the framework owns end-of-stream, batching, the per-batch checkpoint
@@ -90,7 +82,7 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
 - **`JobControl.runBlockingIo(block: () -> R)` and `JobControl.host(…)` are both `suspend`**
   (`common/paradigm/job/control/JobControl.kt`); `runBlockingIo` offloads through `Execution.blocking` —
   counted by the `CountingDispatcher`, interruptible by cancel / migrate. **`WorkerDataContext.blocking`
-  / `.host` are suspend and delegate directly** — that is the whole reason the SPI is suspend (C10).
+  / `.host` are suspend and delegate directly** — that is the whole reason the SPI is suspend.
 - **The cursor precedent is `CsvReaderWorker` + `CsvRecordReader`**: `produce` does
   `control.runBlockingIo { reader.readRecord() }` **per record**; `ReaderState` holds the open reader;
   `captureMigrationState` **detaches** it (`detached = true` so `onClose` skips closing) and hands it to
@@ -102,12 +94,12 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
   `GraphCreator.createGraph(filteredDefinition, graphEnvironment)` over
   `filterTransitive(documentPath)` — the whole filtered definition — so a source referenced structurally
   is instantiated once, in the run's own graph, and injected by kzen-lib. **No resolver on the run path**
-  (analysis §6.5 / D2).
+  (analysis §5.2).
 - **Flat vs payload messages**: `JobMessage.ofFlat(header: HeaderListing, record: FlatFileRecord)` /
   `ofPayload(Any?)`; `WorkerLane(payloadType: TypeMetadata?, flatColumns: HeaderListing?)` — null
   flatColumns = statically unknown; `WorkerLaneAttempt(lane, error)`.
 - **Downstream workers fix their schema on first sight** — this is *why* heterogeneous headers fail
-  (§5.2b): `SummaryWorker.ensureInitialized` sets its column set from the **first** record's header and
+  (§5.3): `SummaryWorker.ensureInitialized` sets its column set from the **first** record's header and
   maps later records on by name (a column first appearing in unit 2 is silently dropped);
   `CsvWriterWorker` writes the header from the first batch and then writes each record's fields (a wider
   later record makes ragged rows). Put that reason in the KDoc — the next reader will otherwise "fix"
@@ -120,7 +112,7 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
   editor: SelectLogicEditor, summary: ReferenceLinkAttributeView` (a *value*); `ContextBinder.binds` —
   `is: ObjectLocation, nullable: true, by: Nominal`. A **nullable structural** reference
   (`is: DataSource, nullable: true`, no `by:`) has no shipped precedent — DS2's spike is what licenses it,
-  and its **delete** verdict (C15) is what decides the dangling case.
+  and its **delete** verdict is what decides the dangling case.
 - **Ribbon**: `notation/auto-js/document/job-js.yaml` — `JobGroup_Sources` with `CsvReaderTool` /
   `FormulaSourceTool` / `MultiFileReaderTool` (`is: RibbonTool, parent:, delegate: <Worker>`).
 - **Tests**: `FormulaSourceWorkerTest` (direct-instantiation harness: `KzenAutoContext.forTest()`,
@@ -158,7 +150,7 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
    Built once in `produce`, passed to `resolve` and every `open`. **Never handed to a cursor.**
 6. **The drain loop** — `while (control.runBlockingIo { cursor.hasNext() }) { val item =
    control.runBlockingIo { cursor.next() }; claim itemIndex; emit }` — or one offload per
-   `hasNext+next` pair; either way **every cursor call is inside `runBlockingIo`** (C11). The source
+   `hasNext+next` pair; either way **every cursor call is inside `runBlockingIo`**. The source
    cadence checkpoints per batch as today. (A future batch-per-offload optimization is a worker-side
    change; note the seam in KDoc.)
 7. **Cursor guard** — `ReadCursor(sourceDefinitionDigest, emit, role, attributes, manifest, unitIndex,
@@ -167,13 +159,13 @@ ReadWorker(source: <DataSource, nullable structural ref>, emit: items | units, r
    open `DataCursor` (claim-before-send on `itemIndex` as `FormulaSourceWorker` does), driven by the
    **new** control. Otherwise restart. Document in KDoc that a changed source *config* restarts even if
    the directory contents are the same — the honest guard is the definition digest, not the filesystem —
-   and that the manifest is carried precisely so a changed directory cannot corrupt a resume (C7, §8.1).
+   and that the manifest is carried precisely so a changed directory cannot corrupt a resume (§8.1).
 8. **Where the definition digest comes from.** `GraphInstanceCache.cacheKey(definition, location)`
    computes exactly the right thing (closure digest + inheritance-chain digests). Make that helper
    internal-visible and reuse it rather than duplicating (CC-12); it is a pure function of the
    definition, so it does no IO and is safe at capture time.
 9. **`emit: items` header handling** — take `cursor.shape` per part; if a later part's `Tabular` header
-   differs from the first, **fail** naming both headers and the unit (§5.2b) rather than re-synthesize.
+   differs from the first, **fail** naming both headers and the unit (§5.3) rather than re-synthesize.
    A mix of `Tabular` and `Object` shapes, or of `Object` types, across parts → fail the same way.
    `MultiFileReaderWorker`'s per-file header-skip semantics are the opener's concern (`FileDataOpener`
    honours the definer's skip). DS6 replaces the failure with superset normalization (O19).
@@ -221,10 +213,9 @@ columns"}}`, `selfLocation`. `job-js.yaml`: `ReadTool` in `JobGroup_Sources`; de
    `FileDataSource` (constructed directly, as `FileDataSourceTest` does), the real `FileDataOpener` via a
    test `DataOpenerLookup`, and a capturing control that **counts `runBlockingIo` calls**:
    **A/B vs `CsvReaderWorker`** over the RFC-4180 edge-case CSV — identical `record.toList()` streams and
-   equal `HeaderListing` on every message, **and at least one `runBlockingIo` per record** (C11 — this
-   is the row that catches a plain-iteration regression); **A/B vs `MultiFileReaderWorker`** over two
+   equal `HeaderListing` on every message, **and at least one `runBlockingIo` per record** (the row that catches a plain-iteration regression); **A/B vs `MultiFileReaderWorker`** over two
    headered CSVs with the **same** header — same concatenation order, header-skip agreement; two CSVs
-   with **different** headers → fails naming both (the deliberate divergence, §5.2b); `emit: units` over
+   with **different** headers → fails naming both (the deliberate divergence, §5.3); `emit: units` over
    three files → three `DataUnit` payloads in path order with `ref.id` = path; `role` pins a role on a
    two-role unit (hand-built `DataSource` + `DataOpener` fakes); blank `role` on a two-role unit under
    `items` fails naming both roles; **`attributes: columns`** over a `groupPattern` source → each record
@@ -244,7 +235,8 @@ columns"}}`, `selfLocation`. `job-js.yaml`: `ReadTool` in `JobGroup_Sources`; de
    `sources/` branch coexists with channel synthesis.** Note the contrast with DS2's detached test:
    `ModelDetachedExecutor` cannot see `test/` notation, but the **run** path can, because `JobRun`
    instantiates the run's own filtered definition rather than the `serverAllowed` subset — which is
-   exactly D2's point, and this fixture is where it is visible.
+   exactly why the run graph, not `GraphInstanceCache`, is the run-time source of truth (analysis §5.2),
+   and this fixture is where it is visible.
 3. **`JobValidatorTest`** addition — a `ReadWorker(emit: units)` lane infers `DataUnit` (⚠ requires
    **DS1b**; without it this asserts `Any` and the test is the tell); `items` lane is unknown-columns, no
    error; a blank `source` yields `WorkerLane.unknown` **plus a validation message** ("no data source
@@ -263,13 +255,13 @@ columns"}}`, `selfLocation`. `job-js.yaml`: `ReadTool` in `JobGroup_Sources`; de
    as-built — they are DS4's smoke baseline.
 3. Report suites green; `FormulaSourceWorkerTest` / `MultiFileReaderWorkerTest` untouched and green
    (the old readers are not deleted).
-4. As-built → analysis **§14** (include the Pre-resolved 1 delete decision); tick row 53; delete this
+4. As-built → analysis **§13** (include the Pre-resolved 1 delete decision); tick row 53; delete this
    file.
 
 ## Risks & gotchas
 
 - **Every cursor call inside `runBlockingIo`.** The one regression the A/B's offload counter exists to
-  catch (C11). "It's only `hasNext()`" is how it creeps back.
+  catch. "It's only `hasNext()`" is how it creeps back.
 - **Never hand the context to the cursor.** The carried cursor is driven by the *resumed* worker's
   control; a captured context would be the torn-down one (O20).
 - **Claim-before-send** — `itemIndex` must advance *before* `emit.send` (the parked-mid-flush buffer rule
@@ -285,7 +277,7 @@ columns"}}`, `selfLocation`. `job-js.yaml`: `ReadTool` in `JobGroup_Sources`; de
   `WorkerLane.unknown` + the same message so the card shows it before a run. ⚠ Also remember
   `GraphCreator.createGraph` throws on *any* creation failure in the document — a blank source must never
   be a failure.
-- **No `editor:` key this session** (C5). It is one line and it would brick the field.
+- **No `editor:` key this session**. It is one line and it would brick the field.
 - **Progress map opacity** — keys are plain strings; the client mirror (`JobWorkerProgress`) must not
   learn them (CC-17).
 - **Lift the core now.** DS5's `ReadPartWorker` is the second customer; if the drain loop is inline in

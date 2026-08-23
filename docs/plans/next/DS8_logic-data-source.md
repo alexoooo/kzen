@@ -2,23 +2,14 @@
 
 > **Status: ready to execute.** Session 8 of the **DS** arc; rationale
 > [`../../analysis/2026-08-20_job-data-source.md`](../../analysis/2026-08-20_job-data-source.md)
-> **§4.4** (authoring a source without Kotlin — D5, now resolve-only), §4 (`DataContext.host` with named
+> **§4.4** (authoring a source without Kotlin — resolve-only), §4 (`DataContext.host` with named
 > arguments — O13), §1 (parameterized resolution, multi-part units), §3.4 (flat list of self-describing
 > units), §4.2–4.3 (source/format axes; self-opening plain refs), §5.6 (child Logic per unit), §8.1
-> (resolve once), O16, **§15** (third-pass record — C14, D7, D8). Constituent plan: **—** (analysis doc
-> is the record; delete on landing, as-built → analysis **§14**). Depends on **DS2, DS3, DS5** (DS7 for
-> the full ETL round-trip). Anchors verified 2026-08-21. **Reframed 2026-08-21b** by the second-pass
-> review (from a hand-written Kotlin `DatedPathDataSource`) and **revised 2026-08-23** by the third.
+> (resolve once), O16. Constituent plan: **—** (analysis doc
+> is the record; delete on landing, as-built → analysis **§13**). Depends on **DS2, DS3, DS5** (DS7 for
+> the full ETL round-trip). Anchors verified 2026-08-21.
 > Sized **M**; kzen-auto-jvm + one common `JobControl` overload + yaml + one notation example. Ledger
 > row 58. **Closes the arc.**
->
-> **What changed 2026-08-23:** `LogicDataSource` implements **only `DataSource`** — it mints plain refs
-> and the shared `FileDataOpener` reads them; there is no `items` / `schema` on it (D8). Arguments reach
-> the Script through a **named `JobControl.host(instructions, arguments: TupleValue)` overload**
-> surfaced as `DataContext.host` — the 2026-08-21b "one `Map` as the first positional argument" did not
-> match its own example Script, which declared two parameters (C14, O13). The child Job in the fixture
-> reads with `FormulaSourceWorker("unit")` → `ReadPartWorker` per role (D7). The A/B "same source via
-> `ReadWorker` and via `FormulaSourceWorker("dated.units()")`" is gone with the expression route.
 
 ## Scope & goal
 
@@ -62,7 +53,7 @@ LogicDataSource(
 - **Reference data as a lookup** (§5.7 `LookupWorker`) is *not* built; the `reference` role is read by a
   second `ReadPartWorker` inside the child Job in the fixture — the idiom the docs teach (§5.6 b).
 
-## Current-state findings (anchors verified 2026-08-21, re-checked 2026-08-23)
+## Current-state findings (anchors verified 2026-08-21)
 
 - **`JobControl.host(instructions: ObjectLocation, input: Any?): TupleValue`** is `suspend` and binds
   `input` as the child's **first declared parameter**; `EngineJobControl.host` already builds the
@@ -113,7 +104,7 @@ LogicDataSource(
    `arguments: List<String>`; `resolve` builds `TupleValue(arguments.map { TupleComponentValue(it,
    context.argument(it)) })` and calls `context.host(instructions, tuple)`. The Script declares parameters
    with those **same names** (`from`, `to` in the example) — one convention, no map, no positional
-   special case (C14). A declared argument the Script does not declare, or vice versa, is a clear run
+   special case. A declared argument the Script does not declare, or vice versa, is a clear run
    failure naming both lists (CC-08).
 3. **Return contract.** `mainComponentValue()` must be a `List<DataUnit>` (or an `Iterable` of them);
    anything else fails with a message naming the actual type and the expected one (CC-08). A null or
@@ -130,7 +121,7 @@ LogicDataSource(
    arbitrary code, and a knob that only sometimes applies is worse than none.
 6. **Fallback: a Kotlin `DatedPathDataSource`** (O16). If Pre-resolved 1's expression cannot be made to
    work in a session, ship the Kotlin source instead — `pattern` / `parts` / `from` / `to` / `step` /
-   `missing` as the previous draft specified (resolve-only, plain refs) — and record `LogicDataSource`
+   `missing` (resolve-only, plain refs) — and record `LogicDataSource`
    as the remainder. That is a worse outcome (a ninth class, and the extension point unproven), so spend
    the session's risk budget on the gate first.
 7. **Does a written output become readable?** Out of scope. A `LogicDataSource` whose logic returns refs
@@ -154,8 +145,8 @@ LogicDataSource(
    ReferenceLinkAttributeView}` (the `RunWorker.instructions` shape verbatim), `arguments: []`, plus the
    declared-schema attribute DS6 added to every source. `resolve` per Pre-resolved 2–3.
 5. **Notation + ribbon**: the archetype in `data-source-jvm.yaml` (body defaults for every attribute);
-   a `LogicDataSourceTool` in `JobGroup_Data`; the `editor:` key and its registration together (C5 —
-   `SelectLogicEditor` already exists and is registered, so this one is free).
+   a `LogicDataSourceTool` in `JobGroup_Data`; the `editor:` key and its registration together (`SelectLogicEditor` already exists and is
+   registered, so this one is free).
 6. **The shipped example**: a `Dated Sales` Script under the test notation, and — **only if the user
    wants it discoverable** — as a project archetype candidate. Ship it as a *fixture* by default; a
    shipped user-visible example is a separate call.
@@ -194,18 +185,18 @@ LogicDataSource(
    **Resolve** shows the "requires a run" message (the honest one, not an error); a `Read (units)` →
    `Run` (child Job) → Summary of the child's output over a 3-day window; then edit one line of the
    Script and re-run to show that a source is now *authored*, not compiled.
-3. As-built → analysis **§14**, including: the Pre-resolved 1 gate's outcome, whether the shipped
+3. As-built → analysis **§13**, including: the Pre-resolved 1 gate's outcome, whether the shipped
    example became user-visible, and the O12 note (this source holds no connection, so the
    `DesignSession` question stays open for the first JDBC/API source).
    **Close the arc:** analysis §12's build order gets its as-built ticks and the doc's status line
-   changes from "design exploration" to "landed — see §14".
+   changes from "design exploration" to "landed — see §13".
 
 ## Risks & gotchas
 
 - **The gate is real.** Pre-resolved 1 is the difference between "a user can author a source" and "we
   shipped one more class". Do it first, and let it decide the session.
-- **Named, not positional, not a map.** The 2026-08-21b plan's "document both forms" was the
-  inconsistency C14 caught; one convention — names — and the Script declares the same names.
+- **Named, not positional, not a map.** One convention — names — and the Script declares the same
+  names. Do not "also support" a positional map: two call shapes is how the mismatch starts.
 - **No design-time resolve** — and no hidden run behind the card. The card's message is the feature.
 - **Timezone** — dates are calendar dates (`LocalDate`), never instants; no zone logic anywhere, in the
   source, the example, or the fixture.
