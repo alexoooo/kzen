@@ -14,7 +14,7 @@
 > flavour). This plan deliberately does **not** duplicate their items.
 >
 > **Progress tracker** (update as phases land):
-> - [ ] Phase 3 — Report subsumption A: pluggable input formats + design-time services
+> - [x] Phase 3 — Report subsumption A: **superseded and delivered by DS2/DS3/DS6 (2026-08-24)**
 > - [ ] Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path
 > - [ ] Phase 5 — performance + headless readiness (benchmark-first) — **includes the element
 >   model's phase 4 reuse gate**
@@ -154,7 +154,7 @@ through a Job (manual); Report's own paths untouched (its suites green).
 ## Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path
 
 **Goal.** Close the output-side gaps and write down the Report retirement sequence. Depends on phase
-3 (the parity checklist references its outcomes).
+3 (the parity checklist references its outcomes) and DS7's single-container writer-result contract.
 
 **Design decisions.**
 - **Grouped export, the Job way.** Report groups by filename regex (`GroupPattern`); a Job stream is
@@ -162,7 +162,10 @@ through a Job (manual); Report's own paths untouched (its suites green).
   `groupBy: <column>` to `ExportWriterWorker`: on group-value change (or per distinct value), resolve
   `${group}` in the path pattern and open the next container — reusing `ExportFormatter.onNewGroup` /
   `CompressedExportWriter.openNextGroup` semantics through the shared seam (`ExportWriterWorker`
-  currently pins `DataLocationGroup.empty`). For Report-style per-file grouping,
+  currently pins `DataLocationGroup.empty`). DS7 supplies the capability-driven `ResultYielder` and
+  the finalized single-container `DataRef`; J4 extends that contract so a yielding grouped writer
+  returns one ordered `DataUnit`, with group attributes on the unit and one `main` part per finalized
+  container. For Report-style per-file grouping,
   `MultiFileReaderWorker` optionally stamps a group column from a capture pattern over the source
   filename — **composition instead of a baked-in pipeline mode.**
 - **Summary persists like Explore.** `SummaryWorker` gains the persistent notation-keyed `outputDir`
@@ -190,7 +193,7 @@ through a Job (manual); Report's own paths untouched (its suites green).
   subsumed-by-composition: wire an Explore before the filter.
 
 **Steps.** (1) `groupBy` on `ExportWriterWorker` + tests (byte-identical A/B vs Report grouped export
-over the same pre-grouped data). (2) Summary persistence + offline REST + editor fallback — order
+over the same pre-grouped data, plus the ordered yielded `DataUnit`). (2) Summary persistence + offline REST + editor fallback — order
 after phase 3's schema fallback, since summary-offline beats pre-scan when present. (3) Explore
 offline slice REST + card fallback + persisted-count gate; extend `ExploreWorkerTest` (post-settle
 slice equals a direct offline preview; gate visible with no trace). (4) Write the parity checklist

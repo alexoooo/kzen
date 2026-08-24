@@ -154,6 +154,6 @@ enforces, so a source is written once and works in both.
 | # | Item | Recommendation |
 |---|---|---|
 | E1 | `GlobalMirror` needs an `unregister` (or replace-by-key) for reload | Add it with the loader; keyed by plugin id |
-| E2 | The exact detached protocol vocabulary for §2.1 (`options` / `browse` / `preview` / `validate`) | Start from what the file browser and the data-source card already need; grow by customer, not upfront |
+| E2 | The exact detached protocol vocabulary for §2.1 (`options` / `browse` / `preview` / `validate`) | Start from what the file browser and current attribute editors already need; grow by customer, not upfront |
 | E3 | Host ↔ Web Component contract (properties in, `commit` event out, theme tokens) | Design once with §2.1's generic editors as the first *internal* customer, so first- and third-party editors speak the same contract |
 | E4 | `DesignSession` — when | **Downgraded 2026-08-21b.** Not a gate on anything: run-time lifetime is solved by Contexts, and the design-time owner is behind one seam (`DataScope.contextValue`). Request-scoped open/close until a real stateful source makes the slowness hurt |

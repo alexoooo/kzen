@@ -6,8 +6,9 @@
 > so they are one arc, not two plans. Executor: **Opus-class, one phase per session**, except E1,
 > which **needs the user** — it is a decision session, not a build session.
 >
-> **E1 gates E2–E6.** Phases E2–E6 below carry the analysis's recommendations as their working
-> design; each is marked *provisional until E1 ratifies*. Do not start E2 before E1.
+> **E1 gates E2–E5.** Those phases carry the analysis's recommendations as their working design and
+> remain provisional until E1 ratifies. E6 was independently absorbed by DS6 once its real consumer
+> arrived; do not start E2 before E1.
 >
 > **Progress tracker** (update as phases land):
 > - [ ] E1 — ratification: D1–D6 + gate R5-G (**decision session; needs the user**)
@@ -15,7 +16,7 @@
 > - [ ] E3 — plugin UX: isolation (D2), JAR upload (D3), listing from repository cache, per-definer diagnostics
 > - [ ] E4 — Custom power: prototype metadata (C4), per-tag affordance registry (C6), run-result persistence (D6), the C7 document-rename gap
 > - [ ] E5 — ObjectRegistry disposition (D4)
-> - [ ] E6 — DataFormat gate (D5) + record D7's reopening trigger
+> - [x] E6 — DataSchema gate (D5) — **absorbed by DS6 on 2026-08-24; real consumer landed**
 > - [x] **R6 — client-plugin verdict: CLOSED, no session required.** A separately-compiled Kotlin/JS
 >   bundle does not share class identity with the host bundle (two copies of kzen-lib-common ⇒
 >   `instanceof`, sealed hierarchies and registry-typed lookups all fail), so "load another bundle
@@ -183,13 +184,13 @@ accordingly, and delete the redundant bundled `IntRange` registration either way
 
 ---
 
-## Phase E6 — DataFormat gate (D5)
+## Phase E6 — DataSchema gate (D5) — absorbed by DS6 (2026-08-24)
 
-*Provisional until E1.* Likely docs-only: park/retire `DataFormat` and **record the reopening
-trigger** (a real consumer for field/type schemas) in `kzen-auto/docs/architecture.md`. Record D7's
-reopening prerequisites in the same pass.
-
-**Verification:** docs consistent; if retired, no dangling notation or UI entry points.
+The reopening trigger arrived before E1: DS6 supplied the first real field/type-schema consumer.
+`DataFormat` was renamed to `DataSchema` and is now the nullable strong structural declaration read by
+`FileDataSource.staticShape`; its `TypeMetadata` survives for later typed-lane work. DS6's source/schema
+closure tests, full JVM/JS gate and browser acceptance satisfy this phase, so no separate E6 execution
+remains. D7 stays parked under the existing R6 verdict.
 
 ---
 
@@ -202,7 +203,7 @@ reopening prerequisites in the same pass.
 | E3 — plugin UX | kzen-auto (jvm + js) | M | medium | E1, E2 |
 | E4 — Custom power + C7 | kzen-lib + kzen-auto | M | low-medium | E1 (D6 only); C7 independent |
 | E5 — registry disposition | kzen-auto | S | low | E1, E2 |
-| E6 — DataFormat gate | docs | XS | none | E1 |
+| E6 — DataSchema gate | absorbed by DS6 | complete | none | DS6 |
 
 **E1 → E2 → E3/E5** is the spine. **E4's C7 half is independent of everything** — it can run any
 time, including before E1, and is the highest-value single item outside the spine.
