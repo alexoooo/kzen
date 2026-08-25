@@ -1451,6 +1451,72 @@ full path and the per-file format / encoding overrides that are what make a row 
 companion function: checked entries travel as a block, and an entry already against the edge it is moving towards
 holds back the rest of its run, so a multi-row move cannot scramble itself against the boundary.
 
+**Follow-up (2026-08-24): four things the first real use of the card found.** Running a Job against it surfaced
+one genuine data-layer regression and three interface faults, fixed together.
+
+The regression: selecting a file whose extension no reader claims — a `.md` — failed the run outright, because
+`FileDataOpener.inferCoordinate` had re-implemented extension matching locally and dropped the fallback the shared
+`ReportDefinitionRepository.find` has always applied (prefer an extension match, else the highest-priority
+non-avoid definition, i.e. Text). A Report reading the same file simply read it as text. `inferCoordinate` now
+delegates to that shared resolution, so an unclaimed extension reads as one Text column and the row's **Format**
+under Details is right there to override; the remaining throw names the registered extensions. DS3's "fail loudly"
+principle is untouched — this was never schema variation, only a missing default.
+
+The failure was also *unreadable*. `Outcome.Failed.message` already travelled the whole way
+(`OutcomeTrace` → `RunEngineLogicTrace` → `JobProgressStore` → `WorkerOutcome.message`) but was rendered only as
+the chip's raw `title` attribute, so every run failure read as a bare red badge; and `RunEngine` stringified the
+throwable without ever logging it, so `run.log` held nothing either. The Worker card now renders the reason under
+its header — the Script step card's long-standing `renderError`, which Workers never got — and the engine logs the
+throwable before discarding it (the one kzen-lib change).
+
+The **Browser** toggle moved into the card's title bar, where Report has always kept it. That crosses a real seam:
+the toggle's openness lives in an attribute editor mounted generically through `AttributeEditorManager`, whose
+props contract is deliberately fixed at `{objectLocation, attributeName}`. Rather than widen that contract for one
+Worker, the two ends meet through a `DocumentBridge` channel (`FileBrowserToggleChannel`) — the seam that exists
+for exactly this — with `WorkerDisplayDefault` gaining a generic `headerRight` slot beside `bodyBefore`/`bodyExtra`.
+A header claims a card by hosting it; an unclaimed card (a plain `FileDataSource`, the legacy `paths` attribute)
+keeps drawing its own toggle unchanged.
+
+Two spacing repairs completed it: the Advanced field stack was using the label-to-field margin between whole
+fields, so adjacent outlined legends collided (restored to `ScriptStepDisplayDefault`'s value); and the stage's
+top-right float stack (Parameters / Result / Channel defaults) reserved no horizontal space, so below ~1400px it
+sat *on* the first card and, being the only thing there with a z-index, swallowed that card's clicks — including
+its own Delete. `StageFloatStack` now also owns the width it claims, applied to the Job stage as padding. Because
+an absolutely positioned element resolves against its ancestor's padding box, this moves the stack not at all and
+merely stops the content growing underneath it.
+
+**Follow-up (2026-08-25): the card said less, and its two hardest fields became selectable.** A second pass over
+the same card removed three things that were only taking up room. The selection editor's `Files` caption repeated
+the heading of the card it fills, and is gone; the card header's `—` status placeholder, shown by every Worker
+before its first run, is now simply absent (a dash beside a name reads as part of the name until the eye rules it
+out); and the browser's "matches names containing all of these words" line became the search field's own
+placeholder and hover, so the hint appears exactly while the field is empty and costs no line.
+
+The substantive half: **Format** and **Encoding** were free-text on both the Worker (its defaults, under Advanced)
+and each selected file (its overrides, under Details), which asked the user to know a plugin coordinate or a
+charset name by heart and turned a typo into a failed run with no hint of the spelling that would have worked.
+Both are now selects, fed by a new `fileFormats` action on `DataSourceActions`. It answers *before* a source is
+resolved — the catalogue describes the server's installed definitions, not one configured source, so it stays
+available on a source that cannot currently be instantiated, which is exactly when someone is in its editor. The
+formats are scoped to the payload type `FileDataOpener` resolves among, so what can be chosen and what can be read
+cannot drift apart; the encodings are every charset this JVM installs, ordered by how often a real input file turns
+out to be in one. `DataFormatStore` fetches it once per mounted document through the `DocumentBridge`, so a Job
+with ten File Workers asks once. Blank is a real option labelled **Default** rather than an empty field, and a
+value the catalogue no longer offers is still listed, so an existing configuration reads back as what it says
+instead of looking unset. One component (`DataFormatEditor`) sits behind both notation registrations; a Details
+pick now commits at once rather than debouncing, since choosing from a list is a finished decision.
+
+**Follow-up (2026-08-25, second): the browser says where it is.** The chooser's path opened on `.` — the notation
+default `./`, shown verbatim — which names no place a reader recognizes and has no parent to walk up to, so the
+browser's default location was both unreadable and a dead end. Report never had this: its `browserInfo` action
+returns the directory *normalized*, and the Input browser shows that rather than the stored value. The Job path
+went through the document-agnostic `GET /file-listing` route, which returned only the file list. It now returns
+`DataListing` — the files plus the absolute directory that was actually read — because only the server knows what
+a relative path resolves against. `FileSelectionEditor` displays the resolved directory when one has arrived for
+the current request and the stored value otherwise, dropping it whenever the directory changes (a filter change
+keeps it: the directory has not moved). Nothing is written back, so notation still holds `./` and stays portable;
+what is stored and what is shown are simply allowed to differ, exactly as in Report.
+
 ### DS5 — `ReadPartWorker` and migration-safe 1:N execution (2026-08-24)
 
 Landed `ExpandingTransformWorker` as a distinct execution base without changing `TransformWorker`'s
