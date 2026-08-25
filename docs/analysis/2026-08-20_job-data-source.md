@@ -882,12 +882,34 @@ reads an attribute's `editor:` metadata key, which names a wrapper object; `Attr
 resolves that name against its autowired `List<AttributeEditor>` and falls back to
 `DefaultAttributeEditor`. That string contract is documented in the codebase as *the* open-set
 extension seam, and `MultiFileInputEditor` is already bound through it — so the implementation
-largely exists. What changes is *what it edits*: the file configuration's selection attributes (directory,
-filter, picked files, per-file format / encoding, group pattern — Report's `InputSpec` shape lifted
-onto the object) instead of a worker's raw `List<String>` (§2.2). A JDBC source brings a SQL editor
-the same way. **The Job editor itself has no file-specific code**: the normal Worker card renders the
-inline File Worker's attributes through the editor manager. Pure DataSource objects keep the same metadata
-for any future source-object authoring surface.
+largely exists. What changes is *what it edits*: the ordered picked files and their nullable per-file format /
+encoding overrides instead of a worker's raw `List<String>` (§2.2). The chooser's navigation state is separate
+(`browser.directory` / `browser.filter`) from the source's runtime directory-query fields, so removing the last
+explicit file cannot accidentally turn the last visited directory into the Worker's input. A JDBC source brings
+a SQL editor the same way. **The Job controller itself has no file-specific code**: `FileSourceWorker` names a
+notation-contributed `FileSourceWorkerDisplay`, which composes the ordinary Worker card, promotes the metadata-
+selected `files` editor, and places execution-only attributes behind an Advanced disclosure. Pure DataSource
+objects keep the same editor metadata — `browser:` included — for any future source-object authoring surface: the
+marker is declared once on `FileDataSourceConfig` and inherited, so no consumer can forget it and silently write a
+runtime directory query while browsing. An attribute *without* the marker (legacy `MultiFileReaderWorker.paths`,
+or a third-party attribute that has not opted in) keeps navigation in component state and persists only the
+selection — the safe default.
+
+The actual browser presentation is shared with Report rather than copied. `FileBrowser` owns the breadcrumb,
+search, folder/file table, checked-range state and counted Add/Remove actions behind callbacks; Report and the Job
+editor remain separate persistence/network adapters because their notation and format-default semantics differ.
+The Job card renders that surface **inline and first**, on Report's own rule: an empty selection pins the browser
+open, any selection puts it behind a **Browser** toggle, and the chosen files read below it as a
+`FileSelectionTable` — the same bordered, sticky-header, click-to-check table the browser itself uses, with the
+shared look factored into `FileTableStyles` so the two halves of one card cannot drift apart. Browsing sits above
+the selection because it is what feeds it. Remove and reorder act on the rows checked in that table, matching the
+browser's own check-then-act Add/Remove; ordering is the one thing Report's selection lacks, so position is a
+column rather than an implicit fact about row order. The stage card widened to carry all of it
+(`JobObjectSlot.cardMaxWidth`, shared with `JobController`'s insertion gaps so the channel pipe stays centred). A
+launcher button opening a modal was tried first and rejected — a chooser one click away behind a dialog is
+strictly worse than one already on the card, and Report had the answer already.
+`FileListingAction.browseInfo` keeps immediate directories visible under an active filename filter, while
+runtime `scanInfo` stays files-only.
 
 The binding can be **per type rather than per attribute**: a type-level `meta.ref` map propagates the
 editor key to every attribute declared `is: <that type>` (`NotationMetadataReader.resolveMetadataRef`
@@ -1356,13 +1378,16 @@ leaves a clear missing-reference state. No source id is minted and neither `JobC
 contains file-source-specific branching.
 
 `FileSelectionEditor` owns ordered `FileSelectionSpec` editing, per-file format/encoding overrides,
-contains-all-words filtering, selection and reorder. Canonical source browsing reads live text drafts so
-the first Browse click after editing directory/filter uses the visible values; request epochs prevent an
-older listing from replacing a newer one. Debounced per-file commits clear only their matching pending
-value. The legacy `MultiFileInputEditor` alias remains functional with transient directory/filter controls
-for empty `paths` workers and persists only the paths list. Resolve epochs are globally monotonic across
-delete/recreate ABA cycles, and the generic editor fallback degrades unknown registrations to the default
-editor with a warning instead of bricking the client graph.
+contains-all-words filtering, selection and reorder. The inline File Worker renders a compact selected-file
+summary plus **Choose files**; the button opens the same wide breadcrumb/search/metadata-table presentation as
+Report, and the remaining emit/schema/runtime-query settings stay available under **Advanced**. Chooser-only
+navigation persists under `browser.directory` / `browser.filter`; runtime `directory` / `filter` remain blank
+unless deliberately configured, including after the last explicit file is removed. Request epochs prevent an
+older listing from replacing a newer one, and debounced per-file commits clear only their matching pending value.
+The legacy `MultiFileInputEditor` alias remains functional with transient directory/filter controls for empty
+`paths` workers and persists only the paths list. Resolve epochs are globally monotonic across delete/recreate ABA
+cycles, and the generic editor fallback degrades unknown registrations to the default editor with a warning
+instead of bricking the client graph.
 
 The initial detached-source implementation's review and test evidence remains useful for the pure authored
 `DataSource` + `ReadWorker` path: it closed resolve ABA, missing attribute-summary loop, legacy-empty-path,
@@ -1378,6 +1403,16 @@ was clean. Compiled notation fixtures execute both inline Workers; the Logic fix
 to the hosted Logic definition closure, so editing a query cannot adopt a stale manifest/cursor. The verified
 process and isolated scratch project were removed.
 
+A second UI review rejected the inline File card's raw wall of fields. The follow-up retained the same Sources-
+ribbon Worker and insertion flow, but contributed `FileSourceWorkerDisplay` through the existing `display:` seam.
+At rest the card now shows **Choose files**, a compact ordered-name summary, and a collapsed **Advanced** section.
+The wide chooser is the extracted `FileBrowser` also used by Report: breadcrumbs, editable path, contains-all-
+words search, folders-first table, Selected/Modified/Size columns, range/select-all state, and counted Add/Remove.
+Browser acceptance selected and removed multiple files, kept a child folder visible under an active filter, and
+proved the persisted empty-selection notation contained only `browser.directory` / `browser.filter` plus
+`files: []`—never the runtime directory query. The Report input rendered the shared surface without console
+warnings or errors. The isolated port-18109 process and scratch project were removed.
+
 The post-correction integrated `kzen-auto` build passed all 75 tasks in 4m01s, including the JVM, common-JVM,
 common-JS browser and application-JS browser suites. Independent re-review found no remaining concrete issue.
 
@@ -1385,6 +1420,36 @@ The corrected inline Workers deliberately omit the removed source card's click-o
 Their declared schemas still participate in server validation; downstream editor suggestions come from a live
 Summary. Restoring pre-run inspection requires a channel-free source-description capability rather than
 instantiating a Worker through `DataSourceActions`.
+
+**Correction (2026-08-24): the chooser dialog is gone.** User testing rejected the **Choose files** launcher
+outright — a modal is a worse interface than the inline browsing Report already ships, and card narrowness was
+not a good enough reason to differ. `FileSelectionEditor` now has one render path for every consumer, Report's:
+the ordered selection table, then the shared `FileBrowser` inline — pinned open while the selection is empty,
+behind a **Browser** toggle once it is not, listing lazily on first open. That removed both the dialog *and* the
+hand-rolled second listing the non-marker branch used, about 180 lines. The stage card widened from 40em to 56em
+to carry it; the width is now one constant, `JobObjectSlot.cardMaxWidth`, which `JobController`'s insertion gaps
+also read so the gold channel pipe cannot drift out from under the cards.
+
+The same pass closed a latent hazard the old inline branch carried: `FileDataSourceConfig` had no `browser:`
+marker, so browsing a pure `FileDataSource` persisted into its **runtime** `directory` / `filter` and silently
+armed a directory scan — exactly what `FileSelectionBrowserConventions` documents must not happen. The marker and
+its `browser: {directory, filter}` value block moved onto `FileDataSourceConfig`; `FileSourceWorker`'s duplicated
+copies were dropped and are now inherited. One rule remains in the editor — marker present means navigation
+persists there, marker absent (legacy `paths`, third-party opt-outs) means it stays in component state — so
+`browserPaths()` returns null instead of falling back to the runtime attribute names, and the `separate` flag is
+gone. `updateFilter` had also been writing a `filter` attribute for the legacy `paths` case, which no longer
+happens.
+
+**Follow-up (2026-08-24): the selection had to match the browser too.** Testing the inline card next showed its
+two halves were mismatched — the browser was Report's shared table while the selection under it was still a bare
+row of icon buttons — and the browser sat *below* the thing it fills. The order was flipped (browser first,
+selection below) and the selection became `FileSelectionTable`, a presentation-only component sharing
+`FileBrowser`'s frame, sticky header and hover/checked palette (extracted to `FileTableStyles`) plus its
+shift-range checking (`FileBrowserSelection`). Per-row up / down / delete icon buttons gave way to Report's
+check-then-act bar — **Remove (n)**, **Up**, **Down** — alongside Report's **Details** toggle, which reveals the
+full path and the per-file format / encoding overrides that are what make a row wide. `moveChecked` is a pure
+companion function: checked entries travel as a block, and an entry already against the edge it is moving towards
+holds back the rest of its run, so a multi-row move cannot scramble itself against the boundary.
 
 ### DS5 — `ReadPartWorker` and migration-safe 1:N execution (2026-08-24)
 
