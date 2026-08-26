@@ -8,10 +8,14 @@
 > assumed correct and is not revisited. What changes is what a *shape* is, how a format is *specified*,
 > and how a value is *accessed*. Per CC-20 no line numbers are cited; anchors are class / file names.
 > Decisions are collected in **§13**; everything not listed there is a proposal, not a settlement.
+> Reviewed in [`2026-08-25_structural-data_review.md`](2026-08-25_structural-data_review.md); the review's
+> recommended removals and editorial corrections have been applied here, and where the review settles a
+> decision (ST1, ST8) §13 records the settlement. The review's findings F1–F12 otherwise stand beside this
+> document rather than being merged into it.
 
 ## 1. What this is for
 
-Five forces, stated by the user on 2026-08-25, that the current model cannot hold at once:
+Six forces, stated by the user on 2026-08-25, that the current model cannot hold at once:
 
 - **Report is a prototype, not the target.** It demonstrated the minimum capabilities; it is not a
   comprehensive solution to emulate. Its value now is the lessons — §2.
@@ -71,7 +75,7 @@ This document is about 1–3; 4 dissolves once shapes are structural (§5.7).
 | Declared schema | `DataSchema` document, `DataSchemaFieldListSpec` / `DataSchemaFieldSpec` (field → `TypeMetadata`) | Right vocabulary; the types are parsed and then discarded (§4.1) |
 | Element carrier | `JobMessage(payload, flat: FlatView?)` | Two halves with lossy bridges — **collapse the interface, keep both representations** (§11) |
 | Flat record | `FlatFileRecord` (`char[]` + `int[]` + lazy caches) | The zero-alloc asset; becomes the depth-1 implementation (§9.4) |
-| Coercing value | `ColumnValue` | Demote from universal to the `Dynamic` case (§8.4) |
+| Coercing value | `ColumnValue` | Keep as the `Scalar(Text)` accessor; declared non-text types bypass it (§8.4) |
 | Expression compiler | `CalculatedColumnEval`, `CachedKotlinCompiler`, `RecordHeaderIndex` | Keep; drive accessor generation from the type instead of the lane (§8) |
 | Parse SPI | `ReportDefiner<Output>` / `ReportDataDefinition` / `DataFramer` / `HeaderExtractor<Output>` | Keep the framing pipeline; the `HeaderExtractor` pairing is the ceiling (§4.2) |
 | Format identity | `PluginCoordinate` (SPI) / `CommonPluginCoordinate` (common) | A name with no configuration — **make formats values** (§7) |
@@ -156,11 +160,14 @@ of one language:
 - **Reflect** a `Nominal` and you get a `Record` — its properties become fields, on demand. That is how a
   `JobMessage.payload` becomes reachable by the same dynamic expression machinery as a CSV row, which is
   the user's requirement stated exactly.
-- **Materialize** a `Record` and you can generate a class. That is how a UI-declared schema reaches the
-  speed of a hand-written one.
+
+The reverse direction — generating a JVM class from a `Record` — is deliberately *not* part of the model.
+Generated accessor façades over a typed record (§8) already give a UI-declared schema the speed of a
+hand-written one; a materialized domain class has classloader, metaspace and identity costs and no consumer
+today (review F5). It can be added when one appears.
 
 Two parallel universes joined by `flatView()` / `boundaryValue()` string conversion is what we have now; one
-language with a leaf and two conversions is what replaces it.
+language with a leaf and one conversion is what replaces it.
 
 Reflection depth is a real hazard (cycles, `Object` graphs, lazy properties with side effects), so it must
 be **lazy and depth-1 on demand** rather than eager and transitive — **ST5**.
@@ -205,11 +212,12 @@ round — schema required, dynamic bolted on — is what makes tools brittle aga
 
 ### 5.7 What `DataShape` becomes
 
-`DataShape` is replaced by `DataType`. `DataSource.staticShape(role): DataType?` and
-`DataOpener.inspectShape(context, part): DataType?` keep their signatures and their contract (DS O3 — no IO
-at definition time — is untouched, because it is about *when* a shape is obtained, not what it is).
-`DataShape.Tabular` survives as a view function for the flat consumers; `DataShape.Payload` becomes
-`Nominal`. Report's `dataType` field (§2.4) dissolves: "which record model" stops being a user-facing
+`DataShape` is replaced by `DataType`. `DataSource.staticShape(role)` and
+`DataOpener.inspectShape(context, part)` keep their call sites, roles and contract (DS O3 — no IO at
+definition time — is untouched, because it is about *when* a shape is obtained, not what it is); their
+return type changes, which is a signature change. `DataShape.Tabular` survives as a view function for the
+flat consumers; `DataShape.Payload` becomes `Nominal`. Report's `dataType` field (§2, constraint 4)
+dissolves: "which record model" stops being a user-facing
 question once shapes are structural, and the payload-type filter in `ReportDefinitionRepository.find`
 becomes a `DataType` compatibility check.
 
@@ -235,8 +243,9 @@ Four rungs, in priority order:
 
 1. **Declared** — a `DataSchema` document referenced by the source. No IO; the only rung the
    definition-time walk may read (DS O3).
-2. **Carried** — Avro, Parquet and protobuf embed a schema; XML may have an XSD. The format knows and can
-   simply be asked. This is the rung that does not exist today.
+2. **Carried** — Avro and Parquet embed a schema; XML may have an XSD. (Protobuf does *not*: a wire message
+   needs a `.proto` or descriptor set, which makes it a *declared* schema in a different notation.) The
+   format knows and can simply be asked. This is the rung that does not exist today.
 3. **Inferred** — sample N records and generalize. CSV's header row is the trivial instance; JSON needs
    real sampling, with the sample size a knob and the result explicitly provisional.
 4. **`Dynamic`** — nothing is known; §5.6 applies.
@@ -274,8 +283,9 @@ A format becomes an ordinary notation object with attributes, not a name string:
 
 - `DelimitedTextFormat { delimiter, quote, escape, header: firstRow | fixed(names) | none, trim }` —
   collapses `CsvReportDefiner` and `TsvReportDefiner` into one parameterized definer and immediately buys
-  `;`, `|`, fixed-width, headerless, and non-standard quoting. This is the smallest complete proof of the
-  idea, and it *removes* code.
+  `;`, `|`, headerless, and non-standard quoting. (Fixed-width is *not* a delimiter variant — offsets,
+  widths, padding and overflow are physical schema, and it needs its own format object.) This is the
+  smallest complete proof of the idea, and it *removes* code.
 - `PluginFormat { coordinate }` — wraps a JAR definer; the current behaviour, unchanged.
 - `TreeFormat { codec: json | xml | yaml | …, recordPath, schema: <DataSchema ref>? }` — §6.3.
 
@@ -294,8 +304,10 @@ format to be UI-authorable — the hard ones stay code, and they compose with th
 
 `ReportDefinitionRepository.find(payloadType, dataLocation)` becomes
 `find(compatibleWith: DataType?, dataLocation)`, and the `fileFormats` action (2026-08-25) starts returning
-graph-discovered format objects alongside installed definers. The UI change is small because the select
-already exists; what changes is that picking a format may now mean *creating* one.
+graph-discovered format objects alongside installed definers. The select already exists; what changes is
+that picking a format may now mean *creating* one — and that brings naming, shared-versus-inline ownership,
+deletion, stale references and (for `TreeFormat`) a recursive schema editor with it. The UI change is not
+small; the *select* is the small part.
 
 ## 8. Expression access — generated from the type
 
@@ -326,16 +338,18 @@ Generate per node kind instead:
 | `DataType` | Generated accessor |
 |---|---|
 | `Scalar(Int / Decimal / Temporal / …)` | typed property off a typed slot — `val amount: Int` |
-| `Scalar(Text)` | typed `String` / `CharSequence` accessor |
+| `Scalar(Text)` | `ColumnValue` — coercing text, so `amount > 5` on an undeclared column keeps meaning what it means today (ST1) |
 | `Record` | a nested accessor over a node index, so `order.customer.city` type-checks |
 | `Listing` | `List<T>` of the same, lazily projected |
 | `Mapping` | key-lookup accessor, dynamic by construction |
 | `Union` | a discriminated accessor, or `Dynamic` if we choose not to model it (**ST2**) |
 | `Nominal` | the implicit receiver — exactly as today |
-| `Dynamic` | today's `ColumnValue`-style coercing node with `[...]` and `?.` |
+| `Dynamic` | explicit lookup — `value["field"]` — followed by typed / coercing conversions; Kotlin cannot resolve an unknown `.field` |
 
 `payload` and columns stop being two mechanisms. The "fallback for accessing arbitrary structured data" the
-user asked for is not a mode — it is the `Dynamic` row of this table.
+user asked for is not a mode — it is the `Dynamic` row of this table. It is also narrower than it looks: an
+*inferred* schema (§6.2 rung 3) yields a `Record`, so every field the sample saw gets a generated `.field`
+accessor, and only what the sample did not see is `Dynamic`.
 
 ### 8.3 Path resolution is compile-time
 
@@ -347,13 +361,15 @@ The generalization is **name-path → ordinal-path**, resolved the same way at c
 This is the point worth repeating in any argument about performance: **a declared schema makes nested access
 cheaper, not more expensive.** Only `Dynamic` and `Mapping` pay a lookup, which is where the cost belongs.
 
-### 8.4 `ColumnValue` demotes rather than dies
+### 8.4 `ColumnValue` is the `Scalar(Text)` accessor
 
-`ColumnValue`'s coercion semantics are load-bearing for existing documents — `"13.0"` compares equal to `13`
-— and its interned constants (`empty`, `null`, `0`, `1`, `true`/`false`, `y`/`n`) are a real allocation
-optimization. It stays, as the `Dynamic` accessor. What changes is that a *declared* type no longer routes
-through it. Whether an undeclared CSV column stays `Dynamic` or becomes `Scalar(Text)` is **ST1**, and it is
-the one decision in this document that can break existing expressions.
+`ColumnValue`'s coercion semantics are product behaviour, not a compatibility artefact — comparing a text
+column to a number (`"13.0" == 13`) is the bread-and-butter ETL expression — and its interned constants
+(`empty`, `null`, `0`, `1`, `true`/`false`, `y`/`n`) are a real allocation optimization. It stays, as the
+accessor generated for `Scalar(Text)`, which is what it already is today. What changes is that a *declared*
+non-text type no longer routes through it, and `Dynamic` gets an explicit lookup rather than a coercing
+node. An undeclared CSV column is `Scalar(Text)` (**ST1**, settled in the review) — the type is honest and
+no existing expression changes meaning.
 
 ## 9. Performance — keeping the zero-allocation door open
 
@@ -483,12 +499,12 @@ and remains what makes in-place materialization legal.
 
 ## 12. Naming and packages
 
-- `DataType` and its cases: `kzen-auto-common` `common/data/schema/`, beside `HeaderListing`, which DS0
-  already moved out of Report's package.
-- The record accessor interface: `kzen-auto-plugin`, because third-party definers must implement it. This is
-  a real widening of the SPI surface — the module deliberately has no `kzen-lib` / `kzen-auto-common`
-  dependency, so `DataType` needs an SPI-side counterpart the way `PluginCoordinate` mirrors
-  `CommonPluginCoordinate`. **ST8**.
+- `DataType` and its cases: `kzen-auto-plugin` `commonMain`, once the module is KMP (**ST8**, settled —
+  review F11 option A). `HeaderListing`, which DS0 moved out of Report's package into `kzen-auto-common`
+  `common/data/schema/`, moves down with it; `kzen-auto-common` depends on the plugin and the
+  `PluginCoordinate` / `CommonPluginCoordinate` mirror collapses.
+- The record accessor interface: `kzen-auto-plugin` `jvmMain`, because third-party definers must implement
+  it. With the type language in the same module there is no SPI-side counterpart to keep in step.
 - Format objects: `kzen-auto-jvm` notation under `auto-jvm/data/`, with the `DataSchema` document that
   already lives in `server/objects/data/schema/`.
 - The tape: `kzen-auto-plugin` `model/record/`, beside `FlatFileRecord`.
@@ -499,15 +515,15 @@ Open unless stated. Numbered `ST*` so they do not collide with the DS document's
 
 | # | Question | Current thinking |
 |---|---|---|
-| ST1 | Does an **undeclared** CSV column become `Scalar(Text)` or stay `Dynamic`? | Lean `Dynamic` — `ColumnValue`'s coercion (`"13.0" == 13`) is relied on by existing expressions, and typing by default would silently change their meaning. Typed access becomes available by *declaring* a schema. **The one decision here that can break existing documents** |
+| ST1 | Does an **undeclared** CSV column become `Scalar(Text)` or stay `Dynamic`? | **Settled (review): `Scalar(Text)`**, with `ColumnValue` as its generated accessor (§8.4) — the type is honest and existing expressions keep their meaning. Typed non-text access comes from *declaring* a schema. Nothing here breaks existing documents; ST9 does |
 | ST2 | Is `Union` modelled, or does a variant degrade to `Dynamic`? | Model it. Without it the schema stops paying exactly where real formats get interesting (§5.4). The cost is in the accessor generator, not the language |
 | ST3 | XML attributes and mixed content — modelled or lossy? | Undecided. Modelling them adds two node kinds used by one format family; not modelling them means XML round-trips lossily. Decide before any XML format ships, not after |
 | ST4 | Does `DataType` replace `DataShape`, or wrap it? | Replace, with `Tabular` surviving as a view function (§5.7). Wrapping keeps the disjoint union alive under a new name |
 | ST5 | Is `Nominal` → `Record` reflection automatic or opt-in? | Lazy and depth-1 on demand. Eager transitive reflection of arbitrary JVM classes invites cycles, `Object` graphs and side-effecting property getters |
 | ST6 | What happens when an **inferred** schema disagrees with a **declared** one? | The declaration wins and the disagreement is reported as validation. Silent override in either direction is the wrong answer; which one is *right* is the user's call |
 | ST7 | One path dialect for record selection, or one per format family? | Undecided. A single dialect is learnable but fits none of JSON / XML / container formats exactly; per-family fits each but is three things to document |
-| ST8 | Does `DataType` get an SPI-side counterpart in `kzen-auto-plugin`? | Yes if third-party definers declare shapes, which §6.4 assumes. Mirrors the existing `PluginCoordinate` / `CommonPluginCoordinate` split and keeps the SPI dependency-free |
-| ST9 | Do `DelimitedTextFormat` and friends supersede the CSV/TSV **plugin coordinates**, or coexist? | Coexist initially — existing notation names `CSV` / `TSV` and must keep reading. A parameterized definer can *back* both coordinates before it replaces them |
+| ST8 | Does `DataType` get an SPI-side counterpart in `kzen-auto-plugin`? | **Settled (review F11, option A): no** — `kzen-auto-plugin` becomes a zero-dependency KMP module hosting `DataType` in `commonMain`; `kzen-auto-common` depends on it and `data/schema/` moves down. One tree, owned by the SPI |
+| ST9 | Do `DelimitedTextFormat` and friends supersede the CSV/TSV **plugin coordinates**, or coexist? | **Replace atomically** (review's no-compatibility rule). This is the decision that breaks existing notation — every `format: CSV` — and the fixtures move in the same change |
 | ST10 | Does the tape land as one implementation, or per-format? | One shared tape, written by the event stream (§6.1). A per-format tape reproduces the duplication `CsvReportDefiner` / `TsvReportDefiner` already demonstrates |
 | ST11 | Sampling budget for inferred schemas | Undecided — needs a knob, a stated default, and an explicit "provisional" marker in the UI so an inferred shape is never mistaken for a declared one |
 
@@ -516,14 +532,16 @@ Open unless stated. Numbered `ST*` so they do not collide with the DS document's
 Sequenced so each step is independently useful and nothing is built before its consumer exists. Steps 1–2
 are worth doing even if the arc stops there, because they are where information is currently destroyed.
 
-1. **`DataType`** replaces `DataShape`; `Tabular` becomes a view; `Payload` becomes `Nominal`. Pure model
-   plus round-trips (`ExecutionValue`, wire, digest), no runtime. `DataSchemaDocument.shape()` stops
-   discarding declared types — §4.1 closed. **S–M**
+1. **`DataType`** replaces `DataShape`; `Tabular` becomes a view; `Payload` becomes `Nominal`; round-trips
+   (`ExecutionValue`, wire, digest). `DataSchemaDocument.shape()` stops discarding declared types — §4.1
+   closed. This is *not* a runtime-free step: `WorkerLane(payloadType, flatColumns)` and
+   `JobMessage(payload, flat)` are the same disjoint union and must be replaced in the same phase (review
+   F10), so the model lands together with the lane typing that consumes it. **M–L**
 2. **`DataSchema` gains nesting** — fields → `DataType` recursively. A widening of a shipped document with
    an existing controller and an existing notation test. **S**
 3. **Accessor generation from `DataType`** in `CalculatedColumnEval` — typed accessors for known scalars,
-   nested accessors for records, `ColumnValue` for `Dynamic`. Path → ordinal resolution generalizing
-   `RecordHeaderIndex`. Answer **ST1** before starting. **L** — the widest blast radius in the arc
+   nested accessors for records, `ColumnValue` for `Scalar(Text)`, explicit lookup for `Dynamic`. Path →
+   ordinal resolution generalizing `RecordHeaderIndex`. **L** — the widest blast radius in the arc
 4. **The record accessor interface**; `FlatFileRecord` implements it as the depth-1 case; generated code
    binds to it; the allocation assertion of §9.7 lands with it. **M**
 5. **Format objects** — `DelimitedTextFormat` collapsing `CsvReportDefiner` / `TsvReportDefiner` as the
@@ -536,5 +554,8 @@ are worth doing even if the arc stops there, because they are where information 
    design must be validated against a schema-carrying one — Avro or Parquet — before the SPI is frozen. The
    first real consumer of 1–4. **L**
 
-Steps 5 and 6 are the cheapest and are separable from the type work entirely; step 3 is the expensive one
-and the one that needs a decision first.
+Steps 5 and 6 are the cheapest and are separable from the type work entirely; step 3 is the expensive one.
+The review's build order refines this list into a module-preparation step 0 (the `kzen-auto-plugin` KMP
+conversion) and two separately-decidable halves — *typed flat* over `FlatFileRecord` (steps 1–4) and
+*structural readers* (step 7 onward) — with 5 and 6 beside either; where the two orders differ, the
+review's is the current one.

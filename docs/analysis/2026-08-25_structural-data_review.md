@@ -1,9 +1,11 @@
 # Structural data — design review
 
 **Date:** 2026-08-25 · **Status:** review of the analysis in
-[`2026-08-25_structural-data.md`](./2026-08-25_structural-data.md). Nothing reviewed here is implemented.
-Claims were checked against the current `kzen-auto` tree; per CC-20, symbols and document sections are
-cited rather than source line numbers.
+[`2026-08-25_structural-data.md`](./2026-08-25_structural-data.md), revised the same day by a second pass
+that re-verified the findings against the tree, settled F11 (module ownership), and folded in the second
+pass's own observations. Nothing reviewed here is implemented. Claims were checked against the current
+`kzen-auto` tree; per CC-20, symbols and document sections are cited rather than source line numbers.
+Findings marked **verified** name the code that demonstrates them.
 
 ## Verdict
 
@@ -38,10 +40,17 @@ Consequences for the structural-data analysis:
 - **ST9 should not choose coexistence.** Replace the `CSV` / `TSV` coordinate model with configured format
   objects when that work lands. Temporary adapters inside one compile-green refactor are an implementation
   technique, not a product contract, and should be removed in the same change.
-- **ST1 should not be decided by old `ColumnValue` comparison behavior.** An undeclared CSV field is known to
-  be text, so its honest type is `Scalar(Text)`. `Dynamic` should mean structurally or nominally unknown, not
-  “text with historical coercions.” If coercing text is desirable product behavior, name it as an explicit
-  conversion or value policy.
+- **ST1 is misfiled as a compatibility question.** An undeclared CSV field is known to be text, so its honest
+  type is `Scalar(Text)`; `Dynamic` should mean structurally or nominally unknown, not “text with historical
+  coercions.” But `"13.0" == 13` is not legacy — comparing a text column to a number is the bread-and-butter
+  ETL expression, and it is the product. Resolve both at once: the *type* is `Scalar(Text)`, and the
+  *accessor generated for `Scalar(Text)`* is `ColumnValue` — text with a coercing operator set. That makes
+  `ColumnValue` the Text accessor, which is what it already is today, rather than the `Dynamic` accessor the
+  analysis (§8.4) demotes it to. `Dynamic` gets an explicit lookup (F5).
+- **ST9's replacement is not free of breakage either.** Replacing the `CSV` / `TSV` coordinates breaks every
+  existing notation with `format: CSV`. Accepted under this rule — but the analysis's register calls ST1 “the
+  one decision that can break existing documents,” which is then no longer true; the register should say
+  which decisions break notation and that the fixtures move with them.
 - Do not retain `DataShape.Tabular`, `DataShape.Payload`, `CommonPluginCoordinate` format fields or duplicate
   SPI schema trees merely so old internal notation continues to parse. Change the fixtures and notation with
   the model.
@@ -68,7 +77,11 @@ Presence belongs to the field, while null belongs to the value type. Use either 
 union normalization or one nullability modifier that applies uniformly to every `DataType`.
 
 `Record(fields: LinkedMap<String, DataType>)` is also too narrow. `HeaderListing` deliberately represents
-duplicate names with occurrence identities. Protobuf and Parquet may contribute numeric field identifiers;
+duplicate names with occurrence identities, and two shipped contracts depend on that: `schemaMode=superset`
+unions headers by `HeaderLabel` (name + occurrence) in `DataReadCore.planShape`, and `boundaryValue()` keys
+the boundary map by `HeaderLabel.render()`. A keyed map of fields cannot carry either; the existing
+duplicate-name contract is a requirement on `Field`, not a legacy detail. Protobuf and Parquet may
+additionally contribute numeric field identifiers;
 Avro contributes names, namespaces, defaults and aliases. A record should therefore be an ordered list of
 fields with identity separate from display name:
 
@@ -96,6 +109,12 @@ Finally, `Union(cases: List<DataType>)` is not enough to model protobuf `oneof` 
 Cases need stable tags/names and the runtime accessor needs to expose the active case. Nullability may use a
 normalized union internally, but a tagged sum and “T or null” are not the same authoring concept.
 
+The analysis also wants `Union` to absorb the *untagged* heterogeneity a JSON sample exposes (a mixed array,
+§5.4). Modelling both tagged and untagged sums is most of what makes the F3 algebra expensive. The
+recommended rule is: **`Union` is tagged, and only ever comes from a declaration or a carried schema;
+inference that observes heterogeneity widens to `Dynamic`.** The schema then stops paying exactly where the
+*data* stops being regular, which is honest, and the join algebra never has to unify two untagged sums.
+
 **Recommendation:** settle the type grammar, field identity/presence and canonical normalization before wire,
 digest or UI work begins.
 
@@ -113,7 +132,10 @@ The provenance ladder in §6 is useful, but `DataType?` has nowhere to retain it
 
 The last point makes `null` and `DataType.Dynamic` ambiguous. `null` should mean that the operation did not
 produce a schema observation. `Dynamic` should mean that a runtime value is available through a dynamic
-access contract even though its member set is not statically known.
+access contract even though its member set is not statically known. **Verified:** `DataReadCore.planShape`
+already fails a superset plan with `check(unknown == null) { "Unable to inspect data shape at …" }` on a
+null candidate; under a bare `DataType?` a source honestly reporting `Dynamic` and a source whose inspection
+failed would be indistinguishable at exactly that check.
 
 Keep `DataShape` as a neutral envelope rather than its current tabular/payload sum:
 
@@ -150,10 +172,25 @@ multi-file schema policy all depend on the same answers.
 
 ST2 understates this by saying Union's cost sits in the accessor generator. Union participates in inference,
 joining, validation, serialization, branch discrimination and Worker output typing. It should still exist,
-but its whole-system cost should be acknowledged.
+but its whole-system cost should be acknowledged — the tagged-only rule in F1 is what keeps it bounded.
 
-**Recommendation:** specify and test the algebra with a table of representative pairs before implementing
-either inference or code generation.
+**Flattening is the first `project` case, and it is needed before any tree reader ships — not after.**
+Every column-consuming Worker reads `flatView()`: `CsvWriterWorker`, `ExportWriterWorker`, `PivotWorker`,
+`SortWorker`, `SummaryWorker`, `FilterWorker`, `ValueSetFilterWorker`, `PreviewWorker`, `ExploreWorker`. The
+moment a lane carries a nested `Record`, “what do these Workers see” is a `Record → tabular` projection with
+a naming rule for nested fields (`order.customer.city` as a column name, or a declared column set), a rule
+for `Listing` (explode, join, or refuse), and a rule for `Mapping`. The analysis discusses this only as XML
+round-trip loss and the build order defers it to writers; it is in fact the dependency of every existing
+Worker on the first structural reader.
+
+**`KType → DataType` is a named mapping, not an afterthought.** `CalculatedColumnEval.inferredReturnKType`
+already yields the compiler's inferred type for a formula. Typing a Formula's *output* lane under F10 needs
+`Int → Scalar(Int)`, `String → Scalar(Text)`, `Map<String, String> → Mapping(Text, Scalar(Text))`,
+`List<T> → Listing`, a data class → `Nominal`. It is small, it is the type-level half of the analysis's
+§5.2 “reflect” direction, and neither document names it.
+
+**Recommendation:** specify and test the algebra — `accepts`, `join`, flatten-`project`, `KType → DataType`
+— with a table of representative pairs before implementing either inference or code generation.
 
 ## F4 — one output contract is right; one parser pipeline is not
 
@@ -198,7 +235,14 @@ Define the runtime value contract before generating Kotlin against it. It must a
 - How is a nominal object projected structurally without eagerly invoking getters?
 - How does a Formula append fields or replace the root while keeping one authoritative value?
 - What is the dynamic syntax? Kotlin cannot resolve an unknown `.field`; unknown structure needs an explicit
-  lookup such as `value["field"]`, followed by typed/coercing conversion methods.
+  lookup such as `value["field"]`, followed by typed/coercing conversion methods. `Dynamic` is narrower than
+  the analysis implies, though: an *inferred* schema (provenance rung 3) yields a `Record`, so every field
+  the sample saw gets a generated `.field` accessor without any declaration, and only what the sample did
+  not see is `Dynamic`. That is the actual answer to “ergonomic when the schema is known, a fallback when it
+  is not,” and it turns ST11's sampling budget into a UX knob rather than a hazard.
+- Which accessor does `Scalar(Text)` generate? Per the ST1 resolution above: `ColumnValue`, the coercing
+  text value, so `amount > 5` on an undeclared column keeps compiling and meaning what it means today. A
+  *declared* `Scalar(Int)` generates a typed accessor and never routes through `ColumnValue`.
 
 Generated *accessor façades* over a tape are sufficient for typed expressions. Generating a materialized JVM
 domain class for every structural schema is a separate capability with classloader/metaspace and identity
@@ -217,8 +261,13 @@ serialization-name annotations, generic substitution, plugin classloaders, side-
 **Severity: blocking before the tape API is frozen.**
 
 `FlatFileRecord` proves that scalar text and cached numeric reads can avoid allocation. The Job file lane does
-not currently prove zero allocation per record: `FileDataCursor.fill()` calls `event.row.prototype()` for
-every emitted row, and `DataReadCore.message()` allocates another projected record in the superset path.
+not currently prove zero allocation per record. **Verified:** `FileDataCursor.fill()` calls
+`event.row.prototype()` for every emitted row, and `DataReadCore.message()` on the superset path builds a
+second record via `FlatFileRecord.of(header.map { … candidateRecord.getString(index) })` — one `String` per
+cell per row. The honest zero-allocation boundary today is *inside Report's ring-buffer pipeline*; the Job
+lane allocates at least two records plus N strings per row. The analysis's §9.5 “the typed lane is faster
+than what ships” is true precisely because what ships is not zero-allocation — the claim to make is a
+measured one against that baseline.
 
 The design must say which invariant is intended:
 
@@ -245,7 +294,8 @@ flat Job lane is zero-allocation.
 
 ## F7 — format, record selection and schema are three composable concerns
 
-**Severity: important before format objects land.**
+**Severity: important before format objects land — except the media-type layer, which is a decision to
+record, not a build step (see the end of this finding).**
 
 `TreeFormat { codec, recordPath, schema }` combines concerns with different reuse and identity:
 
@@ -297,8 +347,18 @@ configure instances of supported format families. They do not let a user define 
 binary grammar. The latter requires a parser-combinator/grammar DSL, bounded execution and a diagnostic
 model. “Configurable format instances” is already valuable and should be the first explicit target.
 
-**Recommendation:** add media type/content coding as representation metadata, then compose codec, record
-selector and schema/decoding policy beneath it; defer arbitrary grammar authoring until it has its own design.
+**Scope of the media-type point.** The first pass proposed media type and content coding as a build step.
+The second pass downgrades it: there is no HTTP or S3 source in the tree, so nothing *supplies* a media
+type today, and building the precedence machinery ahead of its first supplier is speculative. What should
+land now is the decision, not the layer: rename `DataPart.encoding` to what it is (character encoding);
+reserve a media-type hint in `DataRef.attributes` for a future provider to fill; and name content coding
+explicitly — `DataLocation.innerExtension()` already peels `.gz`, so content coding exists in embryonic
+form and is the thing to make honest, not MIME precedence. Format selection stays extension-first with an
+explicit format winning, which is what `FileDataOpener.effectiveSpec` does today.
+
+**Recommendation:** record the representation decisions (character encoding, content coding, media-type
+hint slot) without building precedence machinery; compose codec, record selector and schema/decoding policy
+beneath the configured format; defer arbitrary grammar authoring until it has its own design.
 
 ## F8 — a format object reference changes manifest identity
 
@@ -358,9 +418,12 @@ Each Worker needs a type transformation contract:
 - a boundary lowers a structural value to a declared Logic result type;
 - dynamic input weakens validation without making execution impossible.
 
-`JobMessage` mutation is particularly important. `FormulaWorker` can currently append to the flat record and
-replace `payload` in the same call. Under one-value semantics there must be one authoritative result and one
-output `DataType`, not two representations that can drift.
+`JobMessage` mutation is particularly important. **Verified:** `FormulaWorker.onElement` does
+`record.addAll(formulaValues)` on the flat part *and* `element.payload = newPayload` in the same call, and
+`WorkerLane.consumerFlatColumns()` / `boundaryType()` encode the same two-world model in the static walk
+(“a pure-payload lane auto-flattens to the `value` column”; “a flat-only lane crosses a boundary as
+`Map<String, String>`”). Under one-value semantics there must be one authoritative result and one output
+`DataType`, not two representations that can drift.
 
 Step 1 therefore cannot be “pure model, no runtime,” and accessor generation should not precede the value and
 Worker contracts it targets. This is not an argument for compatibility shims; it is an argument for grouping
@@ -369,24 +432,47 @@ the real consumers into the same replacement phase.
 **Recommendation:** schedule `WorkerLane`, `JobMessage`, boundary lowering and expression generation as one
 coherent runtime phase.
 
-## F11 — duplicating the recursive type tree in the plugin contradicts “one language”
+## F11 — module ownership: `kzen-auto-plugin` becomes the KMP host of the type language **[decided]**
 
-**Severity: design choice before the public SPI changes.**
+**Severity: design choice before the public SPI changes — settled 2026-08-25.**
 
 Mirroring `PluginCoordinate` / `CommonPluginCoordinate` is tolerable because the value is one string. Mirroring
 a recursive type system means two sealed trees, two serializers, two equality/digest implementations and an
 exhaustive conversion that must change for every new type feature. That is exactly the split the design is
 trying to remove.
 
-Prefer a small canonical schema artifact usable by both `kzen-auto-common` and `kzen-auto-plugin`, or another
-dependency arrangement that leaves one model. If module constraints make a JVM SPI representation necessary,
-name it as an SPI transport projection and pin lossless conversions exhaustively; do not describe the result
-as one type language without acknowledging two representations.
+The reason the mirror exists: `kzen-auto-common` (KMP; the JS editor needs the type for shape display and
+schema editing) and `kzen-auto-plugin` (pure JVM, one external dependency — `zero-allocation-hashing`;
+nine Java files including `FlatFileRecord`) do not know each other. Only `kzen-auto-jvm` depends on both.
+Neither can host the other's copy as things stand. Two ways to give them a direction were weighed:
 
-Because there is no compatibility obligation, the current dependency-free plugin-module constraint may be
-reconsidered if it creates a permanently duplicated foundation.
+- **A — the plugin becomes the KMP host.** Convert `kzen-auto-plugin` to Kotlin Multiplatform (`commonMain`
+  + `jvmMain`), keep it zero-dependency, put `DataType` / `Field` / `ScalarKind` / serialization in
+  `commonMain`, and have `kzen-auto-common` (and thereby `-js`) depend on it. `FlatFileRecord`, the framing
+  SPI and the rest of the JVM surface stay in `jvmMain`; third parties keep consuming a plain `-jvm` jar with
+  the same single external dependency. `CommonPluginCoordinate` and the other mirrors collapse into the
+  plugin, which becomes the single owner of “what a format is and what it produces” — where that vocabulary
+  belongs. Cost: one more KMP module, and its `-jvm` / `-js` variant-suffix coordinates fall into the same
+  mavenLocal routing gotcha as kzen-lib's (umbrella `AGENTS.md`).
+- **B — the plugin depends on `kzen-auto-common` (JVM).** Mechanically cheaper, but it drags
+  `kzen-auto-common` and `kzen-lib-common` onto every third-party definer's compile classpath and into the
+  `ClassLoaderHandle` parent surface, so the SPI's stability promise widens to all of kzen-lib.
 
-**Recommendation:** resolve module ownership before ST8 defaults to duplication.
+**Decision: A.** The user confirmed `kzen-auto-plugin` is fully under our control and may be restructured at
+convenience, which removes the only reason to keep it pure-JVM. Consequences:
+
+- ST8 resolves to **one tree, owned by the SPI** — no SPI-side counterpart, no transport projection.
+- `kzen-auto-common`'s `data/schema/` package (`HeaderListing`, today's `DataShape`) moves *down* into the
+  plugin's `commonMain` rather than gaining a twin; the shape envelope (F2) lives beside it.
+- `kzen-auto-js` reaches the type through `kzen-auto-common`'s dependency, so the editor's shape display and
+  the schema editor render the same tree the server digests.
+- The publish order in `docs/RELEASING.md` and the umbrella `AGENTS.md` gains `kzen-auto-plugin`'s
+  `-common` / `-jvm` / `-js` artifacts ahead of `kzen-auto-common`; the Kotlin-bump note that
+  `:kzen-auto-plugin:publishToMavenLocal` precedes non-composite consumers already exists and now covers
+  three artifacts.
+
+**Recommendation:** land the module conversion as its own preparatory step (build-order step 0 below) —
+it is mechanical, independently green, and everything in step 1 lands into it.
 
 ## F12 — inference, validation failures and resource limits need first-class policies
 
@@ -422,44 +508,71 @@ register.
 
 | Decision | Recommendation |
 |---|---|
-| ST1 | **Resolve to `Scalar(Text)`** for undeclared delimited fields. No compatibility-driven coercion. |
-| ST2 | Model tagged variants and nullable types deliberately; do not use an untagged list as the only sum type. |
+| ST1 | **Resolve to `Scalar(Text)`** for undeclared delimited fields; its generated accessor is `ColumnValue` (coercing text), so existing expressions keep their meaning as product behaviour, not as a compatibility layer. |
+| ST2 | **`Union` is tagged only** — from a declaration or a carried schema. Inference that observes heterogeneity widens to `Dynamic`. Nullability is a uniform modifier, not a union case at the authoring level. |
 | ST3 | Decide whether `DataType` is an access projection or lossless schema IR first. Keep XML-native details beside the projection if needed. |
 | ST4 | Replace current `DataShape` cases, but retain a shape/observation envelope around `DataType`. |
 | ST5 | Lazy nominal projection, plus an explicit member/naming/generic/classloader policy. |
 | ST6 | Declaration is the contract; observation produces diagnostics through `DataShape`, never a silent override. |
 | ST7 | Use a shared selector abstraction only if it can express a streaming-safe subset honestly; codecs may contribute their own selector dialect. |
-| ST8 | Prefer one canonical type artifact over a duplicated recursive SPI tree. |
-| ST9 | **Replace CSV/TSV coordinates atomically. Do not coexist for compatibility.** |
+| ST8 | **Decided: one tree, owned by `kzen-auto-plugin` as a KMP module** (F11, option A). No SPI-side counterpart. |
+| ST9 | **Replace CSV/TSV coordinates atomically. Do not coexist for compatibility.** This breaks `format: CSV` in existing notation; the fixtures move in the same change, and the register should say so. |
 | ST10 | One shared structural access/tape implementation where representations agree; allow native typed/object backings behind the same access contract. |
 | ST11 | Record count plus byte/time/depth budgets; return coverage and provisional status in the shape observation. |
 
-Add decisions for field presence/nullability, scalar parameters, type joining/assignability, runtime value
-lifetime/release, effective-format digesting, decode-error policy, provider content capabilities, dynamic
-expression syntax, media-type precedence/content coding, writer scope and resource limits.
+Add decisions for field presence/nullability, scalar parameters, type joining/assignability, the
+flatten-`project` naming rule, the `KType → DataType` mapping, runtime value lifetime/release,
+effective-format digesting, decode-error policy, provider content capabilities, dynamic expression syntax,
+character encoding vs content coding (media type as a reserved hint only), writer scope and resource limits.
 
 ## Proposed build order
 
 This sequence targets the clean end state directly; it does not preserve old internal contracts as shims.
 
-1. **Semantic contract:** `DataType`, ordered `Field`, presence/nullability, scalar parameters, tagged variants,
-   normalization, `accepts` and `join`, with wire/digest tests.
-2. **Shape observation:** replace current `DataShape` with the provenance/stability/diagnostic envelope; update
-   declared and inspected schema paths together.
-3. **Representation and configured-format proof:** add media type/content coding with explicit precedence,
-   then compose delimited codec/dialect, record selection and text-decoding policy; replace CSV/TSV coordinates
-   and update all notation/fixtures in the same change. Capture effective-format identity in manifests and
-   cache keys.
-4. **Runtime value:** define `DataValue` / `ValueAccess`, lifetime and release; adapt `FlatFileRecord` as the flat
-   backing and pin the exact allocation boundary.
-5. **Job type flow and expressions:** replace `WorkerLane(payloadType, flatColumns)`, collapse authoritative
-   `JobMessage` value state, define Worker transformations and generate typed/dynamic accessors.
-6. **First structural reader:** JSON with a deliberately bounded, streaming-safe selector and explicit dynamic,
-   declared and inferred cases.
-7. **SPI validation:** Avro for sequential carried schema, then Parquet for columnar/range access before the
+The first pass proposed nine steps that amount to a rewrite of the Job runtime. The second pass splits the
+arc into **two separately-decidable halves**, so the first delivers user-visible value and validates the
+generator without touching a tape or an event stream, and the second can be scheduled — or not — on its own
+merits. Format objects and provider-bound refs sit beside either half.
+
+### Step 0 — module preparation
+
+0. **`kzen-auto-plugin` → KMP** (F11, option A). Mechanical, independently green; `kzen-auto-common` gains
+   the dependency, `data/schema/` moves down, mirrors collapse. Publish order and docs updated in the same
+   change.
+
+### Half 1 — typed flat
+
+Everything below runs over `FlatFileRecord` only. A declared `DataSchema` over a CSV yields typed
+`val amount: Int` accessors; an undeclared column stays `ColumnValue`. This closes the analysis's §4.1
+(declared types discarded) and proves the accessor generator against the workload that matters today.
+
+1. **Semantic contract:** `DataType`, ordered `Field` with occurrence identity, presence/nullability, scalar
+   parameters, tagged variants, normalization, `accepts`, `join`, flatten-`project` and `KType → DataType`,
+   each with a representative-pair table and wire/digest tests.
+2. **Shape observation:** replace current `DataShape` with the provenance/stability/diagnostic envelope;
+   update declared and inspected schema paths together. `DataSchemaDocument.shape()` stops discarding types.
+3. **Runtime value:** define `DataValue` / `ValueAccess`, lifetime and release; adapt `FlatFileRecord` as the
+   flat backing and pin the *measured* allocation boundary (F6) against the current Job-lane baseline.
+4. **Job type flow and expressions:** replace `WorkerLane(payloadType, flatColumns)`, collapse authoritative
+   `JobMessage` value state, define Worker transformations, and generate typed / `ColumnValue` / dynamic
+   accessors in `CalculatedColumnEval`.
+
+### Beside either half
+
+5. **Configured-format proof:** compose delimited codec/dialect, record selection and text-decoding policy;
+   replace CSV/TSV coordinates and update all notation/fixtures in the same change; capture effective-format
+   identity in manifests and cache keys (F8); record the representation decisions from F7 without building
+   precedence machinery.
+6. **Provider-bound content:** provider resolution and range/sequential content access (F9) with the first
+   S3-like source. `DataSourceId` minting (DS O15) lands here.
+
+### Half 2 — structural readers
+
+7. **Tape + structural events + first structural reader:** JSON with a deliberately bounded, streaming-safe
+   selector and explicit dynamic, declared and inferred cases; flatten-`project` (step 1) is what the
+   existing column Workers consume from it.
+8. **SPI validation:** Avro for sequential carried schema, then Parquet for columnar/range access, before the
    reader/content SPI freezes.
-8. **Provider-bound content:** implement provider resolution and range/sequential content access with the first
-   S3-like source, reusing the format and value layers unchanged above it.
 9. **Structured writers**, if in scope; otherwise record their exclusion explicitly.
 
 ## Checked and worth preserving
@@ -489,3 +602,24 @@ This sequence targets the clean end state directly; it does not preserve old int
   `DataShape?` to `DataType?` is a signature change.
 - “One interface, two implementations, no regression risk” should be replaced with a measurable claim after
   runtime value lifetime is designed. `FileDataCursor` and superset projection currently allocate/copy rows.
+- §6.1 and §9.2 claim the event stream and the tape “agree by construction.” They are different interfaces —
+  a producer contract and a storage representation — and `FlatFileRecord` implementing the access interface
+  is a third. One access interface with N backings (ST10 as revised) is the claim that survives; a shared
+  char-tape does not, because Avro/Parquet primitives should not round-trip through characters (F6).
+
+## Removals recommended from the analysis
+
+- §5.2 “Materialize a `Record` and you can generate a class” — no consumer; defer per F5 until one exists.
+- §7.1's claim that `DelimitedTextFormat` buys fixed-width.
+- §5.7's “keep their signatures.”
+- §7.3's “the UI change is small.”
+- §14 step 1 as “pure model, no runtime” (F10).
+- §8.4's framing of `ColumnValue` as the `Dynamic` accessor — it is the `Scalar(Text)` accessor (ST1).
+- §13's “the one decision here that can break existing documents” on ST1 (ST9 breaks notation too).
+
+## Withdrawn from this review's first pass
+
+- Media type / content coding as a build step (F7) — now a recorded decision with a reserved hint slot.
+- “No compatibility-driven coercion” on ST1 — coercion on text columns is product behaviour; what is
+  withdrawn is only the idea that `Dynamic` is where it lives.
+- The open module-ownership question in F11 — decided (option A).
