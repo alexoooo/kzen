@@ -36,8 +36,8 @@ This is not a compatibility layer around the current split. The current split is
 - Script steps and Flow ports independently traffic in `Any?`;
 - Job carries `JobMessage(payload, flat)` and separately describes a lane as
   `WorkerLane(payloadType, flatColumns)`;
-- `ExecutionValue` is a useful wire and trace tree, but cannot retain arbitrary native identity or provide lazy
-  structural access; and
+- today's `ExecutionValue` is a useful wire and trace tree, but its name is execution-specific and it cannot
+  retain arbitrary native identity or provide lazy structural access; and
 - `DataShape.Tabular | Payload` describes current carriers rather than the data.
 
 Adding a `Both` case would preserve the same mistake. A Kotlin data class and a database row may both be records;
@@ -103,7 +103,7 @@ participate while preserving their distinct lifecycle rules.
 
 ### 2.4 `ExecutionValue` solves a different problem
 
-`ExecutionValue` is a small, serializable tree for requests, results and traces. That is valuable precisely
+Today's `ExecutionValue` is a small, serializable tree for requests, results and traces. That is valuable precisely
 because it is detached and bounded. It is not a suitable live runtime model:
 
 - it supports a deliberately restricted scalar/list/map vocabulary;
@@ -112,8 +112,10 @@ because it is detached and bounded. It is not a suitable live runtime model:
 - it has no field-presence or binding-origin model; and
 - it cannot carry a borrowed cursor- or transaction-scoped view safely.
 
-The unified model should convert to `ExecutionValue` at a wire or trace boundary under explicit depth, size,
-cycle and redaction policies. It should not make that conversion the cost of every in-process handoff.
+The target model renames this detached tree to `WireValue` and converts `DataValue` to it at a wire or trace
+boundary under explicit depth, size, cycle and redaction policies. It should not make that conversion the cost of
+every in-process handoff. `ExecutionValue` remains the name of the current implementation when this document
+describes existing code.
 
 ## 3. Design principles
 
@@ -145,9 +147,101 @@ The proposal follows these rules.
 ## 4. The semantic type language
 
 `DataType` describes the semantic operations a consumer may perform. It is recursive and independent of the
-runtime backing:
+runtime backing. The complete proposed type surface is:
 
 ```kotlin
+@JvmInline
+value class FieldId(val value: String)
+
+@JvmInline
+value class VariantId(val value: String)
+
+data class DataField(
+    val id: FieldId,
+    val name: String,
+    val type: DataType,
+    val presence: DataPresence = DataPresence.Required
+)
+
+sealed interface DataPresence {
+    data object Required: DataPresence
+    data object Optional: DataPresence
+    data class Defaulted(val default: DataDefault): DataPresence
+}
+
+sealed interface WireValue
+
+data object NullWireValue: WireValue
+data class TextWireValue(val value: String): WireValue
+data class BooleanWireValue(val value: Boolean): WireValue
+data class IntegerWireValue(val canonical: String): WireValue
+data class DecimalWireValue(val canonical: String): WireValue
+data class FloatingWireValue(val value: Double): WireValue
+class BinaryWireValue(val value: ByteArray): WireValue
+data class ListWireValue(val values: List<WireValue>): WireValue
+data class MapWireValue(val values: Map<String, WireValue>): WireValue
+
+data class BlobReferenceWireValue(
+    val scope: String,
+    val id: String,
+    val size: Long,
+    val mediaType: String? = null
+): WireValue
+
+data class DataDefault(
+    val literal: WireValue
+)
+
+sealed interface ScalarKind {
+    data object Boolean: ScalarKind
+    data class Integer(val bits: Int? = null, val signed: kotlin.Boolean = true): ScalarKind
+    data class Decimal(val precision: Int? = null, val scale: Int? = null): ScalarKind
+    data class Floating(val bits: Int = 64): ScalarKind
+    data object Text: ScalarKind
+    data object Binary: ScalarKind
+    data object Date: ScalarKind
+    data object Time: ScalarKind
+    data class DateTime(val zone: TimeZoneSemantics): ScalarKind
+    data object Duration: ScalarKind
+    data object Uuid: ScalarKind
+    data class Logical(val id: String, val storage: ScalarKind): ScalarKind
+}
+
+enum class TimeZoneSemantics {
+    None,
+    Offset,
+    Region
+}
+
+data class DataScalar(
+    val kind: ScalarKind,
+    val canonical: String
+)
+
+data class DataVariant(
+    val id: VariantId,
+    val type: DataType,
+    val label: String = id.value
+)
+
+sealed interface UnionTag {
+    val cases: List<UnionTagCase>
+
+    data class InternalField(
+        val field: FieldId,
+        override val cases: List<UnionTagCase>
+    ): UnionTag
+
+    data class External(
+        override val cases: List<UnionTagCase>
+    ): UnionTag
+}
+
+data class UnionTagCase(
+    val tag: DataScalar,
+    val variant: VariantId
+)
+
 sealed interface DataType {
     val nullable: Boolean
 
@@ -162,7 +256,7 @@ sealed interface DataType {
     ): DataType
 
     data class Mapping(
-        val key: ScalarKind,
+        val key: DataType,
         val value: DataType,
         override val nullable: Boolean = false
     ): DataType
@@ -173,8 +267,8 @@ sealed interface DataType {
     ): DataType
 
     data class Union(
-        val discriminator: FieldId,
         val variants: List<DataVariant>,
+        val tag: UnionTag? = null,
         override val nullable: Boolean = false
     ): DataType
 
@@ -190,14 +284,53 @@ sealed interface DataType {
 }
 ```
 
-This is an illustrative source shape rather than a frozen ABI. The important decisions are the cases and their
-semantics.
+`ClassName` in this sketch is an existing kzen-lib type. Every other referenced type is defined above. The syntax
+is still a proposal rather than a frozen ABI, but the semantics and invariants below are part of the proposal; an
+implementation should not silently fill them in differently.
+
+Identifiers are non-empty canonical strings. A `FieldId` is unique only within its enclosing `Record`; a
+`VariantId` is unique only within its enclosing `Union`. Display names and labels are not identities and may
+change without changing references. An authored schema persists its IDs. Inferred records derive deterministic
+IDs from structural paths and duplicate occurrence, never from process-local hashes.
+
+`WireValue` is the proposed replacement name and generalized surface for today's `ExecutionValue`. Integer and
+decimal values use normalized text so they remain exact across JVM/JS and JSON; floating values retain IEEE-754
+semantics. Temporal, UUID and logical scalar values use their canonical text form and are interpreted under the
+owning `DataType`. `BinaryWireValue` owns a defensive copy and implements content equality. Lists preserve order.
+Map keys are unique strings; insertion order is presentation-only, while serialization and digesting sort keys.
+Integer and decimal constructors validate their canonical strings. Non-finite floating values serialize through
+canonical named tokens rather than depending on invalid JSON numeric literals.
+
+`BlobReferenceWireValue` is the one non-self-contained leaf. `scope` identifies the resolver namespace and `id`
+identifies content within it; both are non-empty opaque strings. The current trace `run`/`hash` binary handle can
+lower to this generic form without making execution identity part of the foundational type. A resolver decides
+whether the scope is available; merely deserializing the tree performs no I/O. `size` is non-negative and
+`mediaType`, when present, is non-empty.
+
+`DataDefault.literal` must be recursively self-contained: it may not contain `BlobReferenceWireValue`. It is
+detached canonical data, not a live native object or executable expression. Its decoded type must be accepted by
+the field or binding type. A computed default belongs to binding construction and must produce the same explicit
+`Defaulted` origin; it is not smuggled into `DataDefault` as arbitrary code.
+
+`ScalarKind` is sealed rather than an enum because integer width, decimal precision/scale, floating width,
+date-time zone semantics and logical types carry parameters. `Integer.bits == null` means arbitrary precision.
+`Decimal` null precision/scale means unconstrained decimal, not binary floating point. `Logical` gives a plugin a
+stable semantic name while declaring the scalar storage kind generic consumers may use.
+
+`DataScalar` is the canonical, detached spelling used for mapping keys and union tags. Its factory validates and
+normalizes `canonical` for its kind—for example canonical decimal text, ISO temporal text, UUID text or base64
+binary. Runtime scalar values do not need to allocate `DataScalar` merely to be read; primitive accessors remain
+the fast path.
 
 ### 4.1 Records, mappings and listings are different
 
-A record has an ordered, declared field set. A mapping has arbitrary keys with a uniform value type. A listing
-has ordered numeric positions. Treating all three as `Map<String, Any?>` loses order, field identity, duplicate
-field handling, presence and element constraints.
+A record has an ordered, declared field set. A mapping has arbitrary scalar keys with a uniform value type. A
+listing has ordered numeric positions. Treating all three as `Map<String, Any?>` loses order, field identity,
+duplicate field handling, presence and element constraints.
+
+`Mapping.key` must be a non-null `Scalar` or non-null `Dynamic`; records and collections cannot be keys. Using a
+`DataType` rather than a required `ScalarKind` lets an empty or genuinely dynamic map state honestly that its key
+kind is not yet known. Every present runtime key is still a `DataScalar`.
 
 `DataField` needs a stable identity separate from its display name, its `DataType`, and a presence rule:
 
@@ -211,11 +344,62 @@ That policy does not alter the record's semantic type.
 ### 4.2 Scalar kinds are semantic, not JSON-derived
 
 The initial scalar vocabulary should cover boolean, text, integral and decimal numbers, binary, and the time/date
-kinds that kzen actually needs. Null is a `DataState`, not a scalar kind. Provider-native precision or format metadata may accompany the
-semantic projection when lossless round-trip is required. The type algebra should not inherit JSON's limited
-number and time vocabulary merely because JSON is one wire format.
+kinds that kzen actually needs. Null is a `DataState`, not a scalar kind. Provider-native precision or format
+metadata may accompany the semantic projection when lossless round-trip is required. The type algebra should not
+inherit JSON's limited number and time vocabulary merely because JSON is one wire format.
 
-### 4.3 Nominal is intentional
+### 4.3 Unions do not require record fields
+
+A union is an ordered, non-empty set of variants with unique IDs. Its variants may be any `DataType`, including
+scalars, listings, mappings, records, nominal values and nested unions. Null is represented by the union's
+`nullable` modifier rather than a synthetic null variant.
+
+For example, `List<String> | String` is:
+
+```kotlin
+DataType.Union(
+    variants = listOf(
+        DataVariant(
+            VariantId("many"),
+            DataType.Listing(DataType.Scalar(ScalarKind.Text))
+        ),
+        DataVariant(
+            VariantId("one"),
+            DataType.Scalar(ScalarKind.Text)
+        )
+    )
+)
+```
+
+No tag is needed because exactly one branch accepts a listing and exactly one accepts a string. For an untagged
+union, lifting or decoding compares the observed value type with every variant:
+
+- exactly one accepting variant selects that variant;
+- no accepting variants is a type error; and
+- more than one accepting variant is ambiguous and fails unless the decoder has an explicit, separately declared
+  disambiguation policy.
+
+Variant order is canonical for display and digest purposes; it is never an implicit “first match wins” rule.
+
+`UnionTag` is optional selection evidence:
+
+- `InternalField` means each selected variant is a record containing the named scalar field;
+- `External` means the backing or decoder supplies a tag beside the semantic value; and
+- each `UnionTagCase` maps one canonical scalar tag to a variant ID.
+
+Tag values must be unique, every referenced variant must exist, and every variant must have at least one case.
+Several tag aliases may select one variant. An internal tag field must exist in every variant record and accept
+the corresponding tag kind/value. Because `FieldId` is record-local, `InternalField` deliberately requires those
+variant records to reuse one common local ID for the discriminator; otherwise the union uses an external tag or
+untagged structural selection.
+Externally keyed and adjacently tagged wire encodings are format configuration: they decode to `External`
+selection evidence rather than adding JSON-specific container rules to `DataType`.
+
+A union-typed runtime node exposes its active `VariantId` through `ValueAccess`. The tag helps a decoder choose
+that ID; it is not the runtime identity itself. A backing that already knows the variant does not rediscover it by
+examining fields.
+
+### 4.4 Nominal is intentional
 
 `Nominal` means “this value is known by its declared native type, but no general structural contract has been
 promised.” It is not a failure case. Native Kotlin code may still receive the original object without copying.
@@ -225,12 +409,12 @@ This gives arbitrary objects a safe baseline. Reflecting every public getter wou
 depend on methods that may be expensive, stateful, service-like or simply not data. Kotlin data classes and Java
 records have a stronger data intent and are appropriate automatic structural baselines.
 
-### 4.4 Dynamic is known uncertainty
+### 4.5 Dynamic is known uncertainty
 
 `Dynamic` means a value exists but its usable structure is not known until runtime. It differs from a failed or
 unsupported attempt to inspect a value. Consumers may accept it, defer checks, or require a stronger type.
 
-### 4.5 The type algebra is part of the contract
+### 4.6 The type algebra is part of the contract
 
 The model is incomplete without deterministic operations for:
 
@@ -239,6 +423,44 @@ The model is incomplete without deterministic operations for:
 - record-to-tabular projection under an explicit naming policy;
 - normalization and canonical equality/digest rules; and
 - `TypeMetadata` / `KType` conversion.
+
+The proposed algebra surface makes failure and variant ambiguity explicit:
+
+```kotlin
+interface DataTypeAlgebra {
+    fun accepts(expected: DataType, actual: DataType): TypeAcceptance
+    fun join(left: DataType, right: DataType): DataType
+    fun selectVariant(
+        union: DataType.Union,
+        actual: DataType,
+        observedTag: DataScalar? = null
+    ): VariantSelection
+}
+
+sealed interface TypeAcceptance {
+    data object Accepted: TypeAcceptance
+    data class Rejected(val problem: DataProblem): TypeAcceptance
+}
+
+sealed interface VariantSelection {
+    data class Selected(val variant: VariantId): VariantSelection
+    data class NoMatch(val problem: DataProblem): VariantSelection
+    data class Ambiguous(val candidates: List<VariantId>): VariantSelection
+}
+```
+
+`accepts` answers type compatibility only: a union accepts an actual type when at least one variant does.
+`selectVariant` answers the separate runtime question and may return every ambiguous candidate. An internal tag is
+read from the value by its adapter; an external tag is supplied by the backing or decoder. Either is passed as
+`observedTag`; without one, structural selection uses the rules in §4.3. Callers never infer ambiguity from an
+exception message or use variant order as precedence.
+
+`join` creates or normalizes a union only when the alternatives remain useful; it does not silently widen
+incompatible values to `Dynamic`. Union normalization flattens nested untagged unions, removes exact duplicate
+variants, preserves stable variant IDs, and never merges distinct tagged variants merely because their value
+types happen to match. Record/tabular projection is a separate value operation because it may need an adapter and
+may allocate; its plan and failure model should be specified with the first implementation rather than hidden
+inside `accepts`.
 
 Known primitives and collections convert structurally. A declared domain class converts to `Nominal` unless a
 structural adapter provides a stronger projection. This makes the conversion mechanical rather than an expanding
@@ -249,6 +471,38 @@ list of application special cases.
 `DataType` answers what one value means. `DataShape` records how confidently that type is known:
 
 ```kotlin
+enum class ShapeProvenance {
+    Declared,
+    Carried,
+    ProviderReported,
+    Inferred,
+    RuntimeOnly
+}
+
+sealed interface ShapeStability {
+    data object Stable: ShapeStability
+    data class Provisional(val coverage: SampleCoverage): ShapeStability
+}
+
+data class SampleCoverage(
+    val observedItems: Long,
+    val observedBytes: Long? = null,
+    val complete: Boolean = false
+)
+
+enum class DiagnosticSeverity {
+    Info,
+    Warning,
+    Error
+}
+
+data class SchemaDiagnostic(
+    val severity: DiagnosticSeverity,
+    val code: String,
+    val message: String,
+    val location: String? = null
+)
+
 data class DataShape(
     val itemType: DataType,
     val provenance: ShapeProvenance,
@@ -262,9 +516,15 @@ sealed interface DataShapeResult {
 }
 ```
 
-Provenance distinguishes at least declared, carried, provider-reported, inferred and runtime-only knowledge.
-Stability distinguishes an invariant contract from an observation that may vary by part, query or run.
-Diagnostics record conflicts or lossy projections without mutating the declared contract.
+`Stable` means the producer promises the type for the scope described by the calling contract; it does not mean
+the source can never evolve between executions. `Provisional` reports the exact sample coverage used for
+inference. `complete` means the complete bounded input represented by that observation was inspected, not that
+future source contents are frozen. Diagnostics use stable machine-readable codes; `location` is an optional
+provider/source path intended for display, not semantic identity.
+
+Provenance and stability are orthogonal. A declared type is normally stable, while inferred or runtime-only
+knowledge may be provisional. Diagnostics record conflicts or lossy projections without mutating the declared
+contract.
 
 There is no `Tabular`, `Payload` or `Both` case:
 
@@ -283,26 +543,59 @@ because a table rendered it.
 The runtime value is a small immutable view:
 
 ```kotlin
+@JvmInline
+value class DataNode internal constructor(val token: Long)
+
 class DataValue(
     val type: DataType,
     val access: ValueAccess,
     val root: DataNode
 )
+
+data class DataProblem(
+    val code: String,
+    val message: String,
+    val path: List<String> = emptyList()
+)
+
+enum class DataRetention {
+    Detached,
+    Borrowed,
+    Retainable
+}
+
+interface RetainedDataValue: AutoCloseable {
+    val value: DataValue
+}
 ```
 
-`DataNode` is an opaque backing-local handle. Its exact encoding is an implementation decision, but ordinary
-field/index traversal must use a primitive or inline handle rather than allocate a new `DataValue` for every
-field.
+`DataNode.token` is meaningful only to the accompanying `ValueAccess`; nodes from different access instances are
+never interchangeable. The access implementation owns the token namespace and any backing tables. This fixes the
+public representation at one inline `Long` while leaving each backing free to encode offsets, row/field slots or
+cached native-property plans. The root invariant is `access.type(root) == type`.
 
-Conceptually, `ValueAccess` provides:
+The complete semantic access surface is:
 
 ```kotlin
 interface ValueAccess {
+    val retention: DataRetention
+
+    fun type(node: DataNode): DataType
     fun state(node: DataNode): DataState
+    fun origin(node: DataNode): ValueOrigin?
+    fun problem(node: DataNode): DataProblem?
+    fun isAlive(node: DataNode): Boolean
+    fun retain(node: DataNode): RetainedDataValue
+
+    fun activeVariant(node: DataNode): VariantId
+
     fun field(node: DataNode, field: FieldId): DataNode
     fun entry(node: DataNode, key: DataScalar): DataNode
     fun element(node: DataNode, index: Int): DataNode
     fun size(node: DataNode): Int
+    fun keyAt(node: DataNode, index: Int): DataScalar
+
+    fun scalar(node: DataNode): DataScalar
 
     fun readBoolean(node: DataNode): Boolean
     fun readLong(node: DataNode): Long
@@ -314,22 +607,62 @@ interface ValueAccess {
 }
 ```
 
-The actual interface may separate capabilities so a scalar backing does not pretend to support records. Generic
-code dispatches by the semantic type/capability, never by concrete backing class.
+`scalar` is the complete canonical path for every `ScalarKind`, including arbitrary-precision numbers, logical
+types and temporal values. The specialized reads are allocation-free fast paths and succeed only when the scalar
+kind can be represented exactly by the requested Kotlin primitive. `readBinary` returns a defensive copy; a
+zero-copy binary consumer needs an explicit borrowed-buffer capability with the same lifetime rules as the
+backing. `native` is the explicit native interop edge; it fails when the backing has no native projection rather
+than synthesizing one.
 
-`DataState` keeps the states that `Any?` collapses:
+`activeVariant` is valid only for a present union node. `field`, `entry`, `element`, `size` and `keyAt` are valid
+only for compatible present structural nodes. A record enumerates fields through its ordered `DataType.Record`
+definition; a mapping uses `size` plus `keyAt`. Unsupported operations fail as contract violations. The eventual
+source API may split these operations into capability subinterfaces, but it must preserve these semantics and
+must not require generic code to inspect concrete backing classes.
+
+Retention is explicit rather than inferred from a backing class:
+
+- `Detached` values are self-contained and remain live independently of a cursor or execution frame;
+- `Borrowed` values are valid only while their owner says so and cannot be retained; callers must consume them or
+  request a detached snapshot; and
+- `Retainable` values may outlive the current handoff only through `retain`, whose returned lease owns the retained
+  value until `close`.
+
+`isAlive` permits a deterministic stale-view failure; every accessor operation checks the same lifetime state.
+Calling `retain` on `Borrowed` fails. Calling it on `Detached` returns a no-op lease over the same value. A
+`Retainable` backing may increment a shared lease, pin a row/page or make a bounded copy, but that cost occurs only
+at the explicit retention boundary. The engine, not Formula code, owns these leases during ordinary processing.
+
+`DataValue` intentionally has reference identity rather than generated structural equality. Content comparison
+and digesting are explicit operations with depth, type and lifetime policies; comparing two access/root handles
+would not establish semantic equality.
+
+`DataState`, `ValueOrigin` and `problem` keep the information that `Any?` collapses without allocating a state
+wrapper on every successful field read:
 
 ```kotlin
-sealed interface DataState {
-    data object Absent: DataState
-    data object Null: DataState
-    data object Present: DataState
-    data class Invalid(val problem: DataProblem): DataState
+enum class DataState {
+    Absent,
+    Null,
+    Present,
+    Invalid
+}
+
+enum class ValueOrigin {
+    Literal,
+    Backing,
+    Defaulted,
+    Derived
 }
 ```
 
 An accessor fails immediately when an operation contradicts `DataType`: reading text from a record or asking a
-required missing field to masquerade as null is a contract error, not a fallback.
+required missing field to masquerade as null is a contract error, not a fallback. `Invalid` contains detached,
+display-safe information through `problem(node)` rather than a live `Throwable`; source exceptions may be
+retained separately by their owner for logging. `origin(node)` is non-null for `Null` and `Present`, and null for
+`Absent` and `Invalid`. A field resolved from `DataPresence.Defaulted` reports `Defaulted`; derived projections
+report `Derived`. This origin concerns the node's value, while `BindingOrigin` separately records how a named
+binding was populated.
 
 ### 6.1 Required backing implementations
 
@@ -352,6 +685,11 @@ The list is open. Adding a backing should not add a new `DataType` case or requi
 `DataValue` is a read view even when its backing object is mutable. No `setField` belongs on `ValueAccess`.
 Graph changes go through notation commands/reducers; durable-row changes go through a store transaction or
 repository command; Kotlin object mutation remains explicit Kotlin code.
+
+`native` is the deliberate escape hatch from that guarantee. A caller requesting the original mutable Kotlin
+object may mutate it through its own API; generic structural processors never call `native` merely to read fields.
+The immutable guarantee applies to the data access contract, not to every method on an object the caller
+explicitly requested by native type.
 
 A view may borrow its backing. A row may be valid only until the cursor advances; a database value may depend on
 a transaction; a graph object may belong to one compiled graph snapshot. The engine therefore owns boundary
@@ -389,10 +727,10 @@ data class Reading(val sensor: String, val value: Double)
 Reading(sensorId, measuredValue)
 ```
 
-At the Formula/step/port boundary, `DataValues.lift(result, declaredType)` selects an adapter and creates the root
-view. When another native Kotlin expression consumes the value, the native backing returns the original
-`Reading` instance. When a generic Sort, Filter, table or writer consumes it, the data-class adapter exposes the
-same instance as a record with `sensor` and `value` fields.
+At the Formula/step/port boundary, the configured `DataAdapterRegistry.lift(result, declaredType)` selects an
+adapter and creates the root view. When another native Kotlin expression consumes the value, the native backing
+returns the original `Reading` instance. When a generic Sort, Filter, table or writer consumes it, the data-class
+adapter exposes the same instance as a record with `sensor` and `value` fields.
 
 ### 7.1 Lightweight record literals are not arbitrary maps
 
@@ -413,6 +751,27 @@ schema depend on each instance's keys and recreate the current runtime-header am
 This gives small ad hoc values a concise form while data classes and managed objects remain the natural forms for
 reused domain structure.
 
+The authoring surface can remain small and explicit:
+
+```kotlin
+data class RecordLiteralField(
+    val name: String,
+    val value: Any?
+)
+
+class RecordLiteral internal constructor(
+    val fields: List<RecordLiteralField>
+)
+
+fun recordOf(vararg fields: Pair<String, Any?>): RecordLiteral
+```
+
+The factory allows an empty record, preserves order, requires each name to be non-empty and names to be unique,
+and defensively copies the field list. Its adapter
+derives deterministic `FieldId`s from those names and lifts each value recursively. `Any?` is appropriate here as
+the native authoring input; the resulting boundary value is typed and stateful. A literal needing duplicate
+display names must use a schema-aware record builder rather than object-literal syntax.
+
 ### 7.2 Automatic baseline
 
 The baseline should be predictable:
@@ -425,6 +784,18 @@ The baseline should be predictable:
 - graph-created objects use the graph adapter described below;
 - a type with a registered adapter uses that adapter; and
 - any other object lifts as `Nominal` and retains native access only.
+
+The expected/declared type participates in inference without changing the adapter owner:
+
+- null with a nullable expected type uses that type and `DataState.Null`; null without one uses nullable
+  `Dynamic`; null against a non-null type fails;
+- an empty collection with an expected listing/mapping type uses its declared element/key/value types;
+- an untyped empty list becomes `Listing(Dynamic(nullable = false))`;
+- an untyped empty map becomes
+  `Mapping(Dynamic(nullable = false), Dynamic(nullable = false))`;
+- a non-empty homogeneous collection uses the joined observed element/value type; and
+- heterogeneous elements use the deterministic `join` algebra, including a union when its variants remain
+  distinguishable.
 
 Common code owns the model and adapter protocol. Platform modules own reflection or generated access. The common
 contract must not pretend Kotlin/JS offers JVM reflection. On platforms without a safe automatic structural
@@ -440,6 +811,41 @@ boundary then uses it automatically. This is different from requiring every Form
 Adapter selection must be deterministic. Exact type adapters win over assignable/capability adapters; conflicting
 adapters at the same priority fail during registry construction. Generic framework code asks the registry for a
 capability and never names application classes.
+
+The conceptual adapter boundary is:
+
+```kotlin
+@JvmInline
+value class DataAdapterId(val value: String)
+
+sealed interface AdapterMatch {
+    data object Exact: AdapterMatch
+    data class Assignable(val distance: Int): AdapterMatch
+    data class Capability(val priority: Int): AdapterMatch
+}
+
+interface DataAdapter {
+    val id: DataAdapterId
+    fun match(value: Any): AdapterMatch?
+    fun lift(value: Any, expected: DataType? = null): DataValue
+}
+
+interface DataAdapterRegistry {
+    fun lift(value: Any?, expected: DataType? = null): DataValue
+    fun adapter(value: Any): DataAdapter
+}
+```
+
+`Any` appears here deliberately: this is the native-to-data interop edge. Null is handled by the registry before
+adapter selection. Exact matches outrank assignable matches; among assignable matches the smallest non-negative
+distance wins; capability matches are considered only when neither exists, with highest priority winning. Any tie
+at the winning rank is a configuration error naming every conflicting adapter. `expected` validates or selects a
+projection offered by the winning adapter; it does not let a desired result type silently change which adapter
+owns the native value.
+
+Built-in literal, collection, data-class, Java-record and graph integrations participate through the same
+registry contract, although a platform implementation may inline their hot paths. `DataAdapterId` is a non-empty
+stable identifier used in diagnostics; it is not a concrete-class dispatch key exposed to consumers.
 
 ### 7.4 Cycles and identity
 
@@ -541,10 +947,14 @@ The replacement for `TupleDefinition` plus `TupleValue` is one ordered binding s
 cannot drift:
 
 ```kotlin
-data class DataBindings(
+@JvmInline
+value class BindingName(val value: String)
+
+class DataBindings private constructor(
     val entries: List<DataBinding>
 ) {
     operator fun get(name: BindingName): DataBinding
+    fun find(name: BindingName): DataBinding?
     fun names(): List<BindingName>
     fun requireValue(name: BindingName): DataValue
 }
@@ -557,7 +967,7 @@ data class DataBinding(
 data class DataBindingDefinition(
     val name: BindingName,
     val type: DataType,
-    val default: DataDefault? = null,
+    val presence: DataPresence = DataPresence.Required,
     val sensitive: Boolean = false
 )
 
@@ -576,7 +986,14 @@ enum class BindingOrigin {
 }
 ```
 
-Again, names may change before implementation; the semantic requirements should not.
+`BindingName` is a non-empty canonical string unique within the binding set. `DataPresence` and `DataDefault` are
+the same definitions used by record fields: omission, nullability and defaulting therefore have one meaning
+throughout the model. Nullability belongs to `DataType`; presence belongs to the containing field or binding.
+
+`DataBindings` has validated factories rather than a public constructor. A factory takes ordered definitions and
+supplied name/value pairs, rejects duplicate definitions and supplied names, rejects unknown supplied names,
+checks each value against its declaration, and applies detached or computed defaults. The exact factory names may
+change before implementation; those construction rules should not.
 
 ### 10.1 Behaviour
 
@@ -589,8 +1006,10 @@ Again, names may change before implementation; the semantic requirements should 
 - Type acceptance is checked when a value is bound, not deferred until a consumer casts it.
 - Sensitive values expose names, types, states and origins but redact previews.
 
-Whether omitted optional inputs are retained as `Unbound` or excluded is not left to individual callers: they
-remain present as `Unbound`, because enumeration must describe the whole signature.
+Omitted optional inputs remain present as `Unbound`, because enumeration describes the whole signature. An
+unbound required input is representable while editing or assembling a request, but validation for execution fails.
+A defaulted input is never unbound after successful execution validation: the factory binds its default and marks
+the origin `Defaulted`.
 
 ### 10.2 `DataContext`
 
@@ -686,18 +1105,65 @@ No source-specific payload category is introduced.
 
 ## 12. Wire, trace and diagnostic boundaries
 
-`ExecutionValue` remains the canonical detached wire/trace vocabulary. Conversion from `DataValue` is explicit
-and policy-bound:
+### 12.1 Why the detached tree is `WireValue`
+
+`ExecutionValue` is too narrow for its existing role: the type already carries detached-action responses,
+data-source models, requests, results, traces, serialization payloads and digest input. Using it for defaults would
+make the mismatch more visible. The target name is `WireValue` because the value is canonical boundary data even
+when it is temporarily held in memory rather than immediately sent over a network.
+
+`StructuralValue` is rejected because it would collide conceptually with `DataValue` and `ValueAccess`, the live
+structural model. `ValueTree` accurately describes the representation but not its boundary role. `SnapshotValue`
+is too narrow because authored defaults and requests are not snapshots of a live value.
+
+The rename includes the variants (`TextWireValue`, `MapWireValue`, and so on) and moves the model out of the
+execution-specific package. It should land with the unified-model cutover rather than as a standalone cosmetic
+rename across the current call sites.
+
+### 12.2 Conversion and snapshot policy
+
+`WireValue` is the canonical detached wire/trace vocabulary. Conversion from `DataValue` is explicit and
+policy-bound:
 
 ```kotlin
+sealed interface ReferenceSnapshotPolicy {
+    data object Reject: ReferenceSnapshotPolicy
+    data object IdentityOnly: ReferenceSnapshotPolicy
+    data class Follow(val maximumReferences: Int): ReferenceSnapshotPolicy
+}
+
+enum class SensitiveSnapshotPolicy {
+    Redact,
+    Reject
+}
+
+enum class SnapshotLimitPolicy {
+    Fail,
+    TruncateWithDiagnostic
+}
+
 data class SnapshotPolicy(
     val maximumDepth: Int,
     val maximumElements: Int,
     val maximumTextLength: Int,
+    val maximumBinaryBytes: Int,
+    val maximumDurationMillis: Long,
     val referencePolicy: ReferenceSnapshotPolicy,
-    val sensitivePolicy: SensitiveSnapshotPolicy
+    val sensitivePolicy: SensitiveSnapshotPolicy,
+    val limitPolicy: SnapshotLimitPolicy = SnapshotLimitPolicy.Fail
 )
 ```
+
+All numeric limits are strictly positive. `maximumElements` is cumulative across the snapshot, not per
+collection. `IdentityOnly` emits a stable reference only when the backing supplies one and otherwise fails.
+`Follow` follows at most `maximumReferences` distinct identities while still respecting every global limit.
+`Redact` emits a canonical redaction marker; `Reject` refuses to snapshot a sensitive binding. Truncation always
+emits a diagnostic identifying the exceeded limit, so a truncated snapshot cannot be mistaken for complete data.
+
+`BlobReferenceWireValue` does not make every conversion reference-capable. It is emitted only when the policy and
+calling protocol provide a resolver scope. `DataDefault`, canonical type definitions and other permanently
+self-contained locations reject it recursively. A trace may emit it for large binary content because its trace
+blob endpoint supplies the corresponding scope.
 
 The conversion must:
 
@@ -738,10 +1204,11 @@ An inline/reified convenience can improve a caller's cast, but it cannot tell th
 a cross-platform structural type, represent an unbound value, or validate a dynamic host call before lookup. It
 may sit above `DataBindings`; it cannot replace them.
 
-### 13.4 Use `ExecutionValue` everywhere
+### 13.4 Use `WireValue` everywhere
 
-This gives one serializable tree at the price of eager copying, loss of native identity, a narrower type system
-and poor streaming/row performance. It confuses a snapshot format with a runtime value.
+Renaming today's `ExecutionValue` does not make it the live runtime model. Using `WireValue` everywhere would
+still impose eager copying, lose native identity, narrow the type system and damage streaming/row performance. It
+would confuse a boundary format with a runtime value.
 
 ### 13.5 Add `DataShape.Both`
 
@@ -793,7 +1260,7 @@ consumer modules while implementing the common capability contract.
 
 This is a foundational replacement, not a Job feature. The implementation should be sequenced conceptually as:
 
-1. define and test `DataType`, shape observations, values/access, bindings and bounded snapshots in
+1. define and test `DataType`, shape observations, values/access, bindings and bounded `WireValue` snapshots in
    `kzen-lib-common`;
 2. add literal, native, graph and flat-record backings plus generated expression access, validating allocation
    and lifetime behaviour before changing public Logic APIs;
@@ -815,7 +1282,11 @@ The proposal should not be accepted on API aesthetics alone. A prototype or impl
 ### Semantic model
 
 - canonical wire/digest round-trips for every `DataType` case;
+- canonical `WireValue` round-trips for every leaf/container, non-finite floating values and blob references;
+- recursive rejection of blob references in `DataDefault.literal`;
 - representative `accepts` and `join` pairs, including nullability, optional fields and unions;
+- untagged scalar/list unions, internally and externally tagged unions, tag aliases, and deterministic rejection
+  of overlapping untagged variants;
 - stable field identity and duplicate display-name projection;
 - distinct absent, null, defaulted and invalid states; and
 - `TypeMetadata`/`KType` conversion with no application-specific branches.
@@ -868,17 +1339,18 @@ These are recommendations for review, not landed decisions.
 | UD2 | Foundation owner? | `kzen-lib-common` |
 | UD3 | Runtime representation? | One immutable `DataValue` over multiple `ValueAccess` backings |
 | UD4 | `Tabular`, `Payload`, or both? | None as type cases; use semantic types and explicit projections |
-| UD5 | Normal Formula experience? | Return ordinary Kotlin objects; lift automatically at the boundary |
-| UD6 | Automatic structural native baseline? | Primitives/collections plus Kotlin data classes and Java records; arbitrary objects remain nominal |
-| UD7 | Arguments/results? | Ordered, enumerable, typed `DataBindings`; no primary `Any?` lookup |
-| UD8 | Missing versus null? | Always distinct |
-| UD9 | Graph object read? | Original native instance plus policy-limited immutable structural view |
-| UD10 | Graph object write? | Explicit notation command; never `DataValue` write-through |
-| UD11 | Record → managed graph object? | Explicit import/create operation only |
-| UD12 | Durable row read/write? | Row-backed immutable view; explicit transactional mutation |
-| UD13 | Wire and trace model? | Keep `ExecutionValue` as an explicit bounded snapshot |
-| UD14 | Performance strategy? | Primitive handles, cached/generated adapters, no eager materialization, benchmark gate |
-| UD15 | Migration style? | One coordinated cutover; do not preserve a parallel legacy dataflow model |
+| UD5 | Must every union have a discriminator field? | No; arbitrary variants are allowed, tags are optional, and ambiguous untagged selection fails |
+| UD6 | Normal Formula experience? | Return ordinary Kotlin objects; lift automatically at the boundary |
+| UD7 | Automatic structural native baseline? | Primitives/collections plus Kotlin data classes and Java records; arbitrary objects remain nominal |
+| UD8 | Arguments/results? | Ordered, enumerable, typed `DataBindings`; no primary `Any?` lookup |
+| UD9 | Missing versus null? | Always distinct |
+| UD10 | Graph object read? | Original native instance plus policy-limited immutable structural view |
+| UD11 | Graph object write? | Explicit notation command; never `DataValue` write-through |
+| UD12 | Record → managed graph object? | Explicit import/create operation only |
+| UD13 | Durable row read/write? | Row-backed immutable view; explicit transactional mutation |
+| UD14 | Wire and trace model? | Rename `ExecutionValue` to `WireValue`; keep it as an explicit bounded boundary tree |
+| UD15 | Performance strategy? | Primitive handles, cached/generated adapters, no eager materialization, benchmark gate |
+| UD16 | Migration style? | One coordinated cutover; do not preserve a parallel legacy dataflow model |
 
 ## 17. Questions that remain legitimately open
 
@@ -897,6 +1369,9 @@ approved, the following need prototypes or explicit decisions:
    and structured writers without polluting the semantic access language.
 6. **Tabular projection policy.** Exact duplicate-name, nested-field and mapping-key rules for consumers that
    explicitly request columns.
+7. **`WireValue` JSON grammar.** Whether the implementation preserves the current `{type, value}` envelope or
+   introduces a versioned grammar for exact integers, decimals and blob references. The semantic variants and
+   canonical round-trip requirements above do not depend on that spelling.
 
 Those are reasons to review and prototype the proposal before implementation. They are not reasons to retain the
 current opaque and duplicated boundaries.
