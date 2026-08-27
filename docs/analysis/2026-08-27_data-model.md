@@ -171,15 +171,26 @@ sealed interface DataPresence {
 
 sealed interface WireValue
 
+sealed interface ScalarWireValue: WireValue
+
 data object NullWireValue: WireValue
-data class TextWireValue(val value: String): WireValue
-data class BooleanWireValue(val value: Boolean): WireValue
-data class IntegerWireValue(val canonical: String): WireValue
-data class DecimalWireValue(val canonical: String): WireValue
-data class FloatingWireValue(val value: Double): WireValue
-class BinaryWireValue(val value: ByteArray): WireValue
+data class TextWireValue(val value: String): ScalarWireValue
+data class BooleanWireValue(val value: Boolean): ScalarWireValue
+data class IntegerWireValue(val canonical: String): ScalarWireValue
+data class DecimalWireValue(val canonical: String): ScalarWireValue
+data class FloatingWireValue(val value: Double): ScalarWireValue
+class BinaryWireValue(val value: ByteArray): ScalarWireValue
 data class ListWireValue(val values: List<WireValue>): WireValue
-data class MapWireValue(val values: Map<String, WireValue>): WireValue
+data class ObjectWireValue(val values: Map<String, WireValue>): WireValue
+
+data class WireEntry(
+    val key: ScalarWireValue,
+    val value: WireValue
+)
+
+data class MappingWireValue(
+    val entries: List<WireEntry>
+): WireValue
 
 data class BlobReferenceWireValue(
     val scope: String,
@@ -201,22 +212,10 @@ sealed interface ScalarKind {
     data object Binary: ScalarKind
     data object Date: ScalarKind
     data object Time: ScalarKind
-    data class DateTime(val zone: TimeZoneSemantics): ScalarKind
+    data object Instant: ScalarKind
     data object Duration: ScalarKind
     data object Uuid: ScalarKind
-    data class Logical(val id: String, val storage: ScalarKind): ScalarKind
 }
-
-enum class TimeZoneSemantics {
-    None,
-    Offset,
-    Region
-}
-
-data class DataScalar(
-    val kind: ScalarKind,
-    val canonical: String
-)
 
 data class DataVariant(
     val id: VariantId,
@@ -224,21 +223,13 @@ data class DataVariant(
     val label: String = id.value
 )
 
-sealed interface UnionTag {
-    val cases: List<UnionTagCase>
+data class FieldDiscriminator(
+    val field: FieldId,
+    val cases: List<DiscriminatorCase>
+)
 
-    data class InternalField(
-        val field: FieldId,
-        override val cases: List<UnionTagCase>
-    ): UnionTag
-
-    data class External(
-        override val cases: List<UnionTagCase>
-    ): UnionTag
-}
-
-data class UnionTagCase(
-    val tag: DataScalar,
+data class DiscriminatorCase(
+    val value: ScalarWireValue,
     val variant: VariantId
 )
 
@@ -268,7 +259,7 @@ sealed interface DataType {
 
     data class Union(
         val variants: List<DataVariant>,
-        val tag: UnionTag? = null,
+        val discriminator: FieldDiscriminator? = null,
         override val nullable: Boolean = false
     ): DataType
 
@@ -295,9 +286,11 @@ IDs from structural paths and duplicate occurrence, never from process-local has
 
 `WireValue` is the proposed replacement name and generalized surface for today's `ExecutionValue`. Integer and
 decimal values use normalized text so they remain exact across JVM/JS and JSON; floating values retain IEEE-754
-semantics. Temporal, UUID and logical scalar values use their canonical text form and are interpreted under the
-owning `DataType`. `BinaryWireValue` owns a defensive copy and implements content equality. Lists preserve order.
-Map keys are unique strings; insertion order is presentation-only, while serialization and digesting sort keys.
+semantics. Temporal and UUID scalar values use their canonical text form and are interpreted under the owning
+`DataType`. `BinaryWireValue` owns a defensive copy and implements content equality. Lists preserve order.
+`ObjectWireValue` keys are unique strings; insertion order is presentation-only, while serialization and
+digesting sort keys. `MappingWireValue` carries arbitrary scalar keys, rejects duplicate keys under scalar
+content equality, and stores entries in canonical key order.
 Integer and decimal constructors validate their canonical strings. Non-finite floating values serialize through
 canonical named tokens rather than depending on invalid JSON numeric literals.
 
@@ -312,15 +305,20 @@ detached canonical data, not a live native object or executable expression. Its 
 the field or binding type. A computed default belongs to binding construction and must produce the same explicit
 `Defaulted` origin; it is not smuggled into `DataDefault` as arbitrary code.
 
-`ScalarKind` is sealed rather than an enum because integer width, decimal precision/scale, floating width,
-date-time zone semantics and logical types carry parameters. `Integer.bits == null` means arbitrary precision.
-`Decimal` null precision/scale means unconstrained decimal, not binary floating point. `Logical` gives a plugin a
-stable semantic name while declaring the scalar storage kind generic consumers may use.
+`ScalarKind` is sealed rather than an enum because integer width, decimal precision/scale and floating width carry
+parameters. `Integer.bits == null` means arbitrary precision. `Decimal` null precision/scale means unconstrained
+decimal, not binary floating point.
 
-`DataScalar` is the canonical, detached spelling used for mapping keys and union tags. Its factory validates and
-normalizes `canonical` for its kind—for example canonical decimal text, ISO temporal text, UUID text or base64
-binary. Runtime scalar values do not need to allocate `DataScalar` merely to be read; primitive accessors remain
-the fast path.
+`ScalarWireValue` is the one detached scalar representation used for mapping keys, discriminator values and
+generic scalar reads; there is no parallel `DataScalar`. Its enclosing `DataType.Scalar` supplies the semantic
+kind. For example,
+`TextWireValue` may carry text, a canonical date, an instant or a UUID; the owning type determines which. Runtime
+code may use specialized primitive accessors instead of constructing a scalar wire value on a hot path.
+
+Scalar content equality is variant-specific: text and booleans compare their values; integers and decimals compare
+their validated canonical strings; floating values use their canonical IEEE-754 representation; and binary uses
+byte content. Canonical mapping-key order sorts first by wire scalar variant and then by that variant's canonical
+bytes. This ordering exists for deterministic wire/digest output and is not a user-visible data ordering claim.
 
 ### 4.1 Records, mappings and listings are different
 
@@ -330,7 +328,7 @@ duplicate field handling, presence and element constraints.
 
 `Mapping.key` must be a non-null `Scalar` or non-null `Dynamic`; records and collections cannot be keys. Using a
 `DataType` rather than a required `ScalarKind` lets an empty or genuinely dynamic map state honestly that its key
-kind is not yet known. Every present runtime key is still a `DataScalar`.
+kind is not yet known. Every present runtime key is still a `ScalarWireValue` interpreted under `Mapping.key`.
 
 `DataField` needs a stable identity separate from its display name, its `DataType`, and a presence rule:
 
@@ -347,6 +345,25 @@ The initial scalar vocabulary should cover boolean, text, integral and decimal n
 kinds that kzen actually needs. Null is a `DataState`, not a scalar kind. Provider-native precision or format
 metadata may accompany the semantic projection when lossless round-trip is required. The type algebra should not
 inherit JSON's limited number and time vocabulary merely because JSON is one wire format.
+
+The temporal meanings are deliberately small and explicit:
+
+- `Date` is a calendar date without a time or zone;
+- `Time` is a wall-clock time without a date or zone;
+- `Instant` is an absolute point on the timeline, canonically serialized in UTC; and
+- `Duration` is an elapsed amount rather than a calendar date/time.
+
+`Instant` does not pretend to represent a local date-time. Converting “09:00 on 2026-09-01” to an instant requires
+a timezone and its rules, which the value does not contain. The initial core therefore has no parameterized
+`DateTime(TimeZoneSemantics)` case. A provider's timestamp-without-zone, original offset, region ID and precision
+remain representation metadata, a nominal adapted value, or canonical text until a concrete processing use case
+justifies a properly specified scalar type.
+
+The initial core also has no generic `Logical(id, storage)` extension case. Such a type would require stable
+namespaced IDs, canonicalization and validation providers, compatibility rules, missing-provider behaviour and an
+explicit projection to its storage scalar. `Nominal` plus the adapter registry already provides a safe extension
+path for custom values. A logical/refined scalar can be added when a real type needs generic primitive transport
+while retaining semantic identity; the registry is not introduced speculatively.
 
 ### 4.3 Unions do not require record fields
 
@@ -371,8 +388,8 @@ DataType.Union(
 )
 ```
 
-No tag is needed because exactly one branch accepts a listing and exactly one accepts a string. For an untagged
-union, lifting or decoding compares the observed value type with every variant:
+No discriminator is needed because exactly one branch accepts a listing and exactly one accepts a string. For an
+undiscriminated union, lifting or decoding compares the observed value type with every variant:
 
 - exactly one accepting variant selects that variant;
 - no accepting variants is a type error; and
@@ -381,23 +398,20 @@ union, lifting or decoding compares the observed value type with every variant:
 
 Variant order is canonical for display and digest purposes; it is never an implicit “first match wins” rule.
 
-`UnionTag` is optional selection evidence:
+`FieldDiscriminator` is the only optional discriminator in the semantic type. It means every variant is a record
+containing the named scalar field, and each `DiscriminatorCase` maps one field value to a variant ID.
+Discriminator values must be unique, every referenced variant must exist, and every variant must have at least one
+case. Several aliases may select one variant. The field must exist in every variant and accept each corresponding
+case value. Because `FieldId` is record-local, the variant records deliberately reuse one common local ID for the
+discriminator.
 
-- `InternalField` means each selected variant is a record containing the named scalar field;
-- `External` means the backing or decoder supplies a tag beside the semantic value; and
-- each `UnionTagCase` maps one canonical scalar tag to a variant ID.
+External keys, adjacent `{type, value}` wrappers, message headers and separate database discriminator columns are
+encoding concerns. Their codec configuration maps the external representation directly to a `VariantId` and then
+validates that the selected variant accepts the decoded value. No external discriminator representation appears in
+`DataType`.
 
-Tag values must be unique, every referenced variant must exist, and every variant must have at least one case.
-Several tag aliases may select one variant. An internal tag field must exist in every variant record and accept
-the corresponding tag kind/value. Because `FieldId` is record-local, `InternalField` deliberately requires those
-variant records to reuse one common local ID for the discriminator; otherwise the union uses an external tag or
-untagged structural selection.
-Externally keyed and adjacently tagged wire encodings are format configuration: they decode to `External`
-selection evidence rather than adding JSON-specific container rules to `DataType`.
-
-A union-typed runtime node exposes its active `VariantId` through `ValueAccess`. The tag helps a decoder choose
-that ID; it is not the runtime identity itself. A backing that already knows the variant does not rediscover it by
-examining fields.
+A union-typed runtime node exposes its active `VariantId` through `ValueAccess`. That ID is authoritative after
+lifting or decoding; downstream consumers do not rediscover it by inspecting fields or encoding wrappers.
 
 ### 4.4 Nominal is intentional
 
@@ -433,8 +447,13 @@ interface DataTypeAlgebra {
     fun selectVariant(
         union: DataType.Union,
         actual: DataType,
-        observedTag: DataScalar? = null
+        discriminatorValue: ScalarWireValue? = null
     ): VariantSelection
+    fun validateVariant(
+        union: DataType.Union,
+        variant: VariantId,
+        actual: DataType
+    ): TypeAcceptance
 }
 
 sealed interface TypeAcceptance {
@@ -450,17 +469,21 @@ sealed interface VariantSelection {
 ```
 
 `accepts` answers type compatibility only: a union accepts an actual type when at least one variant does.
-`selectVariant` answers the separate runtime question and may return every ambiguous candidate. An internal tag is
-read from the value by its adapter; an external tag is supplied by the backing or decoder. Either is passed as
-`observedTag`; without one, structural selection uses the rules in §4.3. Callers never infer ambiguity from an
-exception message or use variant order as precedence.
+`selectVariant` answers the separate runtime question and may return every ambiguous candidate. When the union has
+a `FieldDiscriminator`, its adapter reads that field and passes `discriminatorValue`; without a discriminator,
+structural selection uses the rules in §4.3.
+
+A codec handling an external/adjacent discriminator, or a native adapter that already knows its subtype, resolves the
+`VariantId` outside this algebra and calls `validateVariant`. That operation checks that the ID belongs to the
+union and its variant accepts `actual`. Callers never feed representation-specific discriminator locations into
+`DataType`, infer ambiguity from an exception message, or use variant order as precedence.
 
 `join` creates or normalizes a union only when the alternatives remain useful; it does not silently widen
-incompatible values to `Dynamic`. Union normalization flattens nested untagged unions, removes exact duplicate
-variants, preserves stable variant IDs, and never merges distinct tagged variants merely because their value
-types happen to match. Record/tabular projection is a separate value operation because it may need an adapter and
-may allocate; its plan and failure model should be specified with the first implementation rather than hidden
-inside `accepts`.
+incompatible values to `Dynamic`. Union normalization flattens nested undiscriminated unions, removes exact duplicate
+variants, preserves stable variant IDs, and never merges variants named by different discriminator cases merely
+because their value types happen to match. Record/tabular projection is a separate value operation because it may
+need an adapter and may allocate; its plan and failure model should be specified with the first implementation
+rather than hidden inside `accepts`.
 
 Known primitives and collections convert structurally. A declared domain class converts to `Nominal` unless a
 structural adapter provides a stronger projection. This makes the conversion mechanical rather than an expanding
@@ -590,12 +613,12 @@ interface ValueAccess {
     fun activeVariant(node: DataNode): VariantId
 
     fun field(node: DataNode, field: FieldId): DataNode
-    fun entry(node: DataNode, key: DataScalar): DataNode
+    fun entry(node: DataNode, key: ScalarWireValue): DataNode
     fun element(node: DataNode, index: Int): DataNode
     fun size(node: DataNode): Int
-    fun keyAt(node: DataNode, index: Int): DataScalar
+    fun keyAt(node: DataNode, index: Int): ScalarWireValue
 
-    fun scalar(node: DataNode): DataScalar
+    fun scalar(node: DataNode): ScalarWireValue
 
     fun readBoolean(node: DataNode): Boolean
     fun readLong(node: DataNode): Long
@@ -607,8 +630,8 @@ interface ValueAccess {
 }
 ```
 
-`scalar` is the complete canonical path for every `ScalarKind`, including arbitrary-precision numbers, logical
-types and temporal values. The specialized reads are allocation-free fast paths and succeed only when the scalar
+`scalar` is the complete canonical path for every `ScalarKind`, including arbitrary-precision numbers and
+temporal values. The specialized reads are allocation-free fast paths and succeed only when the scalar
 kind can be represented exactly by the requested Kotlin primitive. `readBinary` returns a defensive copy; a
 zero-copy binary consumer needs an explicit borrowed-buffer capability with the same lifetime rules as the
 backing. `native` is the explicit native interop edge; it fails when the backing has no native projection rather
@@ -1116,7 +1139,7 @@ when it is temporarily held in memory rather than immediately sent over a networ
 structural model. `ValueTree` accurately describes the representation but not its boundary role. `SnapshotValue`
 is too narrow because authored defaults and requests are not snapshots of a live value.
 
-The rename includes the variants (`TextWireValue`, `MapWireValue`, and so on) and moves the model out of the
+The rename includes the variants (`TextWireValue`, `ObjectWireValue`, and so on) and moves the model out of the
 execution-specific package. It should land with the unified-model cutover rather than as a standalone cosmetic
 rename across the current call sites.
 
@@ -1164,6 +1187,12 @@ emits a diagnostic identifying the exceeded limit, so a truncated snapshot canno
 calling protocol provide a resolver scope. `DataDefault`, canonical type definitions and other permanently
 self-contained locations reject it recursively. A trace may emit it for large binary content because its trace
 blob endpoint supplies the corresponding scope.
+
+`ObjectWireValue` is the efficient JSON-object-shaped container for protocol objects, record encodings with
+unique text keys, and `Mapping(Scalar(Text), ...)`. It is not the universal encoding of `DataType.Mapping`.
+Mappings with any other scalar key type lower to `MappingWireValue`, whose entries retain each key as a
+`ScalarWireValue`. The distinction prevents dates, integers or binary keys from being silently stringified and
+then misread as text.
 
 The conversion must:
 
@@ -1252,6 +1281,36 @@ Their execution mechanics differ, but separate value models force conversion at 
 allow type rules to drift. A foundational model costs one deliberate cross-repository cutover and removes that
 permanent duplication.
 
+### 13.12 Parameterize one `DateTime` by timezone semantics
+
+Local, offset, region-zoned and absolute timestamps are different meanings rather than configuration modes of one
+scalar. A `None | Offset | Region` parameter still omits the actual zone/offset and conflates semantic comparison
+with representation preservation. The initial core uses `Instant` for absolute timestamps and does not claim that
+it represents local date-time. Additional temporal types require a concrete processing contract before joining
+the core.
+
+### 13.13 Add an open-ended `Logical(id, storage)` scalar
+
+A storage kind would make a custom scalar transportable but would not define its validation, canonicalization,
+compatibility, provider lookup or explicit projection rules. Shipping only the two fields would hide a registry
+contract. `Nominal` plus adapters is sufficient for the current requirements; a refined-scalar extension should
+land only with a concrete consumer that settles the whole contract.
+
+### 13.14 Keep a separate `DataScalar`
+
+`DataScalar(kind, canonical)` originally gave map keys and discriminator values a portable identity, but
+`WireValue` now has the same responsibility. Keeping both would create two detached scalar vocabularies and
+conversion rules. The model instead uses `ScalarWireValue`; the enclosing `DataType` supplies semantic meaning,
+while specialized `ValueAccess` reads preserve allocation-free hot paths.
+
+### 13.15 Put external discriminator layouts in `DataType`
+
+An external key, adjacent wrapper, message header or discriminator column describes where one format stores
+selection information; it is not part of the selected value's semantic type. Encoding those layouts in
+`DataType.Union` would couple every consumer to representation policy. A codec resolves its own layout to a
+`VariantId` and validates that choice against the semantic union. Only a discriminator field that is itself part
+of every variant record belongs in `DataType`.
+
 ## 14. Consequences if accepted
 
 The natural owner is `kzen-lib-common`: `Logic`, `Execution`, tuples and graph definitions already live there,
@@ -1283,10 +1342,13 @@ The proposal should not be accepted on API aesthetics alone. A prototype or impl
 
 - canonical wire/digest round-trips for every `DataType` case;
 - canonical `WireValue` round-trips for every leaf/container, non-finite floating values and blob references;
+- scalar wire equality/order and mappings with text, integer, date and binary keys;
 - recursive rejection of blob references in `DataDefault.literal`;
+- canonical `Date`, `Time`, `Instant` and `Duration` values, including rejection of local date-times where an
+  `Instant` is required;
 - representative `accepts` and `join` pairs, including nullability, optional fields and unions;
-- untagged scalar/list unions, internally and externally tagged unions, tag aliases, and deterministic rejection
-  of overlapping untagged variants;
+- undiscriminated scalar/list unions, field discriminators and aliases, externally decoded variant IDs, and
+  deterministic rejection of overlapping undiscriminated variants;
 - stable field identity and duplicate display-name projection;
 - distinct absent, null, defaulted and invalid states; and
 - `TypeMetadata`/`KType` conversion with no application-specific branches.
@@ -1339,7 +1401,7 @@ These are recommendations for review, not landed decisions.
 | UD2 | Foundation owner? | `kzen-lib-common` |
 | UD3 | Runtime representation? | One immutable `DataValue` over multiple `ValueAccess` backings |
 | UD4 | `Tabular`, `Payload`, or both? | None as type cases; use semantic types and explicit projections |
-| UD5 | Must every union have a discriminator field? | No; arbitrary variants are allowed, tags are optional, and ambiguous untagged selection fails |
+| UD5 | Must every union have a discriminator field? | No; arbitrary variants are allowed, a field discriminator is optional, and ambiguous structural selection fails |
 | UD6 | Normal Formula experience? | Return ordinary Kotlin objects; lift automatically at the boundary |
 | UD7 | Automatic structural native baseline? | Primitives/collections plus Kotlin data classes and Java records; arbitrary objects remain nominal |
 | UD8 | Arguments/results? | Ordered, enumerable, typed `DataBindings`; no primary `Any?` lookup |
@@ -1351,6 +1413,10 @@ These are recommendations for review, not landed decisions.
 | UD14 | Wire and trace model? | Rename `ExecutionValue` to `WireValue`; keep it as an explicit bounded boundary tree |
 | UD15 | Performance strategy? | Primitive handles, cached/generated adapters, no eager materialization, benchmark gate |
 | UD16 | Migration style? | One coordinated cutover; do not preserve a parallel legacy dataflow model |
+| UD17 | Temporal baseline? | `Date`, `Time`, `Instant`, `Duration`; no parameterized timezone mode |
+| UD18 | Open-ended logical scalars? | Exclude initially; use `Nominal` plus adapters until a concrete refined-scalar contract is needed |
+| UD19 | Separate detached `DataScalar`? | No; use `ScalarWireValue` for keys, discriminator values and generic scalar reads |
+| UD20 | External discriminator layouts? | Codec-owned; they resolve to `VariantId` and do not appear in `DataType` |
 
 ## 17. Questions that remain legitimately open
 
