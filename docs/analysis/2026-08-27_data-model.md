@@ -82,7 +82,7 @@ row's right-hand column names what reopens it.
 
 | Area | v1 — foundational proof | Deferred until a named consumer |
 |---|---|---|
-| Types | Scalar, Record, Mapping, Listing, Opaque, Dynamic inside a recursive `DataContract(structural, native)`; tagged Union in the type language and algebra, its end-to-end proof gated on a named consumer (§4.5) | structural union inference; field discriminators in the type; enum kind and the constraint layer's container; open-ended logical/refined scalars; `LocalDateTime` (first database consumer) |
+| Types | Scalar, Record, Mapping, Listing, tagged Union, Opaque, Dynamic inside a recursive `DataContract(structural, native)` | structural union inference; field discriminators in the type; enum kind and the constraint layer's container; open-ended logical/refined scalars; `LocalDateTime` (first database consumer) |
 | Values | read-only `DataValue` over literal, flat-record, native-object and fake typed-row backings; every value readable until the run settles | structural tape (first tree reader); graph structural exposure, reference navigation and stable-reference lowering (graph provenance seam); composed overlay chains; borrowed / retainable leases and any public retention state (first JDBC source) |
 | Bindings | `BindingSchema` + validated `DataBindings`; literal defaults on binding definitions; shallow bind-time checks; whole-binding sensitivity | computed defaults; nested field sensitivity |
 | Wire / trace | today's `ExecutionValue` inside a `DataSnapshot` envelope carrying the structural type only; complete, redacted or rejected | `WireValue` rename and versioned grammar; redaction and truncation markers; identity references; reference following |
@@ -488,11 +488,12 @@ classes, two opaque natives, or width-overlapping records. A Formula that declar
 selects under `DataRequirement.Native`, where the runtime class is unambiguous; a codec decoding a schema-only
 union selects under `Structural`. The requirement is the caller's, exactly as for `isAssignable`.
 
-Union stays in the type language and algebra because carried-schema formats (Avro, protobuf `oneof`, XML
-`choice`) will need it, and `List<String> | String` shows the selection rule is necessary once it exists. Its
-end-to-end proof — selection, active-variant access, snapshot encoding — is not part of the foundational vertical
-slice unless a named near-term Formula or schema consumer requires it; otherwise it lands with the first
-carried-schema reader (§14.5 step 7). The adoption gate marks those items conditional (§15).
+Union is in v1, with `List<String> | String` as its named consumer: one-or-many is a common data pattern in
+authored configuration and JSON, and carried-schema formats (Avro, protobuf `oneof`, XML `choice`) need the same
+machinery later. The incremental cost is small — the access operations, selection algebra and `{variant, value}`
+lowering are specified above, and the only new backing is a union-root wrapper holding the selected value and
+its `VariantId`. The real cost is test surface (ambiguity and record-width cases), which is what the vertical
+proof is for (§15).
 
 ### 4.6 Opaque and Dynamic are two different kinds of "not structural"
 
@@ -1675,9 +1676,8 @@ close the type-loss seam early.
 6. **Cut Script and Flow over where generic data actually crosses** — step results and ports — with the replay
    lifetime rule and snapshot-based message inspection.
 7. **Add the first structured reader.** Its requirements decide the structural tape and the `Dynamic` runtime
-   behaviour; ST11, ST17 and ST20 policies gate it. Unless a named consumer pulled it forward, the union
-   end-to-end proof — selection, tagged-root construction, active-variant access, snapshot encoding — lands
-   here with the first carried-schema format.
+   behaviour; ST11, ST17 and ST20 policies gate it. External-tag union decoding from a carried schema lands
+   here; the untagged selection path is already proven in step 3.
 8. **Add the first real durable-row source.** Its measured cursor behaviour decides whether retention states,
    leases and a transfer protocol are necessary; it also brings `LocalDateTime`.
 9. **Design the richer wire grammar separately** (§12.2), and **graph provenance, stable-reference lowering and
@@ -1706,8 +1706,8 @@ the following together.
 - `join` laws — associative, commutative, idempotent — and widening of inferred heterogeneity to `Dynamic`;
 - canonical `Date`, `Time`, `Instant` and `Duration` values, including rejection of local date-times where an
   `Instant` is required;
-- *(conditional on a named union consumer, else step 7)* selection of `List<String> | String` from an untagged
-  JSON value and from a native Kotlin value producing a union root, external-tag decoding through
+- selection of `List<String> | String` from an untagged JSON value and from a native Kotlin value producing a
+  union root, external-tag decoding through
   `validateVariant`, native-requirement selection between same-shaped classes, and deterministic rejection of
   overlapping untagged variants paired with the record-width tests;
 - stable `FieldId(name, occurrence)` identity within one schema version and duplicate display-label projection;
@@ -1742,8 +1742,7 @@ the following together.
 - Script → Flow → Job → nested Logic preserves the value's contract and native identity, with a statically
   typed Flow vertex still receiving `T`;
 - the same structural consumer reads a flat row, a data class and a fake typed row;
-- *(conditional, as above)* a tagged union exposes its active ID and selected value and round-trips through a
-  typed snapshot;
+- a tagged union exposes its active ID and selected value and round-trips through a typed snapshot;
 - column projection works without a second carrier, and `<missing>` appears only in the projection;
 - data-source arguments enumerate correctly and hosted results return typed bindings; and
 - missing/default/null behaviour is identical across every Logic flavour.
@@ -1771,7 +1770,7 @@ These are recommendations for review, not landed decisions. Entries changed by t
 | UD2 | Foundation owner? | `kzen-lib-common`; JVM backings in `jvmMain` or consumer modules; `kzen-auto-plugin` depends on kzen-lib and emits the contract directly |
 | UD3 | Runtime representation? | One read-only `DataValue` over multiple `ValueAccess` backings; contract read from the backing, not cached beside it *(revised)* |
 | UD4 | `Tabular`, `Payload`, or both? | None as type cases; use semantic types and explicit projections |
-| UD5 | Must every union have a discriminator field? | No. Unions are declared/carried and every runtime node carries its active `VariantId`, taken from an external tag where the encoding has one and otherwise by unique-accepting-variant selection under the caller's requirement (ambiguity fails); selection constructs the union root; no union inference from samples; no discriminator layout in `DataType`; end-to-end proof gated on a named consumer *(revised twice)* |
+| UD5 | Must every union have a discriminator field? | No. Unions are declared/carried and every runtime node carries its active `VariantId`, taken from an external tag where the encoding has one and otherwise by unique-accepting-variant selection under the caller's requirement (ambiguity fails); selection constructs the union root; no union inference from samples; no discriminator layout in `DataType`; in v1 with `List<String> \| String` as the named consumer *(revised twice)* |
 | UD6 | Normal Formula experience? | Return ordinary Kotlin objects; lift automatically at the boundary, typed from the inferred `KType` first |
 | UD7 | Automatic structural native baseline? | Primitives, lists, arrays, maps, Kotlin data classes and Java records; no `Iterable` / `Sequence` / `Set`; arbitrary objects remain opaque *(revised)* |
 | UD8 | Arguments/results? | Ordered, enumerable, typed `DataBindings` validated against a separate `BindingSchema`; no primary `Any?` lookup *(revised)* |
@@ -1823,12 +1822,9 @@ Before an execution plan is approved, the following need prototypes or explicit 
 5. **Owned-append threshold and builder surface.** When a `Composed` overlay collapses to an owned copy, and how
    `FlatFileRecord` exposes append to its owner as an unpublished-value builder without exposing it through
    `ValueAccess`.
-6. **Union's first consumer.** Whether a near-term Formula or schema feature needs `List<String> | String` (or
-   another union) in the foundational proof, or whether the end-to-end union proof waits for the first
-   carried-schema reader.
-7. **Enum reopening condition.** Whether the first carried-schema format needs enum identity in `join` or only
+6. **Enum reopening condition.** Whether the first carried-schema format needs enum identity in `join` or only
    in value validation.
-8. **Native resolver in the composite.** Whether the JVM native-assignability resolver reuses
+7. **Native resolver in the composite.** Whether the JVM native-assignability resolver reuses
    `TypeAssignability`'s compiler probe as-is (which lives in kzen-auto) or a class-identity implementation moves
    down to kzen-lib's `jvmMain` so kzen-lib does not depend upward.
 
@@ -1887,7 +1883,7 @@ Two first-review dispositions were later superseded by the second review: per-ro
 | Selection must construct a tagged union node | Adopted — lifting against an expected union wraps exactly once (§4.5, §7.3) |
 | Structural selection cannot distinguish native alternatives | Adopted — `selectVariant` takes the caller's `DataRequirement`; Formula-declared class unions select natively (§4.5, §4.7) |
 | Record-width rules are part of decoding semantics | Adopted — paired tests (§4.5, §15) |
-| Union needs a named first consumer or is deferred | Modified — Union stays in the type language and algebra; its end-to-end proof is conditional on a named consumer, otherwise it lands with the first carried-schema reader (§4.5, §14.5, §15, §17 Q6) |
+| Union needs a named first consumer or is deferred | Declined — `List<String> \| String` (one-or-many) is the named consumer, a common authored-configuration and JSON pattern; the incremental cost over the already-specified algebra is one union-root backing plus test surface (§4.5, §15) |
 | Defaults are construction policy, not runtime structural type | Adopted — `DataField.optional`; `DataPresence.Defaulted` on bindings only; reader defaults in the schema contract (§4.2, §4.3, §10, UD30) |
 | Enum rationale points to a missing constraint layer | Adopted — explicit two-layer rule; enum, precision/scale-as-validation, ranges and defaults in the constraint layer (§4.4, UD32, §17 Q3) |
 | `FieldId` is unique but not evolution-stable | Adopted — stable within one schema version; provider IDs for rename-stable formats (§4.2, UD25) |
