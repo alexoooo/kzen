@@ -1,13 +1,14 @@
 # Data source model — values, resolution, shape and opening
 
-> **Status: design contract; shape correction pending.** The value and source/opener portions were delivered by
-> DS0–DS8. The original `DataShape.Tabular | Payload` sum is rejected here: it confuses semantic structure with
-> the current Job carrier. The authoritative shape contract is one recursive `DataType` inside an observation
-> envelope; the existing implementation must be brought to that contract. The Job adapter, UI, execution
-> semantics and complete chronological landing record live
-> in [`2026-08-20_job-data-source.md`](2026-08-20_job-data-source.md). The
-> [`structural-data analysis`](2026-08-26_database.md) assumes the source value/protocol boundary here and owns
-> the recursive type algebra and its runtime access contract.
+> **Status: landed design contract for source selection; item and argument typing pending.** The value and
+> source/opener portions were delivered by DS0–DS8 and this document owns them: refs, parts, units, manifests,
+> the resolve/open/inspect protocol, the schema cache and the source packages. What a cursor *item* is, what a
+> `DataContext` *argument* is, and the shape vocabulary those contracts name are owned by the
+> [unified data model](2026-08-27_data-model.md) (its §5, §10.2 and §11.5); the landed `Any?` item,
+> `argument(name): Any?` and `DataShape.Tabular | Payload` forms are the implementation state that model replaces,
+> not an alternate contract. The Job adapter, UI, execution semantics and complete chronological landing record
+> live in [`2026-08-20_job-data-source.md`](2026-08-20_job-data-source.md); formats, providers, readers and
+> durable storage live in the [project-data analysis](2026-08-26_database.md).
 
 ## 1. Boundary
 
@@ -29,11 +30,10 @@ resolved dataset as an ordered list of self-describing items and separated locat
 model widens one nullable group to text attributes, one location to ordered role-labelled parts, and edit-time-
 only resolution to a callable source.
 
-Shape is semantic, not a reflection of Job's storage. Its type is the recursive `DataType` specified by the
-[structural-data analysis](2026-08-26_database.md#5-the-model--one-recursive-type-language). A record may be
-projected to a tabular header, and a nominal value may be structurally reflected to a record, but `Tabular` and
-`Payload` are not competing kinds of shape. The current code's sum of those names is an implementation defect,
-not a model boundary or an accepted intermediate design.
+Shape is semantic, not a reflection of Job's storage. Its type is the recursive `DataType` of the
+[unified data model](2026-08-27_data-model.md#4-the-semantic-type-language) inside the observation envelope of
+its §5. The current code's `Tabular | Payload` sum is an implementation defect that model removes, not a model
+boundary or an accepted intermediate design.
 
 ## 2. Value model
 
@@ -128,12 +128,12 @@ interface DataOpener {
         DataShapeResult.Unavailable
 }
 
-interface DataCursor: Iterator<Any?>, AutoCloseable {
-    val shape: DataShape
+interface DataCursor: Iterator<Any?>, AutoCloseable {     // landed; target item type is DataValue
+    val shape: DataShape?                                 // landed; target is non-null
 }
 
 interface DataContext {
-    fun argument(name: String): Any?
+    fun argument(name: String): Any?                      // landed; target is `arguments: DataBindings`
 
     suspend fun host(instructions: ObjectLocation, arguments: TupleValue): TupleValue {
         throw UnsupportedOperationException("Hosting data-source logic requires an active run")
@@ -141,23 +141,14 @@ interface DataContext {
 
     suspend fun <R> blocking(block: () -> R): R
 }
-
-sealed interface DataShapeResult {
-    data object Unavailable: DataShapeResult
-    data class Observed(val shape: DataShape): DataShapeResult
-}
-
-data class DataShape(
-    val itemType: DataType,
-    val provenance: ShapeProvenance,
-    val stability: ShapeStability,
-    val diagnostics: List<SchemaDiagnostic>
-)
 ```
 
-`DataType` is one recursive language: scalar, record, mapping, listing, tagged union, nominal and dynamic.
-Its full field identity, presence, scalar and projection rules belong to the structural-data contract; the source
-protocol depends only on the fact that there is one semantic item type, never parallel tabular/payload cases.
+The sketch shows the landed value edges so the protocol reads against today's code. Their typed replacements —
+`Iterator<DataValue>`, a non-null `DataShape`, and `arguments: DataBindings` with `host` over bindings — are
+specified by the [unified data model](2026-08-27_data-model.md#102-datacontext) together with `DataShape`,
+`DataShapeResult` and the recursive `DataType` they name. The source protocol depends only on the fact that there
+is one semantic item type per cursor and one enumerable, typed argument set per call; it never has parallel
+tabular/payload cases.
 
 `definitionDependencies()` names weak definition references whose content affects resolution but is not already
 in the source's structural closure. `LogicDataSource` returns its hosted instructions so an edit changes a
@@ -231,15 +222,9 @@ and mixed element types fail clearly.
 
 `DataShape` answers **what one item is**. It does not answer whether Job currently stores that item in
 `JobMessage.flat`, `JobMessage.payload`, a database row, a structural tape or a native object. Those are backing
-and access choices. Encoding them as `Tabular | Payload` creates a false choice: a typed database row and a
-Kotlin data class with readable properties can both expose record-shaped access even though their physical
-carriers differ.
-
-There is consequently no `Both` case. `Tabular` disappears as a type category: it is a projection of
-`DataType.Record` under an explicit field-naming policy. `Payload` also disappears as a category: a native value
-is `DataType.Nominal`, and reflecting its accessible properties yields a `Record` view on demand. Scalar,
-listing, mapping, union and dynamic values remain in the same language. One item has one semantic type; consumers
-request the view and access operations they support.
+and access choices, and the argument for why `Tabular`, `Payload` and `Both` are not shape categories has one
+home: [unified data model §5](2026-08-27_data-model.md#5-datashape-observes-a-type-it-does-not-classify-a-carrier).
+One item has one semantic type; consumers request the view and access operations they support.
 
 `DataSource.staticShape(role)` is answerable from compiled notation alone and may never perform I/O. It is the
 only source-shape operation safe for a definition/type walk. A declared `DataSchema` supplies it.
@@ -281,7 +266,8 @@ not discard the types and publish only labels. A legacy flat consumer may explic
 to `HeaderListing`, but that lossy view is local to the consumer and never becomes the source's shape.
 
 The current implementation still drops those types when constructing `DataShape.Tabular`. That behaviour is the
-specific code defect to remove; it is not retained as a compatibility rule.
+specific code defect to remove — step 2 of the [unified data model's sequencing](2026-08-27_data-model.md#145-sequencing);
+it is not retained as a compatibility rule.
 
 ## 5. Boundaries and snapshot semantics
 
@@ -290,8 +276,9 @@ specific code defect to remove; it is not retained as a compatibility rule.
 `DataRef`, `DataPart`, `DataUnit`, `DataManifest` and `DataResolveResult` have strict canonical `ExecutionValue`
 and kotlinx-serialization forms. Text-canonical attributes make the representation a mechanical map/list tree
 rather than a bespoke codec. `DataShapeResult`, `DataShape` and `DataType` require the same canonical wire and
-digest semantics when the recursive type owner's open module-boundary decision is resolved; the rejected
-`Tabular | Payload` wire form is not the target contract.
+digest semantics, owned with the type language by `kzen-lib-common`
+([unified data model §14.1](2026-08-27_data-model.md#141-ownership)); the rejected `Tabular | Payload` wire form
+is not the target contract.
 
 `DataRef.source` lowers as a nullable `DataSourceId` string. `ExecutionValue.ofArbitrary` does not discover these
 domain conversions, so a boundary lowering a result tuple must call the model's `asExecutionValue()` explicitly.
@@ -325,7 +312,8 @@ The package layout reflects the boundary:
 
 - `common/data/model/` — refs, parts, units, manifests and diagnostics;
 - `common/data/api/` — source, opener, cursor and context contracts;
-- the neutral structural-data owner — `DataType`, `DataShape`, observation metadata and field identity;
+- `kzen-lib-common` — `DataType`, `DataShape`, observation metadata and field identity
+  ([unified data model §14.1](2026-08-27_data-model.md#141-ownership));
 - `common/data/schema/` — legacy header projection until its consumers move to structural access;
 - `common/data/file/` and `common/data/format/` — reusable source configuration values;
 - `server/data/` — file opening, input plumbing, opener lookup and schema cache;
@@ -345,7 +333,7 @@ Job adapters live separately under `server/objects/job/worker/data/` and the cor
 | DM6 | Definition-time source/opener I/O? | Never. Only `staticShape(role)` participates in the walk |
 | DM7 | Cursor shape? | Plain pull reader owned and offloaded by its consumer |
 | DM8 | Static shape owner? | `DataSource`; bounded concrete inspection belongs to `DataOpener`; both return explicit observed/unavailable results |
-| DM9 | Shape cases? | No representation cases. `DataShape` contains one recursive semantic `itemType`; `Tabular` is a record projection and `Payload` is not a shape category |
+| DM9 | Shape cases? | No representation cases. `DataShape` contains one recursive semantic `itemType`; `Tabular` is a record projection and `Payload` is not a shape category (the vocabulary itself is owned by the [unified data model](2026-08-27_data-model.md)) |
 | DM10 | Schema cache identity? | Effective ref/format/encoding plus complete size/modified fingerprint; otherwise do not cache |
 | DM11 | Durable provider identity? | `DataSourceId`, minted and resolved only with the first provider-bound source |
 | DM12 | Stateful source ownership? | Borrow caller-owned resources; design-time lifetime remains open until the first stateful source |
@@ -356,9 +344,9 @@ Job adapters live separately under `server/objects/job/worker/data/` and the cor
 
 - **DS0** moved the neutral header and input plumbing out of Report-owned packages.
 - **DS1** landed the value types, digests, strict wire/lowering forms, fingerprints and construction helpers. It
-  also landed `DataShape.Tabular | Payload`; the 2026-08-27 review rejected that sum because it models Job's
-  carrier rather than data semantics. The corrected §4 contract is authoritative and its code migration remains
-  to land.
+  also landed `DataShape.Tabular | Payload`; the 2026-08-27 unified data model rejected that sum because it
+  models Job's carrier rather than data semantics. That model's §5 is the authoritative shape contract and its
+  code migration remains to land.
 - **DS2** landed the suspend SPI, file source/opener/cursor, opener lookup, detached actions and file-selection
   model.
 - **DS6** separated declared from inspected shape, renamed/consumed `DataSchema`, and replaced the stale Report

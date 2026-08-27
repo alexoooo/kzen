@@ -1,9 +1,12 @@
 # Job data sources — Job execution and editing adapter
 
-> **Status: adapter landed; shape correction pending — see §6.3 and §13.** This document owns Job-specific
-> data-source execution, editing, composition and the complete DS0–DS8 chronological record. The reusable
-> values, source/opener protocol, shape rules, lowering and package ownership live in
-> [`2026-08-20_data-source-model.md`](2026-08-20_data-source-model.md). The Job flavour's other live plan is
+> **Status: adapter landed; carrier and shape correction pending — see §6.3 and §13.** This document owns
+> Job-specific data-source execution, editing, composition and the complete DS0–DS8 chronological record. The
+> reusable values, source/opener protocol, lowering and package ownership live in
+> [`2026-08-20_data-source-model.md`](2026-08-20_data-source-model.md); the item value, lane type and shape
+> vocabulary that replace `JobMessage(payload, flat)`, `WorkerLane(payloadType, flatColumns)` and
+> `DataShape.Tabular | Payload` are specified by the [unified data model](2026-08-27_data-model.md) (its §11.4
+> for Job). The Job flavour's other live plan is
 > [`../plans/2026-07-25_job-improvements.md`](../plans/2026-07-25_job-improvements.md). Per CC-20 no line
 > numbers are cited; anchors are class / file names.
 >
@@ -111,8 +114,10 @@ by the reader policies in §5.
 
 The landed code still represents this as `JobMessage(payload, flat)`, `WorkerLane(payloadType, flatColumns)` and
 `DataShape.Tabular | Payload`. That is an implementation discrepancy, not an alternate supported model. The
-structural-data runtime phase replaces all three together so the adapter has one authoritative item value and
-type.
+[unified data model](2026-08-27_data-model.md#114-job) replaces all three together so the adapter has one
+authoritative item value and type, and its §11.4 states which current Job behaviours — `ColumnValue` coercion
+for undeclared columns, `<missing>` under superset normalization, owned in-place append for calculated columns —
+are preserved by construction rather than by a second carrier.
 
 This boundary is important: the model does not know about `JobMessage`, `WorkerLane`, channels, migration,
 cards or child runs. Those are the subject of the rest of this document.
@@ -350,7 +355,8 @@ It takes each incoming payload (must be a `DataUnit` — `payloadFlow` validates
 is why §5.5 matters), selects `unit.partsOf(role)` in order, opens them through the same
 `DataOpenerLookup` + drain core
 as `ReadWorker` (§5.2 "one implementation"). The landed implementation emits `ofFlat` / `ofPayload` by
-`cursor.shape`; the corrected contract emits one typed `DataValue`, independent of its backing. It is
+`cursor.shape`; the corrected contract emits one typed `DataValue`, independent of its backing
+([unified data model §11.5](2026-08-27_data-model.md#115-data-sources)). It is
 what the child-Logic idiom (§5.6b) reads with, what a grouped main-plus-reference pipeline uses per role
 (§5.6a), and the only place besides `ReadWorker` that opens anything. Its cursor is scoped to the
 *current unit*: migration carries the active input batch, its element index, the unit, part/item position
@@ -545,8 +551,10 @@ policy. A schema declares a typed `Record`; it is not reduced to a header by the
 
 The landed implementation violates that rule in three coordinated places: `DataSchemaDocument.shape()` drops
 field types, `DataShape` chooses `Tabular | Payload`, and Job projects those cases into parallel
-`WorkerLane(payloadType, flatColumns)` / `JobMessage(payload, flat)` state. The structural-data plan removes the
-whole split in one runtime change. None of those current representations is a compatibility requirement.
+`WorkerLane(payloadType, flatColumns)` / `JobMessage(payload, flat)` state. The
+[unified data model's sequencing](2026-08-27_data-model.md#145-sequencing) removes the split in two steps — the
+shape envelope first (closing the `DataSchemaDocument.shape()` type loss), then the Job carrier. None of those
+current representations is a compatibility requirement.
 
 ### 6.4 Where the file-selector UI lives — on ordinary attribute metadata
 
