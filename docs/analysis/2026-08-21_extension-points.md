@@ -1,7 +1,8 @@
 # Extension points — third-party objects, UI without recompiling, design-time lifetime
 
-> **Status: design exploration.** Written 2026-08-21 from the design conversation that revised
-> [`2026-08-20_job-data-source.md`](2026-08-20_job-data-source.md). These three concerns surfaced
+> **Status: design exploration.** Written 2026-08-21 from the design conversation that produced the
+> [`data-source model`](2026-08-20_data-source-model.md) and its
+> [`Job adapter`](2026-08-20_job-data-source.md). These three concerns surfaced
 > there but are not about data sources — they are about how *any* third-party object gets into a
 > project, how it gets a UI, and what owns resources it needs outside a run. Nothing here is
 > scheduled. Decisions are marked **[decided]** / **[open]** as in the sibling doc; per CC-20 no line
@@ -111,7 +112,8 @@ rich editor. A data source with five fields and a browse ships no JS at all.
 ## 3. Design-time resource lifetime — an explicit `DesignSession` context **[decided in shape, not scheduled]**
 
 > **Reduced 2026-08-21b** by the second-pass review of the data-source design
-> ([`2026-08-20_job-data-source.md`](2026-08-20_job-data-source.md) §4, §13 D4). The run-time half of
+> ([source-model resource ownership](2026-08-20_data-source-model.md#33-context-capabilities-and-resource-ownership)).
+> The run-time half of
 > this problem is **not open**: a source **borrows** a resource from the run's Context registry
 > (`Execution.resource` / `resourceValue`, disposal by declared `ResourceClosePolicy`) and never holds
 > one, so the object itself stays stateless — which `GraphInstanceCache` and per-run

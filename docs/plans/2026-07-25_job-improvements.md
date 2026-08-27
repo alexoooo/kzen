@@ -96,7 +96,8 @@ the full contract. In brief:
 
 ## Phase 3 — Report subsumption A: pluggable input formats + design-time services
 
-> ⚠️ **Superseded 2026-08-21 by the DS arc** (`docs/analysis/2026-08-20_job-data-source.md`;
+> ⚠️ **Superseded 2026-08-21 by the DS arc** (`docs/analysis/2026-08-20_data-source-model.md` +
+> `docs/analysis/2026-08-20_job-data-source.md`;
 > `docs/plans/next/DS0`–`DS8`, ledger rows 49–58). Steps 1+4 land as `FileDataSource.items` +
 > `DataPart.encoding` (DS2/DS3), steps 2+3 as the source object's detached `schema` action + the
 > `JobUpstreamSchema` provider list (DS6). Phase 4 re-bases on DS3/DS6/DS7 (not on this phase).
