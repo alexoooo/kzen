@@ -1,10 +1,10 @@
 # Unified data model — types, values, bindings and managed-object views
 
-> **Status: proposal for review, revised after two rounds of design review; not an implementation contract.**
+> **Status: proposal for review, revised after three rounds of design review; not an implementation contract.**
 > This document holds the complete current argument for a data model shared by every Logic flavour. It does not
-> authorize code changes or alter the implementation status of any plan. Both independent 2026-08-27 design
+> authorize code changes or alter the implementation status of any plan. All three independent 2026-08-27 design
 > reviews have been folded in and their files removed — corrections are applied in place, and §18 records the
-> disposition of every review finding so neither review is a second source of truth. If the proposal is accepted, this document owns
+> disposition of every review finding so no review is a second source of truth. If the proposal is accepted, this document owns
 > the generic type/value/binding contract: the [data-source model](2026-08-20_data-source-model.md) keeps
 > source selection (refs, parts, units, manifests, resolve/open), the [Job adapter](2026-08-20_job-data-source.md)
 > keeps Job execution and the DS as-built record, and the [project-data analysis](2026-08-26_database.md) keeps
@@ -82,8 +82,8 @@ row's right-hand column names what reopens it.
 
 | Area | v1 — foundational proof | Deferred until a named consumer |
 |---|---|---|
-| Types | Scalar, Record, Mapping, Listing, tagged Union, Opaque, Dynamic inside a recursive `DataContract(structural, native)` | structural union inference; field discriminators in the type; enum kind and the constraint layer's container; open-ended logical/refined scalars; `LocalDateTime` (first database consumer) |
-| Values | read-only `DataValue` over literal, flat-record, native-object and fake typed-row backings; every value readable until the run settles | structural tape (first tree reader); graph structural exposure, reference navigation and stable-reference lowering (graph provenance seam); composed overlay chains; borrowed / retainable leases and any public retention state (first JDBC source) |
+| Types | Scalar, Record, Mapping, Listing, tagged Union, Opaque, Dynamic inside a recursive `DataContract(structural, native)`; conservative `join` | structural union inference; field discriminators in the type; the whole constraint layer (enum symbol sets, precision/scale, ranges) and its container; `Decimal` precision/scale parameters and `LocalDateTime` (first database consumer); open-ended logical/refined scalars |
+| Values | read-only `DataValue` over literal, flat-record, native-object and fake typed-row backings; every value readable while reachable | structural tape (first tree reader); graph structural exposure, reference navigation and stable-reference lowering (graph provenance seam); `Composed` overlays; borrowed / retainable leases and any public retention state (first JDBC source) |
 | Bindings | `BindingSchema` + validated `DataBindings`; literal defaults on binding definitions; shallow bind-time checks; whole-binding sensitivity | computed defaults; nested field sensitivity |
 | Wire / trace | today's `ExecutionValue` inside a `DataSnapshot` envelope carrying the structural type only; complete, redacted or rejected | `WireValue` rename and versioned grammar; redaction and truncation markers; identity references; reference following |
 | Adapters | primitives, lists, arrays, maps, acyclic Kotlin data classes, Java records; exact-class registrations keyed by class identity; ordered capability fallbacks; static `describe` | `Iterable` / `Sequence` / `Set` lifting (explicit streaming boundary instead); public-getter reflection (never); recursive data-class expansion |
@@ -209,7 +209,7 @@ data class DataField(
 sealed interface ScalarKind {
     data object Boolean: ScalarKind
     data class Integer(val bits: Int? = null, val signed: kotlin.Boolean = true): ScalarKind
-    data class Decimal(val precision: Int? = null, val scale: Int? = null): ScalarKind
+    data object Decimal: ScalarKind
     data class Floating(val bits: Int = 64): ScalarKind
     data object Text: ScalarKind
     data object Binary: ScalarKind
@@ -282,7 +282,7 @@ backing, which is why it sits beside the structural type in `DataContract` rathe
 | Nested field `order.customer` of type `Customer` | `Record(...)` | `Customer` |
 | Arbitrary opaque Kotlin object | `Opaque` | its declared class (required) |
 | Typed database row | `Record` | optional provider-owned row type |
-| Graph-created data object | `Opaque` in v1; exposure-policy `Record` later (§8) | its created class |
+| Graph-created object | ordinary baseline in v1 — `Record` if a data class, else `Opaque`; exposure-policy `Record` later (§8) | its created class |
 | `List<Reading>` | `Listing(element = Contract(Record(...), Reading))` | `kotlin.collections.List` |
 
 The contract is recursive, which is why it is a per-position wrapper rather than a top-level pair: generated
@@ -295,23 +295,34 @@ and the equivalent `TypeMetadata` is derivable from the contract wherever every 
 a native class. Two representations of nullability or of the element type would allow contradictory values; one
 representation cannot.
 
-Three rules follow from "capability, not identity":
+Four rules follow from "capability, not identity":
 
-- **Structural identity.** `DataType` equality, canonical digests and lane identity are structural. A
-  data-class-backed record and a row-backed record with the same fields are the same type; they differ in what
-  a *native* consumer may require of them, which is an assignability question under `DataRequirement.Native`
-  (§4.7), not a type-equality question. Changing an adapter or backing therefore never changes a lane's type.
+- **Two equalities, stated by name.** *Structural* equality is `DataType` equality: canonical digests, lane
+  identity and snapshot types use it, so a data-class-backed record and a row-backed record with the same fields
+  are the same lane type, and changing an adapter or backing never changes a lane's type. *Full* equality is
+  `DataContract` equality (the data class's own), which includes the facet: signatures, port declarations and
+  the expression compiler's cache keys use it, because a signature requiring native `Reading` and one requiring
+  native `Customer` are different declarations even when their fields coincide. No API compares contracts
+  without saying which equality it means.
 - **The facet describes the live value.** A `DataValue` reports the native class its backing actually supplies.
   A declaration (a port, a binding, a Formula's expected result) may require one. A detached snapshot carries only
   the structural type, because the decoded tree cannot reproduce the original instance (§12.1).
+- **`ClassName` is a declaration key, not a runtime identity.** The same fully-qualified name loaded by two
+  plugin classloaders is two JVM types, so the common contract never decides native compatibility by comparing
+  names. Native assignability is a JVM resolver operation (§4.7) that resolves the *declaration's* `ClassName`
+  in the requiring side's classloader and compares it against runtime identity — the live backing's actual
+  `Class` where a value is at hand (`native(node)::class`), or the producing declaration resolved in the same
+  loader for a connection-time check with no value. `ClassName` stays the client-visible rendering of that key.
 - **`Opaque` needs a native class.** `Opaque` says "no structural contract has been promised", so a contract
   whose structural type is `Opaque` must carry a native class; the `DataContract` constructor enforces it.
   `Dynamic` and mapping keys never carry one.
 
-Compatibility is projection-specific. A native consumer (generated Kotlin calling members of `Reading`) asks
-whether the native facet is assignable to the class it compiles against. A structural consumer (Sort, Filter, a
-table, a writer) asks whether the structural facet accepts its requirement and ignores the native facet. The
-algebra in §4.7 takes the requirement explicitly rather than guessing which facet a caller means.
+Compatibility is projection-specific, and the native requirement is additive. A structural consumer (Sort,
+Filter, a table, a writer) asks whether the structural facet accepts its requirement and ignores the native
+facet. A native consumer (generated Kotlin calling members of `Reading`) asks for `DataRequirement.Native`, which
+checks structural acceptance *and* that the native facet is assignable to the class it compiles against — never
+native alone, because the same boundary may promise fields to a downstream structural consumer. The algebra in
+§4.7 takes the requirement explicitly rather than guessing which facet a caller means.
 
 ### 4.2 Identifiers and the wire tree
 
@@ -341,9 +352,10 @@ binding construction and must produce the same explicit `Defaulted` origin; it i
 as arbitrary code. Computed defaults are deferred unless an existing Logic contract requires them; literal
 defaults are sufficient for the foundational proof.
 
-`ScalarKind` is sealed rather than an enum because integer width, decimal precision/scale and floating width carry
-parameters. `Integer.bits == null` means arbitrary precision. `Decimal` null precision/scale means unconstrained
-decimal, not binary floating point.
+`ScalarKind` is sealed rather than an enum because integer width and floating width carry parameters.
+`Integer.bits == null` means arbitrary precision. `Decimal` is an exact decimal of unconstrained precision, not
+binary floating point; declared precision and scale are constraint-layer and representation metadata (§4.4) and
+arrive with the first database consumer, so the v1 kind is unparameterized.
 
 Scalar runtime values and mapping keys are read either through allocation-free primitive accessors or as a
 detached `ScalarExecutionValue` (§6). Exact integers, decimals, temporal values and UUIDs use their canonical text
@@ -358,11 +370,15 @@ duplicate field handling, presence and element constraints.
 
 `Mapping.key` must be a non-null `Scalar` or non-null `Dynamic`; records and collections cannot be keys. Using a
 `DataType` rather than a required `ScalarKind` lets an empty or genuinely dynamic map *observation* state honestly
-that its key kind is not yet known. A present runtime mapping node always reports a concrete key kind, as every
-present node does (§4.6), because `keyAt` returns a canonical-text `ScalarExecutionValue` that is only
-interpretable under an owning scalar kind — text `"1"`, integer `1` and decimal `1` are otherwise
-indistinguishable. A native map whose keys have no single scalar kind is not lifted as a `Mapping`; it stays
-`Opaque` until an adapter states the key policy.
+that its key kind is not yet known. A *non-empty* present runtime mapping node always reports a concrete key
+kind, as every present node does (§4.6), because `keyAt` returns a canonical-text `ScalarExecutionValue` that is
+only interpretable under an owning scalar kind — text `"1"`, integer `1` and decimal `1` are otherwise
+indistinguishable; an empty mapping with no expected type honestly reports a `Dynamic` key (§7.2). The native
+baseline's key rules are fixed rather than discovered: a map whose keys have no single scalar kind, or that
+contains a null key, is not lifted as a `Mapping` and stays `Opaque` until an adapter states the key policy; the
+key kind is that of the actual key class, and distinct numeric key classes are not joined into one kind in v1;
+and two distinct native keys that lower to the same canonical scalar text (`1` and `1.0` under one kind) make
+lifting fail with a `DataProblem`, because `keyAt` plus canonical text could not represent that map faithfully.
 
 `DataField` needs a stable identity separate from its display label, its `DataContract`, and an optionality:
 
@@ -395,19 +411,22 @@ The model has two explicit layers, and the test for which layer a property belon
 - **A constraint layer owns value restrictions.** Symbol sets, decimal precision/scale, string length, numeric
   ranges and declared defaults change *validation*, not access. They are carried as schema metadata beside the
   `DataContract` and enforced by `validate` (§4.7) or by the reader's decode policy where a declaring schema
-  supplies them. `Decimal(precision, scale)` keeps its parameters in the type only as a storage-width hint that
-  a provider needs for lossless writing; generic acceptance does not compare them.
+  supplies them; generic acceptance never compares them.
 
 Provider-native details that change neither access nor validation — temporal precision, fixed-binary length, a
 column's affinity — are representation metadata in the same container, used for lossless round-trip or migration
-and never consulted by generic access. The container's shape is open question 3 (§17).
+and never consulted by generic access.
 
-**Enum is deliberately not a scalar kind in v1**, a change from the project-data analysis's scalar list, and it is
-the constraint layer's clearest case: a closed symbol set does not change how a generic consumer *accesses* the
+**The whole constraint layer is deferred, with its container, until the first declaring schema supplies a
+constraint** — nothing in v1 needs one, and the layer's shape is open question 3 (§17). Until then `validate`
+checks structure and presence only, and precision and scale are neither in the type nor anywhere else.
+
+**Enum is deliberately not a scalar kind**, a change from the project-data analysis's scalar list, and it is the
+constraint layer's clearest case: a closed symbol set does not change how a generic consumer *accesses* the
 value — it is text — and treating membership as type compatibility would make `isAssignable` and `join` reason
-about symbol sets before any consumer needs it. In v1 an enum is `Scalar(Text)` plus a symbol-set constraint;
-membership is checked by value validation where a declaring schema supplies it. The decision reopens with the
-first carried-schema format (Avro) whose union or default semantics depend on enum identity.
+about symbol sets before any consumer needs it. An enum is `Scalar(Text)`; the symbol-set constraint arrives
+with the layer, and the decision reopens with the first carried-schema format (Avro) whose union or default
+semantics depend on enum identity.
 
 The temporal meanings are deliberately small and explicit:
 
@@ -452,10 +471,21 @@ The producer that lifts or decodes a value against a declared union determines t
   separately declared disambiguation policy. Variant order is canonical for display and digest purposes and is
   never an implicit "first match wins".
 
-Assignability and selection are different relations. A union *accepts* an actual contract when at least one
-variant does; selection *succeeds* only when exactly one does. A binding or adapter receiving an untagged value
-must therefore call `selectVariant`, never plain union assignability — a value can be assignable to a union and
-still impossible to tag implicitly.
+Assignability and selection are different relations, and assignability has three cases, not one:
+
+- an expected union accepts a *concrete* actual contract when at least one variant does;
+- an expected union accepts an *actual union* only when every actual variant is accepted by some expected
+  variant — `String | Date` does not satisfy `String | Integer` merely because the string branch matches; and
+- a concrete expected contract accepts an actual union only when it accepts every variant.
+
+Selection *succeeds* only when exactly one variant accepts a concrete actual contract. An actual that is itself a
+tagged union node is selected through its active variant's contract; a `Dynamic` actual cannot select and is
+`NoMatch`. A binding or adapter receiving an untagged value must therefore call `selectVariant`, never plain
+union assignability — a value can be assignable to a union and still impossible to tag implicitly. Two variants
+with the same ID are a construction error; two variants with different IDs and identical contracts are legal
+(a protobuf `oneof` of two strings) but untagged selection between them is always `Ambiguous`, so such a union
+is usable only with an external tag. A nullable union's root may be `Null` with no active variant; the variants'
+own nullability is theirs.
 
 Selection also constructs the tagged node. Lifting a Kotlin `List<String>` or decoding a JSON array against an
 expected union does not merely return a `VariantId`: the producer wraps the selected value exactly once in a
@@ -562,8 +592,8 @@ sealed interface DataPathSegment {
 ```
 
 `isAssignable` answers type compatibility only, under an explicit requirement: structural assignability ignores
-native facets; native assignability compares the facets through the platform resolver described below; a union
-accepts an actual contract when at least one variant does. `selectVariant` answers the separate question for an
+native facets; native assignability is structural assignability plus a facet comparison through the platform
+resolver described below (§4.1); union cases follow the three rules of §4.5. `selectVariant` answers the separate question for an
 untagged value — unique acceptance under the caller's requirement — and returns every ambiguous candidate rather
 than guessing (§4.5); `validateVariant` checks an ID that a codec resolved from an external tag. `validate` is
 the explicit, possibly linear-cost walk of a present value against an expected contract, reporting absent
@@ -581,10 +611,17 @@ Before adoption the algebra must settle, with representative-pair tests: record 
 satisfy a narrower expected?), field identity, optional fields against required ones, numeric promotion,
 listing and mapping variance, the direction of `Dynamic` (a `Dynamic` requirement accepts everything; a `Dynamic`
 actual satisfies only a `Dynamic` requirement), union normalization, and the join laws. `join` must be
-associative, commutative and idempotent, or sample order changes an inferred contract. It creates or normalizes a
-tagged union only from declared/carried variants; incompatible inferred alternatives widen to `Dynamic`, and a
-join whose inputs disagree on native facets keeps the structural result with no facet. Union normalization
-flattens nested unions, removes exact duplicate variants and preserves stable variant IDs.
+associative, commutative and idempotent, or sample order changes an inferred contract. Because a `Record`'s
+field order is part of its identity, a join that merged differing field sets could not be commutative without
+either sorting fields (discarding the source order column consumers and UIs preserve) or moving order out of the
+type, so the generic join is deliberately **conservative**: two records join field-wise only when their ordered
+`FieldId` lists are identical, and otherwise widen to `Dynamic`; listings and mappings join their element / key /
+value positions; scalars join by numeric promotion or widen. Job's heterogeneous-header superset normalization
+(`schemaMode: superset`) is an intentionally order-aware `ColumnProjection` operation (§11.4), not the generic
+join. `join` creates or normalizes a tagged union only from declared/carried variants; incompatible inferred
+alternatives widen to `Dynamic`, and a join whose inputs disagree on native facets keeps the structural result
+with no facet. Union normalization flattens nested unions, removes variants that duplicate both ID and contract,
+and preserves stable variant IDs.
 
 #### Platform seams: native types are resolved on the JVM
 
@@ -606,10 +643,12 @@ the model needs are therefore stated for what they are, rather than as one gener
 - **`DataContract → TypeMetadata` exists only where every position on the requested path carries a native
   class**; a purely structural record has no native counterpart and the conversion reports that, rather than
   inventing one.
-- **Native assignability is a platform resolver**, not a class-name comparison. On the JVM it is today's
-  `TypeAssignability` compiler probe (or an equivalent that uses actual class identity), which already handles
-  subtyping, variance and nullability by Kotlin's own rules; the common algebra delegates
-  `DataRequirement.Native` to it and does not re-implement it over strings.
+- **Native assignability is a platform resolver**, not a class-name comparison. The resolver takes the
+  requiring side's classloader and resolves the declaration's `ClassName` there; the actual side is the live
+  backing's `Class` when a value is at hand, or the producing declaration resolved in the same loader for a
+  connection-time check. On the JVM it is today's `TypeAssignability` compiler probe (or an equivalent over
+  actual class identity), which already handles subtyping, variance and nullability by Kotlin's own rules; the
+  common algebra delegates `DataRequirement.Native` to it and does not re-implement it over strings.
 
 None of these contains application-specific branches. Where a capability genuinely needs a runtime value — a
 fallback adapter whose predicate inspects the instance — the static lane honestly stays `Opaque` or `Dynamic`
@@ -803,7 +842,7 @@ The shared contract should allow at least:
 | Typed row | Database/query/store results | Reads driver/store cells through a row-scoped view | fake in v1; real with the first JDBC source |
 | Structural tape | Streaming JSON/XML-like structures | Nodes index the tape; subtrees are not copied | with the first tree reader |
 | Graph object | Notation-defined and graph-created objects | Retains graph instance/definition context; selected attributes are lazy fields | native + reference lowering in v1; structural exposure later (§8) |
-| Composed | Transform output overlaying an input that cannot be appended in place | Resolves unchanged fields through the input and new fields through an indexed overlay | when a non-appendable backing needs it (§11.4) |
+| Composed | Transform output overlaying an input without copying it | Resolves unchanged fields through the input and new fields through an indexed overlay | not in v1 — column mutation over a non-appendable backing materializes once instead (§11.4) |
 
 The list is open. Adding a backing should not add a new `DataType` case or require changes to every consumer.
 
@@ -815,7 +854,13 @@ hottest read path. One consequence is accepted rather than discovered: the recor
 contents, and its header lives in the `FlatView` shared across rows, but `contract(root)` must answer with the
 record's field list — so the record carries a reference to its shared header, set when the parser fills it. That
 is one pointer per record, not a per-row adapter object, and it makes the shared-header relationship explicit
-instead of implicit. Third-party `ReportDefiner` plugins then emit `DataValue` — or their own output type lifted
+instead of implicit. The header reference then has defined behaviour under the record's existing buffer
+operations: `clear` keeps it (the buffer is reused for the next row of the same source), a copy or clone carries
+it, and an exchange of contents between two records exchanges it — a record's fields and its header always
+travel together. The allocation argument for direct implementation over a `FlatRecordAccess(header, record)`
+wrapper is not taken on faith: today's flat path already allocates `JobMessage` and `FlatView` per row, so both
+forms are benchmarked in the vertical proof (§15) and the direct form stands only if it measures better.
+Third-party `ReportDefiner` plugins then emit `DataValue` — or their own output type lifted
 by a registered adapter. The plugin is in-development code with no external consumers beyond the sample plugin,
 so its dependency policy changes with the model rather than constraining it (§14.3).
 
@@ -827,38 +872,53 @@ repository command; Kotlin object mutation remains explicit Kotlin code.
 
 `native` is the deliberate escape hatch from that guarantee. A caller requesting the original mutable Kotlin
 object may mutate it through its own API; generic structural processors never call `native` merely to read
-fields. A holder of the native object can therefore change it between two structural reads — a collection may
-change size, a field may stop matching the annotated type. The generic API prevents write-through; it does not
-promise an immutable value, which is why principle 5 says read-only.
+fields. The generic API prevents write-through; it does not promise an immutable value, which is why principle 5
+says read-only. What it does promise is a **publication rule**:
+
+> **After a value crosses a data boundary, a mutation that would invalidate its advertised contract is a
+> contract violation by the mutator.**
+
+Mutation that stays within the contract — a mutable list keeping its element type, a `var` keeping its declared
+type — is legal and simply visible to later reads. A backing that nevertheless meets a violation (an element of
+the wrong class, a null in a non-null position) fails *that read* with a `DataProblem` at the node's path; it
+does not silently coerce, and v1 has no invalidation, versioning or detach machinery for the case, because
+returning the original object through `native` means the rule cannot be fully enforced and pretending otherwise
+would promise more than the API can keep. The rule also states honestly what "the contract is read from the
+backing" means: it removes the *second copy* of the type, not the descriptor. A native or typed-row adapter
+necessarily keeps a description of external data, and its agreement with subsequent reads is the adapter's
+contract (`describe` and `lift` agree, §7.3), enforced by construction and by the read-time failure above.
 
 The v1 lifetime rule is the one every backing that exists today already satisfies, and nothing more:
 
-> **Every value crossing a v1 data boundary is self-contained or strongly run-owned, and remains readable until
-> the run settles — including after the producing cursor has advanced or closed.**
+> **Every v1 `DataValue` is self-contained or held by ordinary strong references, and remains readable for as
+> long as it is reachable — after the producing cursor has advanced or closed, after the producing child
+> settled, and after the run itself settled.**
 
 A copied flat row (`FileDataCursor` prototypes every row it emits), a strongly referenced native object, a
-literal and the fake typed row all meet it. Job batching, queueing, live-edit migration (which carries physical
-batches and adopts a detached cursor exactly once) and Script replay (`ScriptReplayState` retains step results
-until the run completes) are the consumers that retain values across engine events, and the rule is phrased
-around *their* actual use rather than around cursor iteration: a value that survived only until its cursor
-closed would still go stale in a queued batch consumed after the producer finished. Under the run-lifetime rule
-none of them needs a special case.
+literal and the fake typed row all meet it, because none of them is backed by anything that can be reclaimed
+while a reference remains. That is why the rule is reachability and not "until the run settles": a hosted
+child's result is read by its parent *after* the child frame settled (`RunEngine.host` runs the child to
+settlement before returning `Outcome.Success.value`), and a root result exists precisely to be inspected after
+terminal settlement, so any run-scoped phrasing expires values before their consumer receives them. Job
+batching, queueing, live-edit migration (which carries physical batches and adopts a detached cursor exactly
+once), Script replay (`ScriptReplayState` retains step results) and hosted results are all ordinary reachability
+under this rule; none needs a special case.
 
 What v1 deliberately does not have is a public retention vocabulary. An earlier draft declared
 `DataRetention.Detached | Owned` per root with `isAlive` on every accessor; that promised more than the API
 could enforce — no owner or scope identity, no transfer, detach, retain or release operation, no at-most-once
 guarantee, nothing that says who expires a value — while no v1 backing could actually expire one. Principle 11
-stays as the constraint: the first source that measurably cannot meet the run-lifetime rule — a JDBC `ResultSet`
-whose rows are reused, a parser slot pool — introduces the borrowed / retainable states, `retain()` leases and a
-separate synchronous traversal API *from measurement*, together with the ownership-transfer protocol they need
-(§13.19). Until then no API implies that a `DataValue` is safe to cache beyond the run, and none implies it can
-go stale within it.
+stays as the constraint: the first source that measurably cannot meet the reachability rule — a JDBC
+`ResultSet` whose rows are reused, a parser slot pool — either copies before emission or introduces the
+borrowed / retainable states, `retain()` leases and a separate synchronous traversal API *from measurement*,
+together with the ownership-transfer protocol they need across hosted results, batching and migration (§13.19).
+Until then no API implies that a `DataValue` can go stale while something still holds it.
 
-Lifetime is also not mutation authority. A run-owned value may be aliased through a trace snapshot, a branch, a
-composed overlay or a second consumer, so "the Worker owns this message" does not by itself make in-place append
-safe. Calculated-column append (§11.4) is therefore legal only for an **unpublished** value — one the appending
-Worker received on its own lane and has not yet handed to any other consumer, trace or overlay — and that
-exclusivity is a stated precondition of the append path, not an inference from ownership.
+Lifetime is also not mutation authority. A reachable value may be aliased through a trace snapshot, a branch or
+a second consumer, so "the Worker owns this message" does not by itself make in-place append safe.
+Calculated-column append (§11.4) is therefore legal only for an **unpublished** value — one the appending Worker
+received on its own lane and has not yet handed to any other consumer or trace — and that exclusivity is a
+stated precondition of the append path, not an inference from ownership.
 
 ### 6.3 Performance is part of correctness
 
@@ -1048,10 +1108,14 @@ problem, owned by the graph consumer that first needs it.
 
 The v1 position follows from the missing seam:
 
-1. **Native view only.** A graph-created object lifts through the ordinary baseline — `Opaque` with its class,
-   or a structural record if it is a data class — and Kotlin code requesting the declared class receives the
-   original reference, with no copy. Its snapshot is rejected like any other opaque value (§12.1). This is the
-   whole of v1, and it is truthful: nothing promises graph identity that the value cannot carry.
+1. **Ordinary baseline only.** A graph-created object lifts exactly as a normally constructed one: a data class
+   is a structural record with its class as native facet and may be snapshotted like any other data class; any
+   other class is `Opaque` with its class, and its snapshot is rejected like any other opaque value (§12.1).
+   Kotlin code requesting the declared class receives the original reference, with no copy. A graph-created
+   data class whose constructor holds a service or other infrastructure value exposes that property as an
+   `Opaque` field, which the snapshot policy rejects — so automatic expansion cannot leak a service through the
+   wire, and the later exposure policy (§8.1) only ever narrows what is exposed. This is the whole of v1, and it
+   is truthful: nothing promises graph identity that the value cannot carry.
 2. **Stable-reference lowering and the structural view** are deferred together with the provenance seam. When
    the seam exists, the adapter has both the reference and the definition, and the exposure policy below
    applies.
@@ -1083,8 +1147,8 @@ public properties is not acceptable.
 A reference field may expose its stable reference and, while the owning graph snapshot is live, permit explicit
 navigation to the referenced object's view. It is not automatically expanded into the parent record. This avoids
 cycles, enormous accidental snapshots and hidden graph walks. Navigation remains outside the generic model until
-a concrete processor needs it, and stable-reference lowering arrives with the provenance seam; v1 snapshots of a
-graph object fail.
+a concrete processor needs it, and stable-reference lowering arrives with the provenance seam; a v1 snapshot of
+a non-data-class graph object fails.
 
 ### 8.3 No write-through
 
@@ -1202,7 +1266,12 @@ produced name is **last-write-wins**, because carried sinks re-yield at their `o
 rebuilds the collector empty; and first-yield order fixes the component order, an overwrite keeping its
 position. "Reject duplicate supplied names" is a rule about *supplied* inputs at construction and says nothing
 about repeated *produced* components. The builder validates each component shallowly as it is set and the
-completed set — every required output produced — at settle. The exact factory names may change before
+completed set — every required output produced — at settle. That last check is new behaviour and exposes
+existing signature defects: Report declares `main: String` (`ReportLogicCompiler` builds
+`TupleDefinition.ofMain(LogicType.string)`) while `ReportRun.run()` returns `TupleValue.empty`. Every input and
+output signature is inventoried and reconciled *before* strict construction is enabled (§14.5); what Report's
+result should be — a status, a row count, a run-directory reference, or no declared component — is a product
+decision (§17), not something the binding layer guesses. The exact factory names may change before
 implementation; those construction rules should not.
 
 ### 10.1 Behaviour
@@ -1277,7 +1346,7 @@ Generated step code receives the most ergonomic supported view:
 - a step result is automatically lifted when recorded or handed to another step, with `expected` from the step's
   declared result type or the compiler-inferred `KType`.
 
-A step result recorded for replay (`ScriptReplayState`) is covered by the run-lifetime rule (§6.2). Generated
+A step result recorded for replay (`ScriptReplayState`) is covered by the reachability rule (§6.2). Generated
 native locals inside a step are a typed authoring API and are not wrapped merely to satisfy architectural
 symmetry; the cutover applies where generic data actually crosses a step boundary — the recorded result and the
 handoff to another step — and the engine may carry a `DataValue` underneath while the step body sees `T`.
@@ -1286,10 +1355,14 @@ handoff to another step — and the engine may carry a `DataValue` underneath wh
 
 Flow ports declare a `DataContract`; the runtime carries `DataValue` (or engine batches of it) on the edge. Port
 connection validation uses `isAssignable`; runtime delivery does not erase the element to an unrelated `Any?`.
-`RequiredInput<T>` stays: a custom vertex whose port is statically typed continues to receive `T` — the native
-projection where the contract carries the facet, a generated structural accessor otherwise — because the typed
-façade is the useful authoring API and generic infrastructure can lift at the port without the vertex exposing
-`DataValue`. `FlowVertex.inspectMessage` stops being a per-vertex hand-written renderer for data-carrying
+`RequiredInput<T>` stays, in two honest forms. A **native typed port** — `RequiredInput<Reading>` — requires a
+contract whose native facet is assignable to `T` under `DataRequirement.Native`, and the vertex receives the
+original object. A **structural port** — `RequiredInput<DataValue>`, or a stable framework view such as a
+`RecordView` interface — accepts by structural assignability and reads through the value. A precompiled vertex
+cannot name an accessor class generated from a schema it never saw, so there is no third form in which a
+structural value arrives as a synthetic `T`; generated typed façades over structural values belong to the
+expression compiler (Formula and Script bodies, §11.2), which compiles against the lane's contract, and are not
+a promise every Flow SPI can make. `FlowVertex.inspectMessage` stops being a per-vertex hand-written renderer for data-carrying
 messages: the runner snapshots a `DataValue` message through the bounded policy of §12, and the vertex override
 remains for non-data state. The unification target is the *generic* boundary — port, channel, step result,
 Logic binding — not every internal variable and transport (§13.22).
@@ -1300,7 +1373,20 @@ Job channels carry one `DataValue` per domain element. Batching remains a channe
 existing ownership/cadence behaviour; the ownership-transfer rule remains useful.
 
 `JobMessage(payload, flat)` and `WorkerLane(payloadType, flatColumns)` cease to be the target design. A Worker
-receives one value and one `DataContract`. Column-oriented Workers request a **`ColumnProjection`**, a
+receives one value and one `DataContract`. That is only true if every Worker produces one value, and today one
+does not: `FormulaWorker.onElement` runs two independent transforms against the *received* message — `formula`
+entries append columns to the flat part while the `payload` expression replaces the payload — so a message can
+leave with columns derived from a `Reading` and a payload that is an `Alert`, two unrelated results that
+`JobMessage.boundaryValue()`'s hidden "payload wins" rule later arbitrates. The model does not carry that
+combination; it removes it. **A Worker either widens the element or replaces it, never both**: calculated
+columns produce a wider record whose native facet is still the original object (the `Reading` is not gone —
+native consumers receive it, structural consumers see its fields plus the new column); a payload transform
+produces a new value whose columns, if a later consumer wants them, project from the new value. A pipeline that
+needs both writes two Workers in sequence, and the order — which the single Worker had to fix by convention
+(formulas see the original payload) — becomes explicit. Nothing else the dual transform could express is lost,
+and the precedence rule disappears with the second carrier (§13.23).
+
+Column-oriented Workers request a **`ColumnProjection`**, a
 kzen-auto-owned capability over `DataValue` (there is no generic `project` in kzen-lib — §4.7):
 
 - records expose their ordered fields;
@@ -1320,14 +1406,18 @@ Three existing behaviours are preserved by construction rather than by a second 
   optional, an absent cell is `DataState.Absent`, and the `ColumnProjection` used by column Workers renders
   `<missing>` as its display of absence — so `Summary` and the writers keep their output while a typed consumer
   sees absence honestly.
-- **Owned-append stays the hot path for calculated columns.** A Worker that received an *unpublished* message —
-  one no other consumer, trace or overlay has been handed (§6.2) — may append fields to an appendable backing
-  (the flat record) before publishing one new `DataValue` whose `Record` type is wider — exactly today's
-  `FormulaWorker` mechanics, legal because the mutation precedes publication and happens through the backing's
-  own builder surface, not through `ValueAccess`. A `Composed` overlay is used only where the input backing cannot be
-  appended (a native object, a row), carries an indexed field plan so lookup does not degrade with each prior
-  transform, and collapses to an owned copy past a declared threshold. The benchmark gate includes many
-  sequential calculated columns, not one overlay.
+- **Calculated columns materialize once, then append.** A Worker that received an *unpublished* message — one
+  no other consumer or trace has been handed (§6.2) — may append fields to an appendable backing (the flat
+  record) before publishing one new `DataValue` whose `Record` type is wider — exactly today's `FormulaWorker`
+  mechanics, legal because the mutation precedes publication and happens through the backing's own builder
+  surface, not through `ValueAccess`. Where the input backing cannot be appended — a native object, a typed
+  row — the *first* column-adding Worker materializes the value's column projection once into an owned flat
+  record and keeps the original object beside it as the native facet; every later column-adding Worker appends
+  to that record. The shape after N calculated columns is therefore always "one flat record of the projected
+  fields plus N added, native facet intact", with lookup cost independent of N and no nested `Composed`
+  overlays (§6.1). The one-time projection is the same work today's auto-flatten does; what it gives up is
+  laziness over unread fields of the original object, which a column-mutating pipeline does not need. The
+  benchmark gate includes many sequential calculated columns on both a flat and a native lane.
 
 A result sink or nested Logic host passes the same semantic value across the boundary instead of choosing
 between payload and materialized-map rules. `attributes: columns` becomes a record composition that prepends the
@@ -1349,8 +1439,8 @@ interface DataCursor: Iterator<DataValue>, AutoCloseable {
 `DataUnit`, `DataPart` and `DataRef` remain source-selection values; they lift through the data-class baseline
 when passed through Logic. An opener chooses the most appropriate backing for emitted items. A CSV opener uses
 the flat-record backing; a database opener uses row access; an authored Logic source receives and returns typed
-bindings. Every emitted value is self-contained or run-owned and stays readable until the run settles (§6.2);
-the first opener that cannot honour that from measurement is the one that introduces leases.
+bindings. Every emitted value is self-contained or strongly held and stays readable while reachable (§6.2); the
+first opener that cannot honour that from measurement copies before emission or introduces leases.
 
 No source-specific payload category is introduced.
 
@@ -1389,15 +1479,20 @@ enum class SensitiveSnapshotPolicy {
 }
 ```
 
-All numeric limits are strictly positive and `maximumElements` is cumulative across the snapshot. The v1 policy
-is strict, and it promises only what the existing grammar can express:
+All numeric limits are strictly positive and `maximumElements` is cumulative across the snapshot.
+`maximumDurationMillis` is checked between node reads and is therefore best-effort: the synchronous
+`ValueAccess` API cannot preempt one native getter, row accessor or adapter call that blocks past the limit, and
+the policy does not pretend to. A hard bound needs snapshotting to run under an interruptible execution
+boundary, which is a caller's choice, not a property of the policy. The v1 policy is strict, and it promises only
+what the existing grammar can express:
 
 - **The envelope carries the structural `DataType`, never a native facet.** A decoded tree cannot reproduce the
   original `Reading` instance, so a snapshot of a native-backed record is a record and nothing more; a consumer
   that needs the native object holds the live value, not the snapshot.
 - exceeding any bound rejects; a cycle or revisited identity rejects;
-- an opaque node — including every graph-created object in v1 (§8) — rejects rather than falling back to
-  `toString()` or inventing a reference; a surrogate contract for opaque lowering arrives with the wire grammar;
+- an opaque node — a non-data-class graph object, or a service held by a data-class property (§8) — rejects
+  rather than falling back to `toString()` or inventing a reference; a surrogate contract for opaque lowering
+  arrives with the wire grammar;
 - the grammar has no redaction marker, so a sensitive binding under `Redact` yields `SnapshotResult.Redacted`
   at whole-binding scope — a *result*, not a text value that could collide with real data or violate a non-text
   type — and `Reject` refuses the binding; a marker inside the tree is a §12.2 item.
@@ -1483,6 +1578,14 @@ lane types because one was data-class-backed, a snapshot preserved an annotation
 structural data class with structural equality, and holds the native facet exactly once per position (§4.1).
 `Opaque` is then a structural case whose contract must carry a class.
 
+The third review proposed going further — a purely structural `DataContract(type)` with native identity in a
+JVM-local `NativeTypeToken` sidecar — because a `ClassName` cannot carry classloader identity. The diagnosis is
+adopted and the sidecar declined: the recursive wrapper is kept because nested positions still need their
+native class, and the identity problem is solved where it arises instead — by naming the two equalities and by
+making the JVM resolver, not the name, the runtime identity (§4.1, §4.7). A separate sidecar would have to be
+threaded through every position of every contract to reach the same nested information the wrapper already
+holds.
+
 ### 13.7 Materialize every value into one universal tree
 
 This simplifies one accessor while imposing allocations and retention on every producer. It discards the main
@@ -1555,18 +1658,24 @@ selection information; it is not part of the selected value's semantic type. Enc
 An adapter in `kzen-auto-jvm` over the record's unsafe span accessors would preserve the plugin's current
 no-dependency policy and defer the SPI question. It was considered and declined: the policy protects nothing —
 there is no external plugin ecosystem or released contract, only in-development code and a sample plugin that
-recompiles — and it would put a forwarding object on the hottest read path and a mirrored or adapted contract
-between third-party readers and the value model. The dependency is taken instead (§6.1, §14.3). The one
-technical point in favour of the external adapter — that a bare record holds no header and so cannot answer
-`contract(root)` — is met by the record carrying a reference to its shared header (§6.1), which is cheaper than
-a per-row adapter and makes the header relationship explicit.
+recompiles — and it would put a mirrored or adapted contract between third-party readers and the value model.
+The dependency is taken instead (§6.1, §14.3). The one technical point in favour of the external adapter — that
+a bare record holds no header and so cannot answer `contract(root)` — is met by the record carrying a reference
+to its shared header (§6.1), with defined behaviour under the record's buffer operations. The allocation
+argument is left to measurement: a `FlatRecordAccess(header, record)` wrapper may be allocation-neutral against
+today's per-row `JobMessage` + `FlatView`, so both forms are benchmarked before the direct form is exposed from
+the plugin (§15). Two reviews raised the kzen-auto guide's "public, stable SPI" wording against this decision;
+that wording predates the decision and is superseded by it — the guide is updated when the dependency lands
+(§14.3) rather than the model bending to a contract nobody consumes.
 
 ### 13.19 A public `Detached | Owned` retention state in v1
 
 Declaring retention per root with `isAlive` on every accessor described a lifecycle the API could not enforce
 and no v1 backing could exercise: no owner identity, no transfer or release operation, nothing that expires a
-value. The run-lifetime rule (§6.2) is what today's backings actually provide. Retention states, leases and the
-transfer protocol are designed by the first source that needs them, from measured cursor behaviour.
+value. A "readable until the run settles" rule was the next draft and was also wrong, because hosted-child and
+root results are read *after* settlement. The reachability rule (§6.2) is what today's backings actually
+provide. Retention states, leases and the transfer protocol are designed by the first source that needs them,
+from measured cursor behaviour.
 
 ### 13.20 A generic `project(value, target: DataType)` in the common algebra
 
@@ -1589,6 +1698,17 @@ typed authoring APIs, and forcing the wrapper on them costs ergonomics without r
 model — the engine can carry or lift a `DataValue` underneath and hand the vertex or step its `T`. The cutover
 applies to generic boundaries: Job channels, Logic bindings, recorded step results and port delivery (§11.2,
 §11.3).
+
+### 13.23 A `JobElement(payload, columns)` product, or a `Composed` overlay chain
+
+Keeping two slots per Job element would preserve `FormulaWorker`'s ability to replace the payload and append
+columns in one step, at the price of keeping the "which slot does this boundary mean" rule at every sink, host
+and snapshot — the precedence rule the model exists to remove — and of a second carrier every Worker must keep
+consistent. Stacking `Composed` overlays per calculated column would keep laziness over the original object at
+the price of lookup cost growing with each Worker and a collapse-threshold policy to bound it. Both are declined
+for the simpler rule of §11.4: one Worker widens or replaces, the first widening over a non-appendable backing
+materializes once, and the native facet keeps the original object reachable. The only behaviour given up is
+widen-and-replace in a single Worker, which two Workers express explicitly.
 
 ### 13.18 Per-node value origins and a universal `Invalid` state
 
@@ -1628,8 +1748,11 @@ implements `ValueAccess` directly (§6.1), and readers written against the SPI e
 options the project-data analysis listed (project-data ST8 — plugin depends on kzen-lib, vocabulary in kzen-lib,
 a new neutral artifact, or a mirrored plugin-local contract), the first two are taken together; the others exist
 only to protect a dependency-free SPI, and there is no external plugin ecosystem or released contract to protect
-— the code is in development and `kzen-sample-plugin` recompiles. Publication order follows: kzen-lib before
-`kzen-auto-plugin` before the rest of kzen-auto, at the existing coordinated version.
+— the code is in development and `kzen-sample-plugin` recompiles. The kzen-auto guide's description of the
+artifact as a "public, stable contract" is superseded by this decision and is rewritten to "in-development SPI,
+versioned with the release train" when the dependency lands, so later reviewers do not re-litigate it.
+Publication order follows: kzen-lib before `kzen-auto-plugin` before the rest of kzen-auto, at the existing
+coordinated version.
 
 ### 14.4 Document ownership
 
@@ -1657,21 +1780,26 @@ cutover, and not as a supported parallel legacy model. The order is driven by de
 close the type-loss seam early.
 
 1. **Settle the type and its algebra** — `DataContract` over a structural `DataType`, `FieldId`, optionality,
-   tagged unions in the type language, `isAssignable` / `validate` / `join` / `selectVariant` with
-   representative-pair and wire/digest tests, the constraint-layer container, the JVM `KType → DataContract`
-   mapping with its recursion rule, the lossy `TypeMetadata` mapping, and the native resolver seam.
+   tagged unions in the type language, `isAssignable` (both equalities, union-to-union) / `validate` /
+   conservative `join` / `selectVariant` with representative-pair and wire/digest tests, the JVM
+   `KType → DataContract` mapping with its recursion rule, the lossy `TypeMetadata` mapping, and the native
+   resolver seam with its classloader argument.
 2. **Move `DataShape` to the observation envelope.** Replace `Tabular | Payload`, make `DataSchemaDocument.shape()`
    stop discarding types, and update the client decoders. Declared and inspected sources use the same vocabulary.
 3. **Prove the value over three backings.** `kzen-auto-plugin` takes its kzen-lib dependency and
-   `FlatFileRecord` implements `ValueAccess` with its header reference; the same record is read from it, a
-   Kotlin data class and a fake typed row; a data-class instance retains its native class and exposes fields
-   without copying; no per-field `DataValue` allocation on the flat path; every value readable through run
-   settlement.
+   `FlatFileRecord` implements `ValueAccess` with its header reference, benchmarked against a
+   `FlatRecordAccess(header, record)` wrapper; the same record is read from it, a Kotlin data class and a fake
+   typed row; a data-class instance retains its native class and exposes fields without copying; no per-field
+   `DataValue` allocation on the flat path; every value readable while reachable, including a hosted child's
+   result after the child settled.
 4. **Replace the Job carrier.** One `DataValue` crosses the lane; `WorkerLane` becomes a lane `DataContract`;
-   column Workers request `ColumnProjection`; `<missing>` moves to the projection; owned-append under the
-   unpublished-value rule is benchmarked against the current path and under many sequential calculated columns.
-5. **Land `BindingSchema` and `DataBindings`.** Replace `TupleDefinition` / `TupleValue` in `LogicSignature`,
-   `Execution`, `JobControl` and `DataContext`, with shallow bind-time checks, the result builder's preserved
+   `FormulaWorker` splits into widen-or-replace (§11.4); column Workers request `ColumnProjection`; `<missing>`
+   moves to the projection; owned-append under the unpublished-value rule and materialize-once over a native
+   lane are benchmarked against the current path and under many sequential calculated columns.
+5. **Land `BindingSchema` and `DataBindings`.** First inventory every Logic signature against what its run
+   actually binds and produces (Report's `main: String` versus `TupleValue.empty` is the known case) and resolve
+   each discrepancy; then replace `TupleDefinition` / `TupleValue` in `LogicSignature`, `Execution`,
+   `JobControl` and `DataContext`, with shallow bind-time checks, the result builder's preserved
    last-write-wins semantics, and the omission-semantics migration of §10.1.
 6. **Cut Script and Flow over where generic data actually crosses** — step results and ports — with the replay
    lifetime rule and snapshot-based message inspection.
@@ -1679,7 +1807,8 @@ close the type-loss seam early.
    behaviour; ST11, ST17 and ST20 policies gate it. External-tag union decoding from a carried schema lands
    here; the untagged selection path is already proven in step 3.
 8. **Add the first real durable-row source.** Its measured cursor behaviour decides whether retention states,
-   leases and a transfer protocol are necessary; it also brings `LocalDateTime`.
+   leases and a transfer protocol are necessary; it also brings `LocalDateTime`, `Decimal` precision/scale and
+   the constraint / representation-metadata container.
 9. **Design the richer wire grammar separately** (§12.2), and **graph provenance, stable-reference lowering and
    structural exposure separately** (§8), each with the consumer that forces it.
 
@@ -1698,12 +1827,21 @@ the following together.
 - canonical `ExecutionValue` lowering and digest round-trips for every `DataType` case, with exact integers and
   decimals as canonical text, structural type only in the envelope, and duplicate fields rendered and
   collision-rejected;
-- structural equality and digest unchanged by the native facet; representative `isAssignable` pairs under both
-  requirements, including nullability, optional fields, record width, numeric promotion, collection variance and
-  `Dynamic` direction; native assignability delegated to the JVM resolver;
+- structural equality and digest unchanged by the native facet, full `DataContract` equality distinguishing
+  facets; representative `isAssignable` pairs under both requirements, including nullability, optional fields,
+  record width, numeric promotion, collection variance, `Dynamic` direction, and `Native` proven to imply
+  structural acceptance; native assignability delegated to the JVM resolver, with a same-name class from two
+  loaders rejected;
+- union assignability in all three cases — expected union versus concrete actual, union versus union, concrete
+  expected versus actual union — plus duplicate-contract variants, duplicate IDs rejected, root nullability, and
+  selection through a tagged actual and `NoMatch` for a `Dynamic` actual;
 - `validate` distinguishing compatible-type-but-nonconforming-value cases from type mismatches, with
   `DataPathSegment` paths, and binding a value proven *not* to walk it;
-- `join` laws — associative, commutative, idempotent — and widening of inferred heterogeneity to `Dynamic`;
+- `join` laws — associative, commutative, idempotent — over records with identical ordered fields, widening of
+  differing records and of inferred heterogeneity to `Dynamic`, and superset normalization shown to be a
+  `ColumnProjection` operation rather than `join`;
+- mapping keys: an empty mapping with a `Dynamic` key, a non-empty one with a concrete kind, null and mixed keys
+  staying `Opaque`, and a canonical-text key collision failing the lift;
 - canonical `Date`, `Time`, `Instant` and `Duration` values, including rejection of local date-times where an
   `Instant` is required;
 - selection of `List<String> | String` from an untagged JSON value and from a native Kotlin value producing a
@@ -1712,8 +1850,7 @@ the following together.
   overlapping untagged variants paired with the record-width tests;
 - stable `FieldId(name, occurrence)` identity within one schema version and duplicate display-label projection;
 - the JVM `KType → DataContract` mapping over primitives, collections, data classes, Java records, a registered
-  adapter's `describe`, and a recursive data class stopping at `Opaque`; the lossy `TypeMetadata` mapping; and
-- the constraint layer carrying an enum symbol set that `validate` enforces and `isAssignable` ignores.
+  adapter's `describe`, and a recursive data class stopping at `Opaque`; and the lossy `TypeMetadata` mapping.
 
 ### Bindings
 
@@ -1721,7 +1858,8 @@ the following together.
 - unknown and duplicate name failures; required, optional and defaulted inputs;
 - a present-null binding distinct from unbound; `Bound` with `Absent` root rejected;
 - incremental produced outputs through the builder, with concurrent yields, last-write-wins on a repeated
-  produced name and first-yield component order;
+  produced name and first-yield component order, and a missing required output failing at settle — after the
+  signature inventory has reconciled every existing Logic;
 - origin and whole-binding redaction behaviour, redaction surfacing as `SnapshotResult.Redacted`; and
 - design request handling for zero, one and repeated values after routing parameters are removed.
 
@@ -1729,8 +1867,11 @@ the following together.
 
 - primitives, lists, arrays and maps; Kotlin data classes and Java records with native facets;
 - `Iterable` / `Sequence` / `Set` refused by the automatic baseline;
-- arbitrary opaque objects — a graph-created object among them — with native access, no accidental reflection,
-  and a rejected snapshot;
+- arbitrary opaque objects — a non-data-class graph-created object among them — with native access, no
+  accidental reflection, and a rejected snapshot; a graph-created data class behaving exactly as an ordinary
+  one, its service-valued property rejecting the snapshot;
+- a native list whose element changes class after publication failing that read with a `DataProblem`, not
+  coercing;
 - exact-class conflict detection at registry construction, keyed by class identity, and deterministic
   capability-fallback order;
 - `describe` and `lift` agreeing for a registered adapter, and a Formula lane typed from `describe`; and
@@ -1739,24 +1880,30 @@ the following together.
 ### End-to-end composition
 
 - a Formula returns an ordinary data class without wrapping, typed from its inferred `KType`;
-- Script → Flow → Job → nested Logic preserves the value's contract and native identity, with a statically
-  typed Flow vertex still receiving `T`;
+- Script → Flow → Job → nested Logic preserves the value's contract and native identity, with a native typed
+  Flow port still receiving `T` and a structural port receiving `DataValue`;
 - the same structural consumer reads a flat row, a data class and a fake typed row;
 - a tagged union exposes its active ID and selected value and round-trips through a typed snapshot;
 - column projection works without a second carrier, and `<missing>` appears only in the projection;
+- a calculated column over a native lane widens the record while a downstream native consumer still receives
+  the original object, and a payload transform followed by a calculated column composes as two Workers;
 - data-source arguments enumerate correctly and hosted results return typed bindings; and
 - missing/default/null behaviour is identical across every Logic flavour.
 
 ### Lifetime and performance
 
-- every value stays readable through run settlement under the actual Job batching, queueing and live-edit
-  migration cadence — including batches consumed after the producing cursor closed — and through Script replay;
+- every value stays readable while reachable under the actual Job batching, queueing and live-edit migration
+  cadence — including batches consumed after the producing cursor closed — through Script replay, and as a
+  hosted child's result read after the child settled and a root result read after the run settled;
 - cursor advance, close and cancellation leave no unreadable value behind, without any retention API;
 - owned-append is exercised only on unpublished values, and an aliased value cannot be appended in place;
 - primitive field reads allocate nothing after setup, pinned by a narrow allocation test that names its layer;
 - field traversal creates no per-field `DataValue` objects;
 - flat input is not eagerly materialized;
-- repeated calculated-column overlays retain bounded lookup cost and backing lifetime; and
+- direct `FlatFileRecord : ValueAccess` measured against a `FlatRecordAccess(header, record)` wrapper on the
+  representative flat path, the direct form kept only if it wins;
+- N sequential calculated columns on a native lane cost one projection plus N appends, with field lookup
+  independent of N; and
 - the representative Job data path stays within five percent of its current median throughput unless an
   explicitly measured capability justifies the cost.
 
@@ -1775,35 +1922,42 @@ These are recommendations for review, not landed decisions. Entries changed by t
 | UD7 | Automatic structural native baseline? | Primitives, lists, arrays, maps, Kotlin data classes and Java records; no `Iterable` / `Sequence` / `Set`; arbitrary objects remain opaque *(revised)* |
 | UD8 | Arguments/results? | Ordered, enumerable, typed `DataBindings` validated against a separate `BindingSchema`; no primary `Any?` lookup *(revised)* |
 | UD9 | Missing versus null? | Always distinct |
-| UD10 | Graph object read? | Original native instance through the ordinary baseline in v1, snapshot rejected; stable-reference lowering and the policy-limited structural view wait for a graph provenance seam *(revised)* |
+| UD10 | Graph object read? | Ordinary baseline in v1 — a data class is a structural record and snapshots like any other, anything else is `Opaque` and its snapshot rejects; stable-reference lowering and the policy-limited structural view wait for a graph provenance seam *(revised twice)* |
 | UD11 | Graph object write? | Explicit notation command; never `DataValue` write-through |
 | UD12 | Record → managed graph object? | Explicit import/create operation only |
 | UD13 | Durable row read/write? | Row-backed read-only view; explicit transactional mutation |
 | UD14 | Wire and trace model? | Keep `ExecutionValue` behind a `DataSnapshot` envelope carrying the structural type only; complete, redacted or rejected; opaque and graph values reject; `WireValue` rename and versioned grammar deferred *(revised twice)* |
-| UD15 | Performance strategy? | Primitive handles, cached/generated adapters, no eager materialization, benchmark gate including many-overlay and typed-row paths |
+| UD15 | Performance strategy? | Primitive handles, cached/generated adapters, no eager materialization, benchmark gate including many-calculated-column, typed-row and direct-versus-wrapper flat paths *(revised)* |
 | UD16 | Migration style? | Sequenced vertical cutovers with temporary internal bridges, then deletion; no supported parallel legacy model *(revised)* |
 | UD17 | Temporal baseline? | `Date`, `Time`, `Instant`, `Duration`; no parameterized timezone mode; `LocalDateTime` added as a distinct kind with the first database consumer, never coerced to `Instant` *(revised)* |
 | UD18 | Open-ended logical scalars? | Exclude initially; use `Opaque` plus adapters until a concrete refined-scalar contract is needed |
 | UD19 | Separate detached `DataScalar`? | No; `ScalarExecutionValue` with canonical text under the owning `DataType` |
 | UD20 | External discriminator layouts? | Codec-owned; they resolve to `VariantId` and do not appear in `DataType` |
-| UD21 | Native and structural facets? | Orthogonal, in a recursive `DataContract(structural, native: ClassName?)` at every position; `DataType` identity and digests are purely structural; the native facet is a live-value capability compared only under `DataRequirement.Native`; `Opaque` replaces `Nominal` *(revised)* |
+| UD21 | Native and structural facets? | Orthogonal, in a recursive `DataContract(structural, native: ClassName?)` at every position; two named equalities — structural (`DataType`: digests, lanes, snapshots) and full (`DataContract`: signatures, ports, compile caches); the facet is a live-value capability, `Native` acceptance implies structural acceptance; `Opaque` replaces `Nominal` *(revised twice)* |
 | UD22 | Runtime `Dynamic` access language? | None; `Dynamic` is an observation/requirement type and every present node carries a concrete type, a present mapping a concrete key kind *(revised)* |
-| UD23 | Value lifetime? | Every v1 value is self-contained or run-owned and readable until the run settles; no public retention state, `isAlive` or lease; the first source that measurably cannot meet that designs them *(revised)* |
+| UD23 | Value lifetime? | Every v1 value is self-contained or strongly held and readable while reachable — including hosted and root results after settlement; no public retention state, `isAlive` or lease; the first source that measurably cannot meet that copies or designs them *(revised twice)* |
 | UD24 | Universal `Invalid` state and per-node origins? | Not in v1; decode failure is settled by reader policy, origins exist at binding level only *(new)* |
 | UD25 | Field identity? | `FieldId(name, occurrence)`, the `HeaderLabel` shape, stable within one schema version; provider IDs beside the type for rename-stable formats *(revised)* |
-| UD26 | Enum? | `Scalar(Text)` plus a symbol-set constraint in the constraint layer; reopen with the first carried-schema format *(new)* |
-| UD27 | Calculated columns? | Owned-append on appendable backings, only for an unpublished value; indexed `Composed` overlay with a collapse threshold otherwise *(revised)* |
-| UD28 | Flat backing? | `FlatFileRecord` implements `ValueAccess` directly and carries a reference to its shared header; the plugin's dependency-free policy is dropped, not worked around *(revised)* |
+| UD26 | Enum? | `Scalar(Text)`; the symbol-set constraint arrives with the constraint layer, not in v1; reopen with the first carried-schema format *(revised)* |
+| UD27 | Calculated columns? | Owned-append on appendable backings, only for an unpublished value; over a non-appendable backing the first column-adding Worker materializes once into an owned flat record keeping the native facet, later Workers append; no `Composed` in v1 *(revised twice)* |
+| UD28 | Flat backing? | `FlatFileRecord` implements `ValueAccess` directly and carries a reference to its shared header with defined behaviour under `clear` / copy / exchange, benchmarked against a wrapper; the plugin's dependency-free policy is dropped, not worked around, and the kzen-auto guide's "stable SPI" wording is updated with it *(revised twice)* |
 | UD29 | Omitted Logic inputs? | Legal only under `Optional` / `Defaulted` presence; existing null-for-omitted callers migrate deliberately *(new)* |
 | UD30 | Where do defaults live? | On `BindingDefinition` and in the schema / reader contract that applies them; never in a record field's type *(new)* |
 | UD31 | What does binding a value check? | Shallow: assignability, root state, presence; deep `validate` is an explicit request *(new)* |
-| UD32 | Type versus constraint? | `DataType` is the access shape; a constraint layer beside the contract owns symbol sets, precision/scale-as-validation, ranges and defaults *(new)* |
-| UD33 | `KType` / `TypeMetadata` mappings? | `KType → DataContract` is JVM-only and class-inspecting; `TypeMetadata → DataContract` is lossy; native assignability is the JVM resolver (today's compiler probe), never class-name comparison *(new)* |
+| UD32 | Type versus constraint? | `DataType` is the access shape; a constraint layer beside the contract owns symbol sets, precision/scale, ranges and defaults — the whole layer, its container and `Decimal`'s parameters deferred to the first declaring schema *(revised)* |
+| UD33 | `KType` / `TypeMetadata` mappings? | `KType → DataContract` is JVM-only and class-inspecting; `TypeMetadata → DataContract` is lossy; native assignability is the JVM resolver (today's compiler probe) given the requiring side's classloader and the live backing's `Class`, never class-name comparison *(revised)* |
 | UD34 | Adapter static contribution? | `describe(KType): DataContract?` beside `lift`; exact registrations keyed by class identity *(new)* |
 | UD35 | Result builder semantics? | Preserve `JobResultCollector`: synchronized, last-write-wins on repeated produced names, first-yield order *(new)* |
 | UD36 | Recursive data classes? | Expansion stops at the recursive position with `Opaque`; named recursive types with the first carried-schema format *(new)* |
 | UD37 | Tabular projection owner? | kzen-auto `ColumnProjection`; no generic `project` in kzen-lib until a second consumer *(new)* |
 | UD38 | Script / Flow cutover scope? | Generic boundaries only — recorded step results, port delivery, channels, bindings; `RequiredInput<T>` and step locals stay typed *(new)* |
+| UD39 | Flow port forms? | Two: a native typed port (`RequiredInput<T>`, `Native` requirement) and a structural port (`RequiredInput<DataValue>` or a stable `RecordView`); generated façades over structural values are an expression-compiler feature, not a Flow SPI promise *(new)* |
+| UD40 | One Job element, one value? | Yes — a Worker widens or replaces, never both; `FormulaWorker`'s combined transform splits into two Workers and `boundaryValue()`'s precedence rule disappears *(new)* |
+| UD41 | Generic record `join`? | Conservative — field-wise only over identical ordered `FieldId` lists, `Dynamic` otherwise; superset normalization is `ColumnProjection`'s *(new)* |
+| UD42 | Union assignability? | Three cases: expected union vs concrete (some variant), union vs union (every actual variant accepted), concrete vs actual union (every variant); selection through a tagged actual's active variant; `Dynamic` actual is `NoMatch` *(new)* |
+| UD43 | Mutation after publication? | Contract violation by the mutator; a read that meets it fails with a `DataProblem`; no invalidation or versioning in v1 *(new)* |
+| UD44 | Strict output validation? | Enabled only after every Logic signature is inventoried and reconciled; Report's result is a product decision *(new)* |
+| UD45 | Snapshot duration? | Best-effort between node reads; a hard bound is the caller's interruptible boundary, not the policy's promise *(new)* |
 
 ## 17. Questions that remain legitimately open
 
@@ -1816,24 +1970,26 @@ Before an execution plan is approved, the following need prototypes or explicit 
    without allocation, and how a backing built outside kzen-lib mints tokens safely.
 3. **Constraint-layer and representation-metadata container.** Which provider-specific details (enum symbols,
    precision/scale, temporal precision, numeric IDs, affinities) live beside `DataContract` for validation,
-   migrations and structured writers, and in what container.
+   migrations and structured writers, and in what container. Deferred with the layer; not needed for v1.
 4. **Tabular projection policy.** Exact duplicate-label, nested-field and mapping-key rules for
    `ColumnProjection`, and where the `<missing>` rendering is configured.
-5. **Owned-append threshold and builder surface.** When a `Composed` overlay collapses to an owned copy, and how
-   `FlatFileRecord` exposes append to its owner as an unpublished-value builder without exposing it through
-   `ValueAccess`.
+5. **Append builder surface.** How `FlatFileRecord` exposes append to its owner as an unpublished-value builder
+   without exposing it through `ValueAccess`, and how the materialize-once record over a native lane holds its
+   native facet.
 6. **Enum reopening condition.** Whether the first carried-schema format needs enum identity in `join` or only
    in value validation.
 7. **Native resolver in the composite.** Whether the JVM native-assignability resolver reuses
    `TypeAssignability`'s compiler probe as-is (which lives in kzen-auto) or a class-identity implementation moves
    down to kzen-lib's `jvmMain` so kzen-lib does not depend upward.
+8. **Report's declared result.** What `main` should be once outputs are validated at settle — status, row
+   count, run-directory reference, or no declared component. A product decision, needed before step 5 of §14.5.
 
 Those are reasons to review and prototype the proposal before implementation. They are not reasons to retain the
 current opaque and duplicated boundaries.
 
 ## 18. Disposition of the 2026-08-27 design reviews
 
-Both reviews' files were removed after the revision that folded them; these tables are their permanent record.
+All three reviews' files were removed after the revision that folded them; these tables are their permanent record.
 "Adopted" means the finding is applied above as stated; "modified" means the diagnosis is accepted with a
 different fix; "declined" means the finding is not applied, with the reason.
 
@@ -1866,7 +2022,7 @@ different fix; "declined" means the finding is not applied, with the reason.
 | Adoption gate | Adopted and merged into §15 |
 
 Two first-review dispositions were later superseded by the second review: per-root `Detached | Owned` retention
-(now the run-lifetime rule, §6.2, UD23) and the native annotation as a field of `DataType` (now the recursive
+(now the reachability rule, §6.2, UD23) and the native annotation as a field of `DataType` (now the recursive
 `DataContract`, §4.1, UD21).
 
 ### 18.2 Second review
@@ -1899,3 +2055,27 @@ Two first-review dispositions were later superseded by the second review: per-ro
 | Defer graph-specific behaviour to the graph consumer | Adopted (§8) |
 | Keep the initial scalar set consumer-driven | Modified — the sealed vocabulary stays declared because it is cheap and fixes the canonical forms; only the kinds the vertical proof exercises are gated (§4.4, §15) |
 | Proposed smaller v1 (eight points) | Adopted except where the rows above say otherwise: Union kept in the language, `FlatFileRecord` direct |
+
+Three second-review dispositions were later revised by the third review: "readable until the run settles"
+(now reachability, §6.2, UD23), the `Composed` overlay with a collapse threshold (now materialize-once, §11.4,
+UD27), and the enum constraint in the v1 gate (now deferred with the whole layer, §4.4, UD26).
+
+### 18.3 Third review
+
+| Review finding | Disposition |
+|---|---|
+| Job payload and columns are sometimes independent results (`FormulaWorker` widens and replaces in one call); carry `JobElement(payload, columns)` | Modified — the diagnosis is verified and adopted; the two-slot carrier is declined because it keeps the precedence rule at every boundary. A Worker widens *or* replaces; the combined transform becomes two Workers, and the native facet keeps the original object reachable after a widening (§11.4, §13.23, UD40) |
+| `ClassName` cannot carry classloader identity; `DataContract` equality contradicts "structural identity"; replace with a structural contract plus a JVM `NativeTypeToken` sidecar | Modified — two equalities are named (structural `DataType`, full `DataContract`), the resolver takes the requiring side's classloader and the live backing's `Class`, `Native` acceptance implies structural acceptance; the recursive wrapper is kept and the sidecar declined (§4.1, §4.7, §13.6, UD21, UD33) |
+| Mutable native values invalidate "valid by construction"; state a publication rule and its failure semantics | Adopted — publication rule; a read meeting a violation fails with a `DataProblem`; no invalidation machinery; "one source of truth" restated as "no second copy" (§6.2, UD43) |
+| "Readable until the run settles" ends before hosted and root results are consumed | Adopted — reachability rule, verified against `RunEngine.host` (§6.2, §13.19, UD23) |
+| Ordered records conflict with a commutative `join` | Adopted — conservative join; superset normalization is `ColumnProjection`'s (§4.7, UD41) |
+| Union-to-union assignability incomplete; native-only acceptance unsafe | Adopted — three assignability cases, selection and construction rules, `Native` implies structural (§4.1, §4.5, UD42) |
+| Mapping-key rules contradict (§4.3 vs §7.2) and leave collisions open | Adopted — concrete kind for non-empty mappings only; null / mixed keys `Opaque`; canonical-key collision fails the lift; no cross-class numeric joins (§4.3) |
+| `RequiredInput<T>` cannot receive a generated accessor in a precompiled vertex | Adopted — native typed port and structural port; façades are the expression compiler's (§11.3, UD39) |
+| Graph-created data classes have contradictory v1 behaviour | Adopted, option 1 — ordinary data-class behaviour; a service-valued property is an `Opaque` field that rejects the snapshot (§4.1, §8, §12.1, UD10) |
+| Strict output validation exposes Report's `main: String` versus `TupleValue.empty` | Adopted — signature inventory precedes strict construction; Report's result is open question 8 (§10, §14.5, UD44) |
+| Snapshot duration is not enforceable over one blocking accessor | Adopted — best-effort between node reads (§12.1, UD45) |
+| The constraint layer is both deferred and required by the v1 gate; `Decimal(precision, scale)` has three homes | Adopted — the whole layer deferred, enum constraint out of the gate and of step 1, `Decimal` unparameterized in v1 (§4, §4.2, §4.4, §14.5, UD26, UD32) |
+| Direct `FlatFileRecord : ValueAccess` rests on a disputed SPI premise; header semantics under buffer operations are new public behaviour; the allocation argument is unproven | Declined on the premise, as twice before — the in-development status is the authoritative one and the kzen-auto guide's wording is updated with the change; adopted on both technical points — header behaviour under `clear` / copy / exchange is defined, and direct versus wrapper is benchmarked in the gate (§6.1, §13.17, §14.3, UD28) |
+| Composed overlays are already required by the Job cutover; materialize once, then append | Adopted — no `Composed` in v1 (§6.1, §11.4, §13.23, UD27) |
+| Proposed smaller coherent model (ten points) | Adopted except point 7 (product of typed values), replaced by the widen-or-replace rule |
