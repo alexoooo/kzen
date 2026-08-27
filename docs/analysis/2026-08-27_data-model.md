@@ -402,26 +402,47 @@ The initial core also has no generic `Logical(id, storage)` extension case. `Opa
 already provides a safe extension path for custom values. A logical/refined scalar can be added when a real type
 needs generic primitive transport while retaining semantic identity; the registry is not introduced speculatively.
 
-### 4.5 Unions are tagged, and the producer names the active variant
+### 4.5 Unions are tagged at runtime, and the producer names the active variant
 
 A union is an ordered, non-empty set of variants with unique IDs. Variants may be any `DataType`. Null is
 represented by the union's `nullable` modifier rather than a synthetic null variant.
 
-Unions originate only in declared or carried schemas (an Avro union, a protobuf `oneof`, an XML `choice`, an
-authored `DataSchema`). The producing adapter or codec knows which variant it decoded and supplies the active
-`VariantId` with the value; runtime access exposes both that ID and the selected value (§6). Snapshots encode the
-active variant (§12). Downstream consumers never rediscover the variant by inspecting fields or encoding wrappers.
+"Tagged" is a statement about runtime values and snapshots, not about encodings: every present union node
+carries an active `VariantId`, runtime access exposes that ID and the selected value (§6), snapshots encode it
+(§12), and downstream consumers never rediscover it by inspecting fields or wrappers. Unions originate in
+declared or carried schemas — an Avro union, a protobuf `oneof`, an XML `choice`, an authored `DataSchema`, a
+Formula's declared result type; they are never synthesized by inference over heterogeneous samples, which widens
+the position to `Dynamic` instead (project-data ST2).
 
-Where a format stores its tag — a member field, an adjacent `{type, value}` wrapper, a message header, a separate
-database column — is an encoding concern owned by that codec's configuration. It maps the external representation
-to a `VariantId` and then validates that the selected variant accepts the decoded value through
-`validateVariant`. No discriminator layout, including a shared member field, appears in `DataType`; a
-`FieldDiscriminator` case is deferred until a declared schema needs to *express* one rather than merely decode one.
+The producer that lifts or decodes a value against a declared union determines the ID in one of two ways:
 
-Structural selection — "exactly one variant accepts a string, so a string selects it" — is excluded from v1.
-Inference over heterogeneous samples widens the position to `Dynamic` rather than synthesizing an undiscriminated
-union (project-data ST2, restored). Variant order is canonical for display and digest purposes; it is never an
-implicit precedence rule.
+- **From an external tag.** Where a format stores its tag — a member field, an adjacent `{type, value}` wrapper,
+  a message header, a separate database column — the codec's configuration maps that representation to a
+  `VariantId` and then checks through `validateVariant` that the selected variant accepts the decoded value. No
+  discriminator layout, including a shared member field, appears in `DataType`; a `FieldDiscriminator` case is
+  deferred until a declared schema needs to *express* one rather than merely decode one.
+- **By structural selection.** Where the encoding carries no tag, `selectVariant` (§4.7) compares the value's
+  concrete type with every variant under structural assignability: exactly one accepting variant selects it; no
+  accepting variant is a type error; more than one is ambiguous and fails unless the codec has an explicit,
+  separately declared disambiguation policy. Variant order is canonical for display and digest purposes and is
+  never an implicit "first match wins".
+
+`List<String> | String` is the motivating case for the second rule:
+
+```kotlin
+DataType.Union(
+    variants = listOf(
+        DataVariant(VariantId("many"), DataType.Listing(DataType.Scalar(ScalarKind.Text))),
+        DataVariant(VariantId("one"), DataType.Scalar(ScalarKind.Text))
+    )
+)
+```
+
+A JSON codec meeting an untagged array or string, and a Formula returning a Kotlin `List<String>` or `String`
+against that expected type, both select unambiguously because exactly one variant accepts each; the resulting
+node carries `many` or `one` from then on. A declared `Record(a) | Record(a, b)` decoded from an untagged
+`{a: 1}` is the failing case — both variants may accept it under width-tolerant assignability — and the schema
+author either supplies a tag or the codec declares which wins.
 
 ### 4.6 Opaque and Dynamic are two different kinds of "not structural"
 
@@ -462,7 +483,14 @@ enum class DataRequirement {
 interface DataTypeAlgebra {
     fun isAssignable(expected: DataType, actual: DataType, requirement: DataRequirement): TypeAcceptance
     fun join(left: DataType, right: DataType): DataType
+    fun selectVariant(union: DataType.Union, actual: DataType): VariantSelection
     fun validateVariant(union: DataType.Union, variant: VariantId, actual: DataType): TypeAcceptance
+}
+
+sealed interface VariantSelection {
+    data class Selected(val variant: VariantId): VariantSelection
+    data class NoMatch(val problem: DataProblem): VariantSelection
+    data class Ambiguous(val candidates: List<VariantId>): VariantSelection
 }
 
 interface DataValueAlgebra {
@@ -477,7 +505,10 @@ sealed interface TypeAcceptance {
 ```
 
 `isAssignable` answers type compatibility only, under an explicit requirement: structural assignability ignores
-native annotations; native assignability compares them through `TypeMetadata`. `validate` walks a present value
+native annotations; native assignability compares them through `TypeMetadata`; a union accepts an actual type
+when at least one variant does. `selectVariant` answers the separate runtime question for an untagged value and
+returns every ambiguous candidate rather than guessing (§4.5); `validateVariant` checks an ID that a codec
+resolved from an external tag. `validate` walks a present value
 against an expected type and reports absent required fields, null in non-null positions and variant mismatches.
 `project` is the separately named, possibly allocating operation that produces a value of a different shape —
 record-to-tabular flattening under an explicit naming policy, scalar-to-single-column, mapping-to-columns under a
@@ -1324,12 +1355,15 @@ compatibility, provider lookup or explicit projection rules. An enum kind would 
 about symbol sets before any consumer observes different access behaviour. `Opaque` plus adapters, and
 `Scalar(Text)` plus a symbol-set constraint, are sufficient for the current requirements.
 
-### 13.15 Structurally inferred or undiscriminated unions
+### 13.15 Inferred unions, or ambiguity-tolerant structural selection
 
-Selecting a variant by "exactly one accepts this value" is deterministic only until a second overlapping variant
-appears, and an ambiguous selection cannot round-trip through a snapshot that carries no tag. Tagged variants
-from declared or carried schemas, with the producer naming the active variant, keep the whole-system cost of
-unions bounded; inferred heterogeneity widens to `Dynamic`.
+Synthesizing a union from heterogeneous samples would make every consumer reason about variants that no schema
+declared, and its identity would shift with the sample; inferred heterogeneity widens to `Dynamic` instead. A
+separate temptation is to let structural selection tolerate overlap by taking the first accepting variant — that
+is deterministic only until the variant list is reordered, and it hides a schema ambiguity the author should
+resolve with a tag. Selection by *unique* accepting variant is kept (§4.5): it is the only way an untagged
+`List<String> | String` can name its variant, and the resulting node carries the ID from then on, so snapshots
+round-trip.
 
 ### 13.16 Put discriminator layouts in `DataType`
 
@@ -1454,6 +1488,8 @@ the following together.
 - `join` laws — associative, commutative, idempotent — and widening of inferred heterogeneity to `Dynamic`;
 - canonical `Date`, `Time`, `Instant` and `Duration` values, including rejection of local date-times where an
   `Instant` is required;
+- structural selection of `List<String> | String` from an untagged JSON value and from a native Kotlin value,
+  external-tag decoding through `validateVariant`, and deterministic rejection of overlapping untagged variants;
 - stable `FieldId(name, occurrence)` identity and duplicate display-label projection; and
 - `KType` / `TypeMetadata` conversion with no application-specific branches.
 
@@ -1507,7 +1543,7 @@ These are recommendations for review, not landed decisions. Entries changed by t
 | UD2 | Foundation owner? | `kzen-lib-common`; JVM backings in `jvmMain` or consumer modules; `kzen-auto-plugin` depends on kzen-lib and emits the contract directly |
 | UD3 | Runtime representation? | One read-only `DataValue` over multiple `ValueAccess` backings; type read from the backing, not cached beside it *(revised)* |
 | UD4 | `Tabular`, `Payload`, or both? | None as type cases; use semantic types and explicit projections |
-| UD5 | Must every union have a discriminator field? | Unions are tagged and declared/carried; the producer supplies the active `VariantId`; no structural inference; no discriminator layout in `DataType` *(revised)* |
+| UD5 | Must every union have a discriminator field? | No. Unions are declared/carried and every runtime node carries its active `VariantId`, taken from an external tag where the encoding has one and otherwise by unique-accepting-variant structural selection (ambiguity fails); no union inference from samples; no discriminator layout in `DataType` *(revised)* |
 | UD6 | Normal Formula experience? | Return ordinary Kotlin objects; lift automatically at the boundary, typed from the inferred `KType` first |
 | UD7 | Automatic structural native baseline? | Primitives, lists, arrays, maps, Kotlin data classes and Java records; no `Iterable` / `Sequence` / `Set`; arbitrary objects remain opaque *(revised)* |
 | UD8 | Arguments/results? | Ordered, enumerable, typed `DataBindings` validated against a separate `BindingSchema`; no primary `Any?` lookup *(revised)* |
@@ -1568,7 +1604,7 @@ means the finding is not applied, with the reason.
 | One `DataType` cannot be native and structural at once; use `DataDescriptor(structural, native)` | Modified — the diagnosis is right, but a top-level pair loses nested native types; the native facet is a per-node annotation and `Opaque` replaces `Nominal` (§4.1, §13.6) |
 | Borrowed cursor values cannot cross Job batching; require independently owned items first | Adopted — §6.2, UD23; noted that `FileDataCursor` already behaves this way and that live-edit migration and Script replay are two further consumers of the rule |
 | `Dynamic` is not dynamically accessible; keep it at observation boundaries | Modified — the conclusion is adopted (§4.6, UD22), but the missing piece was not an operation (`ValueAccess.type(node)` existed) — it was the root-type invariant, resolved by reading the type from the backing (§6, UD3) |
-| Union traversal and wire identity incomplete; tagged-only, producer-selected, no `FieldDiscriminator` | Adopted — §4.5, `selected` on `ValueAccess`, `{variant, value}` in snapshots |
+| Union traversal and wire identity incomplete; tagged-only, producer-selected, no `FieldDiscriminator`, no structural selection | Modified — active-variant traversal (`selected`), the snapshot tag, no inference and no `FieldDiscriminator` are adopted; excluding *all* structural selection is declined, because a declared `List<String> \| String` decoded from an untagged encoding or lifted from a native value has no other way to name its variant. The original unique-accepting-variant rule stays, with ambiguity failing (§4.5, §13.15) |
 | Snapshot policy promises what the grammar cannot express; strict `DataSnapshot` / `SnapshotResult` first | Adopted — §12.1; the deferred grammar is listed in §12.2 |
 | Signature schemas and binding instances are different; `BindingSchema` + validated `DataBindings` | Adopted — §10, plus a builder for incrementally produced outputs |
 | One `accepts` is underspecified; separate assignability, validation and projection | Adopted — §4.7, with an explicit `DataRequirement` selecting the facet |
