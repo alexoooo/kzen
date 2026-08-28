@@ -17,6 +17,9 @@ direct `FlatFileRecord : ValueAccess` design survives only if it wins the requir
 - Inspect `FlatFileRecord`, `FlatFileRecordField`, parser fill/copy/exchange/clear paths, `FlatView`,
   `CsvRecordReader`, and plugin/sample-plugin build files. The kzen-auto guide's “stable dependency-free SPI” text is
   explicitly superseded by the design and must be corrected in the landing change.
+- Before adding the dependency, verify `ClassLoaderHandle` and `ClassLoaderUtils.dynamicParentClassLoader()` make
+  the plugin-visible `ValueAccess` class resolve from the same parent-loaded kzen-lib identity. A failed identity
+  probe stops the direct-implementation path; same-FQN-by-name evidence is insufficient.
 
 ## Implementation
 
@@ -29,7 +32,9 @@ direct `FlatFileRecord : ValueAccess` design survives only if it wins the requir
    Runtime-only empty/dynamic collections carry no invented native metadata.
 4. Add a fake typed-row backing in kzen-lib JVM tests and prove it uses the same `ValueAccess` operations without
    introducing JDBC or leases.
-5. In kzen-auto-plugin, add the JVM kzen-lib-common dependency. Prototype both direct
+5. Inspect the resolved compile/runtime dependency graph before and after adding kzen-lib-common-jvm to
+   kzen-auto-plugin, and record the actual transitive classpath delta. Accept that measured cost explicitly in the
+   plugin `AGENTS.md`; do not copy a guessed list of transitives into the documentation. Then prototype both direct
    `FlatFileRecord : ValueAccess` (record carries shared header) and `FlatRecordAccess(header, record)` against the
    J5a harness. Cover clear/copy/clone/exchange header semantics and primitive caches.
 6. Keep direct implementation only if median throughput/allocation beats the wrapper and passes the allocation pin;
@@ -37,7 +42,9 @@ direct `FlatFileRecord : ValueAccess` design survives only if it wins the requir
    the losing path in the same session.
 7. Make parser-produced records self-contained/strongly held so rows remain readable after cursor advance/close.
    Add a hosted-child result lifetime test in kzen-lib or the first kzen-auto integration seam.
-8. Update sample plugin and SPI docs/build ordering. New reader output may use `DataValue`; do not cut Job yet.
+8. Update sample plugin and SPI docs/build ordering. Rebuild the three sample-plugin source paths and explicitly run
+   kzen-project-jvm's `SampleExtensionTest`; a sample-plugin build alone does not prove the downstream loader path.
+   New reader output may use `DataValue`; do not cut Job yet.
 
 ## Proof and build order
 
@@ -48,7 +55,8 @@ direct `FlatFileRecord : ValueAccess` design survives only if it wins the requir
 - Record direct-vs-wrapper median and allocation numbers and the chosen implementation in an as-built table.
 - Build/publish `../kzen-lib` first. Then from `../kzen-auto`, run plugin tests, relevant JVM tests, full
   `./gradlew build`, and `./gradlew :kzen-auto-plugin:publishToMavenLocal`. Rebuild `../kzen-sample-plugin` and the
-  standalone downstream plugin consumer if present.
+  standalone downstream plugin consumer if present. From `../kzen-project`, run the exact
+  `SampleExtensionTest` selector and then the relevant/full build.
 
 ## Exit criteria
 

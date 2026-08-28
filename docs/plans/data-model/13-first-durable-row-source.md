@@ -36,7 +36,8 @@ graph integration.
   instant, enum symbols if used, provider metadata round-trip, and transaction isolation from read access.
 - Prove emitted values remain readable for the chosen lifetime across real Job cadence, or prove the reviewed lease
   protocol across every lifecycle named above.
-- Benchmark primitive reads, per-row allocation, copy/borrow strategy, and end-to-end throughput against DM7.
+- Benchmark primitive reads, per-row allocation, copy/borrow strategy, and end-to-end throughput against DM7c's
+  recorded foundation result.
 - Run provider integration tests in an isolated temp database, then full owning sibling builds in publication order.
 - Exit with open questions 3/6 and the lifetime verdict recorded in the project-data authority, not duplicated here.
 

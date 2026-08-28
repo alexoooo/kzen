@@ -1,6 +1,6 @@
 # DM10 — Script recorded-result and handoff cutover
 
-> **Status: ready after DM9. One kzen-auto implementation session.** Authority: unified data model §§7, 11.2,
+> **Status: ready after DM9c. One kzen-auto implementation session.** Authority: unified data model §§7, 11.2,
 > 13.22, 14.5 step 6, and Script portions of §15.
 
 ## Outcome
@@ -19,7 +19,7 @@ the recorded result and handoff.
 
 1. Re-check `ScriptLogic`, `ScriptRunContext`, `ScriptReplayState`, `ScriptMigrationState`, `StepExecution`,
    `ScriptStepDefinition`, `ScriptValueBinding`, `FormulaStep`, `ResultStep`, `RunStep`, and generated expression
-   compiler/cache keys.
+   compiler/cache keys. Include the existing nominal `IfStep.joinBranchTypes` consumer in the migration inventory.
 2. Thread DM2 `ResolvedDataContract` from declared/inferred `KType` through step definitions and compiler cache keys.
    `FormulaStep`/implicit results use the compiler-inferred type; empty typed collections retain element type.
 3. At step completion, lift raw Kotlin output with `DataAdapterRegistry.lift(result, expected)`. Store `DataValue` in
@@ -30,6 +30,10 @@ the recorded result and handoff.
    bounded policy; rejected/redacted previews never fail the run.
 6. Remove Script-local `Any?` maps only where they are generic transport. Typed locals and resource/context APIs stay
    native. Delete temporary bridges.
+7. Migrate `IfStep.joinBranchTypes` deliberately: pin its current rules (Unit dominance, exact class/generic
+   agreement with nullability widening, otherwise Any) in regression tests, then express the equivalent decision at
+   the new structural/native boundary. Do not silently replace this product behaviour with the general-purpose
+   `DataTypeAlgebra.join` merely because both operations are called “join.”
 
 ## Proof
 

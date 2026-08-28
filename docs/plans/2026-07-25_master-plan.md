@@ -35,20 +35,39 @@ disposal and atomic call-site bootstrap. CX8 is deliberately still a design gate
 
 ## Session ledger
 
-**One row per session.** Ordered for execution: the **Job/Report subsumption spine leads**, then
-extensibility, then desktop, then the remainder. Rows marked *pull-forward* are independent of
-everything above them and can be taken any time a change of pace helps.
+**One row per session.** Table order is execution order, while the `#` column is a stable identifier rather than a
+renumbered sequence. The active spine is J5a, the unified-data-model foundation and binding cutover through DM11,
+then a DataValue-aware J5b, J4, and J9. Consumer/design-gated DM rows are listed but do not become executable merely
+by appearing above unrelated work. Rows marked *pull-forward* remain independent unless they touch the same Job
+files as the active spine.
 
 | # | Session | Delivers | Plan · phase | Elab | Status |
 |---|---|---|---|---|---|
 | 1 | **J3a** — pluggable input formats | ~~`PluginReaderWorker` bridging the plugin SPI + `encoding` on native readers~~ **SUPERSEDED 2026-08-21 by DS2/DS3** (rows 52–53): the plugin-format read lives in the shared `FileDataOpener`, `encoding` in `DataPart.encoding` | J · P3 steps 1,4 | `next/J3` | ⊘ |
 | 2 | **J3b** — design-time services | ~~Column pre-scan route + `JobUpstreamSchema` fallback on `WorkerLane` + `SortSpecEditor` dropdown~~ **SUPERSEDED 2026-08-21 by DS6** (row 56): `DataSourceActions action=shape` prefers the source's static declaration and falls back to the opener's bounded `inspectShape`; `JobUpstreamSchema` gains a provider list | J · P3 steps 2,3 | `next/J3` | ⊘ |
-| 3 | **J4** — Report subsumption B | `groupBy` export parity, summary/Explore offline persistence, composed A/B gate, Report frozen | J · P4 | — | ☐ |
-| 4 | **J9** — file-backed carry-forward | Writer append cursor, Pivot store carry, Explore append, `resumed` progress key | J · P9 | — | ☐ |
 | 5 | **J5a** — benchmark baseline | Harness + Report-vs-Job results table, incl. the `FlatView` allocation row | J · P5 session A | `next/J5` | ☐ |
-| 6 | **J5b** — perf fixes + headless | IO batching, the benchmark-gated reuse ceiling, headless run mode | J · P5 session B | `next/J5` | ☐ |
+| DM1 | **DM1** — structural type contract | Common structural type vocabulary, invariants, algebra, lowering, and digests | data-model · DM1 | `data-model/01-type-contract-and-algebra.md` | ☐ |
+| DM2 | **DM2** — JVM native resolution | `KType` mapping, loader-local native tokens, and resolved assignability | data-model · DM2 | `data-model/02-jvm-native-types-and-resolution.md` | ☐ |
+| DM3 | **DM3** — shape/schema cutover | Observation envelope, typed declared schemas, non-null cursor shape, and explicit internal legacy item-kind bridge | data-model · DM3 | `data-model/03-shape-and-schema-cutover.md` | ☐ |
+| DM4 | **DM4** — values/snapshots/validation | `DataValue`, literal/native access, bounded snapshots, and deep validation | data-model · DM4 | `data-model/04-values-snapshots-and-validation.md` | ☐ |
+| DM5 | **DM5** — adapter/backing proof | Adapter registry plus literal/native/flat/fake-row proof and plugin classpath verdict | data-model · DM5 | `data-model/05-adapters-and-three-backing-proof.md` | ☐ |
+| DM6 | **DM6** — projection/builders | Column projection, exclusive transfer proof, and output builders | data-model · DM6 | `data-model/06-job-projection-and-exclusive-builders.md` | ☐ |
+| DM7a | **DM7a** — lane contract/bridge | Contract-backed static lanes and a green single-authority compatibility façade | data-model · DM7a | `data-model/07a-job-lane-contract-and-bridge.md` | ☐ |
+| DM7b | **DM7b** — value producers/workers | DataValue channels, source producers, and column Workers; delete the cursor item-kind bridge | data-model · DM7b | `data-model/07b-job-value-producers-and-workers.md` | ☐ |
+| DM7c | **DM7c** — carrier deletion/gate | Formula/sinks/hosts cutover, foundation benchmark gate, then legacy carrier deletion | data-model · DM7c | `data-model/07c-job-carrier-deletion-and-foundation-gate.md` | ☐ |
+| DM8 | **DM8** — binding inventory/model | Reconcile all Logic signatures, settle Report as no-output, and add binding vocabulary | data-model · DM8 | `data-model/08-binding-inventory-and-binding-model.md` | ☐ |
+| DM9a | **DM9a** — core binding engine | Additive kzen-lib binding-native engine with tuple bridge retained | data-model · DM9a | `data-model/09a-core-binding-engine-and-bridge.md` | ☐ |
+| DM9b | **DM9b** — auto binding migration | Migrate kzen-auto Logic, both Job hosts, and data-source callers while bridge remains | data-model · DM9b | `data-model/09b-auto-binding-migration.md` | ☐ |
+| DM9c | **DM9c** — tuple deletion/proof | Delete tuple APIs only after inventory is clean, publish, and rebuild downstream | data-model · DM9c | `data-model/09c-tuple-deletion-and-downstream-proof.md` | ☐ |
+| DM10 | **DM10** — Script boundary | DataValue recorded results/handoffs plus deliberate `IfStep` branch-join migration | data-model · DM10 | `data-model/10-script-generic-boundary-cutover.md` | ☐ |
+| DM11 | **DM11** — Flow boundary/gate | Flow message/port cutover and consolidated post-cutover adoption gate | data-model · DM11 | `data-model/11-flow-generic-boundary-cutover.md` | ☐ |
+| 6 | **J5b** — DataValue perf fixes + headless | **Revalidate after DM7c:** retain IO/headless goals, but rewrite stale `JobMessage`/`FlatView` pooling and batching assumptions against the landed `DataValue` carrier before implementation | J · P5 session B | `next/J5` | ☐ |
+| 3 | **J4** — Report subsumption B | After DM7c/J5b: `groupBy` export parity, summary/Explore offline persistence, composed A/B gate, Report frozen | J · P4 | — | ☐ |
+| 4 | **J9** — file-backed carry-forward | After J4: writer append cursor, Pivot store carry, Explore append, `resumed` progress key | J · P9 | — | ☐ |
 | 7 | **J7** — interactivity remainder | `retain=false` progress emits, deadlock precision, channel occupancy | J · P7 | `next/J7` | ☐ |
 | 8 | **J8** — Job client sweep + hygiene | Consumed-subset `JobController`, editor dedup, doc debt | J · P8 | — | ☐ |
+| DM12 | **DM12** — first structured reader | Consumer-gated tape-backed reader; not scheduled until a selected reader needs it | data-model · DM12 | `data-model/12-first-structured-reader.md` | ◇ |
+| DM13 | **DM13** — first durable row | Provider/design-gated row backing, constraints, and measured lifetime; not scheduled yet | data-model · DM13 | `data-model/13-first-durable-row-source.md` | ◇ |
 | 9 | **E1** — extensibility ratification | Verdicts on D1–D6 + gate R5-G — **needs the user**; unblocks rows 10–14 | E · E1 | — | ☐ |
 | 10 | **E2** — plugin module registration | Plugin-shipped `ModuleReflection` + pure-Java path via the R1 mirror (**was R5**) | E · E2 | — | ☐ |
 | 11 | **E3** — plugin UX | Per-document classloader isolation, JAR upload, cached listing, per-definer diagnostics | E · E3 | — | ☐ |
@@ -67,7 +86,7 @@ everything above them and can be taken any time a change of pace helps.
 | 24 | **C3** — incremental define | Per-object definition cache — **only if row 23 convicts**; drop with evidence otherwise | C · C3 | — | ☐ |
 | 25 | **C2** — manual smoke debt | The consolidated browser checklist from ~15 headless sessions — **needs the user** | C · C2 | — | ☐ |
 | 26 | **C4** — housekeeping verdicts | TP2 formally closed, `NotationCodec` adoption follow-up — XS, rides along with anything | C · C4 | — | ☐ |
-| 27 | **J6** — fan-out topology | `TeeWorker` + list-typed channel ports — **demand-driven; pull only when a real flow needs it** | J · P6 | `next/J6` | ☐ |
+| 27 | **J6** — fan-out topology | `TeeWorker` + list-typed channel ports — **demand-driven after DM7c; implement through DM6/DM7c's explicit alias/copy rule only when a real flow needs it** | J · P6 | `next/J6` | ☐ |
 | 28 | **CTX** — context + slot-owned resources | First-class `Context` notation objects, engine slots replace `ResourceScope`, provides/requires/releases validation + UI, `ResourceClosePolicy` → 3 values — **3 sessions (A engine+runtime / B validation+notation sweep / C UI+docs)** | — (standalone) | `next/context-and-resource` | ☑ 2026-07-29 |
 | 29 | **CTX2** — export-chain ownership | Replaces CTX's nearest-slot binding: `context.exports` export signature (un-exported provides are private), bind-time export-chain climb, `context.slots` retired, requires-not-provided → blocking error — **3 sessions (A kzen-lib engine+spec / B analysis+runtime+notation+fixtures / C UI+docs+smoke)** | — (standalone) | `next/context-moved-ownership` | ☑ 2026-07-29 |
 | 30 | **XC-N a** — frame-addressed move target (kzen-lib) | `MoveTarget` (id + call-site path) replaces the tree-wide broadcast, `Execution.moveDescendCallSite`, per-node suffix assignment, `logic-spec` §4/§5 + `Repositionable` + `Execution.host` KDoc. **DEFECT fix, part 1** — see § XC. As-built additions: `Repositionable.canDescendThrough` (keeps the driver flavour-agnostic) and a transit-frame `position` write in `RunEngine.host` | — (standalone) | `next/nested-frame-move-to` | ☑ 2026-07-30 |
@@ -180,12 +199,17 @@ disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
 
 ## Dependency rules (the live ones)
 
-1. **J3 → J4 → J9** — the spine; J9 touches the same Explore/Export code J4 reshapes.
-2. **J8 after J3** — it consumes phase 3's editor/schema fallback.
-3. **The element model's phase 4 executes inside J5** — benchmark first; build reuse only where the
-   benchmark convicts allocation. **Hard constraint: migration carryover (`JobChannel.drainBuffered`)
-   captures live messages, so a pool must transfer ownership, never recycle.**
-4. **J6 is demand-driven** and blocks nothing.
+1. **J5a → DM1–DM7c → DM8–DM11 → J5b → J4 → J9** is the active spine. J5a captures the untouched
+   baseline; DM7c closes the carrier gate; J5b is re-specified against the landed carrier before J4/J9 reshape
+   adjacent Report/Explore/export surfaces.
+2. **Do not overlap J4/J9/J5b/J6 with DM1–DM7c.** J8's older J3 dependency is already satisfied by landed
+   DS2/DS3/DS6, but any actual file collision still serializes through the ledger.
+3. **J5b's old element-model sketch is not executable text after DM7c.** Preserve its IO batching, measured
+   optimization, and headless-mode goals, but discard `JobMessage`/`FlatView` pooling assumptions. Any reuse under
+   `DataValue` must be benchmark-convicted and obey the hard constraint that migration carryover
+   (`JobChannel.drainBuffered`) transfers ownership of live values rather than recycling them.
+4. **J6 is demand-driven after DM7c** and blocks nothing; it consumes the explicit alias/copy rule rather than
+   inventing an earlier fan-out ownership model.
 5. **E1 ratification before E2–E6.** E4's **C7 half is the exception** — the document-rename gap is a
    settled finding with an `@Ignore`d test already committed, and can run any time.
 6. **E2 (was R5) needs `publishToMavenLocal` discipline** for `kzen-auto-plugin`, and any Kotlin test

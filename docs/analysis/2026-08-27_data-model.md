@@ -56,8 +56,8 @@ This is not a compatibility layer around the current split. The current split is
   (`RequiredInput<T>` / `FlowVertex.inspectMessage(message: Any)`) independently traffic in `Any?`;
 - Job carries `JobMessage(payload, flat)` and separately describes a lane as `WorkerLane(payloadType, flatColumns)`,
   with lossy bridges in both directions (`flatView()`, `boundaryValue()`);
-- `DataSchemaDocument.shape()` parses a field's `TypeMetadata` and then discards it, because `HeaderListing` has
-  nowhere to hold a type;
+- `DataSchemaDocument` retains each field's `TypeMetadata`, but `shape()` reads only the field keys and projects
+  names into `HeaderListing`, which has nowhere to hold a type;
 - today's `ExecutionValue` is a useful wire and trace tree, but it cannot retain native identity or provide lazy
   structural access; and
 - `DataShape.Tabular | Payload` describes current carriers rather than the data.
@@ -2021,7 +2021,8 @@ close the type-loss seam early.
    `NativeTypeResolver` interface with `ResolvedDataContract` — type-only work; deep `validate` waits for
    step 3, where backings exist to exercise it.
 2. **Move `DataShape` to the observation envelope.** Replace `Tabular | Payload`, make `DataSchemaDocument.shape()`
-   stop discarding types, and update the client decoders. Declared and inspected sources use the same vocabulary.
+   read declared field types instead of projecting only names, and update the client decoders. Declared and
+   inspected sources use the same vocabulary.
 3. **Prove the value over three backings.** `kzen-auto-plugin` takes its kzen-lib dependency and
    `FlatFileRecord` implements `ValueAccess` with its header reference, benchmarked against a
    `FlatRecordAccess(header, record)` wrapper; the same record is read from it, a Kotlin data class and a fake
@@ -2063,7 +2064,7 @@ generic structural consumer exists today — literal, flat-record and data-class
 path — so that it tests the foundation rather than a multi-repository migration:
 
 1. one typed record is read identically from literal, flat and data-class backings;
-2. declared CSV field types are no longer discarded (`DataSchemaDocument.shape()`);
+2. declared CSV field types are carried into the observation contract (`DataSchemaDocument.shape()`);
 3. calculated fields append without eager row-to-map conversion, and N of them cost one projection plus N
    appends on a native lane;
 4. a widen followed by a replace drops the widening without `carry` and keeps the `FieldId`-selected columns

@@ -15,7 +15,8 @@ after structural acceptance. The session closes open question 7 with executable 
 - `kzen-lib-common/build.gradle.kts` already has `kotlin("reflect")` in `jvmMain`.
 - In kzen-auto, `ExpressionReturnTypeInference.toTypeMetadata`, `FormulaStep.definition`,
   `CalculatedColumnEval.inferredReturnKType`, and `TypeAssignability` are the current inference/compile seams.
-  They are read-only in this session; DM7 consumes the new mapper.
+  They are read-only in this session; DM7a consumes the static lane contract and DM7c completes the runtime
+  mapper cutover.
 - Do not compare class names for executable acceptance and do not move the existing kzen-auto compiler probe into
   kzen-lib.
 

@@ -12,8 +12,8 @@ is aligned beside the structural tree and cannot affect structural equality or i
 
 ## Preconditions and coordination
 
-- Before code starts, add DM1–DM13 as rows in `docs/plans/2026-07-25_master-plan.md`; the current ledger predates
-  this model. Do not silently execute this arc outside the ledger.
+- The arc README and `docs/plans/2026-07-25_master-plan.md` already register every stable DM session ID. Start by
+  confirming DM1 is the next open row in both trackers; do not execute the arc outside that sequence.
 - Read `../kzen-lib/AGENTS.md` and `../kzen-lib/docs/architecture.md` in the execution session, then re-check all
   anchors below. No release-train version bump (CC-14).
 - Package the new cluster under a dedicated `tech.kzen.lib.common.exec.data` subtree, split by `type`, `problem`,
@@ -66,5 +66,6 @@ is aligned beside the structural tree and cannot affect structural equality or i
 
 - No consumer has migrated and no legacy type is removed; this is an independently green type-only foundation.
 - Public collections are frozen, every invariant has a test, and common code imports no JVM API.
-- Record the final package/API names in this file's as-built section if they differ from the proposal's working
-  names; later sessions update anchors to the as-built symbols.
+- Record final package/API names in this file's as-built section if they differ from the proposal's working names;
+  update the arc README only when that changes a cross-session contract, and update later anchors to the as-built
+  symbols.

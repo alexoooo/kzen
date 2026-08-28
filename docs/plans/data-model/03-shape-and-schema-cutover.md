@@ -17,7 +17,10 @@ wire consumers decode the new vocabulary.
   `DataSource.staticShape`, `DataOpener.inspectShape`, `DataCursor.shape`, `DataSourceActions`, `SchemaCache`,
   `JobUpstreamSchema`, and every JS decoder/store found by `rg "DataShape"`.
 - This session does not change `DataCursor` item type, `JobMessage`, or `WorkerLane`; temporary translation at those
-  consumers is internal and must be named for deletion in DM7.
+  consumers is internal. Introduce one explicitly legacy cursor/opener fact—working name
+  `LegacyCursorItemKind`—that says whether yielded items are flat records or payload values. It is not part of
+  `DataContract`, `DataShape`, wire JSON, or client state; `DataReadCore`/`ReadWorker` are its only intended
+  consumers, and DM7b owns its deletion.
 
 ## Implementation
 
@@ -29,13 +32,16 @@ wire consumers decode the new vocabulary.
 3. Delete kzen-auto's `Tabular` and `Payload` cases. Update `DataSource.staticShape`, `DataOpener.inspectShape`,
    `DataSourceActions`, and `SchemaCache` without changing the declared-first inspection ladder or fingerprints.
 4. Change `DataSchemaDocument.shape()` to project ordered `DataSchemaFieldListSpec` entries into a typed
-   `DataType.Record`; preserve `TypeMetadata` by mapping it to a `DataContract` rather than discarding it.
-5. Make an opened `DataCursor.shape` non-null. Existing file cursors use declared/carried/provider/inferred/runtime
-   provenance truthfully; if only headers are known, fields are `Scalar(Text)` rather than untyped labels.
+   `DataType.Record`; it currently reads only field keys, so begin reading each entry's `TypeMetadata` and map that
+   declaration into the resulting `DataContract`.
+5. Inventory every `DataCursor` implementation and every `DataReadCore`/caller branch that handles `shape == null`
+   before making opened `DataCursor.shape` non-null. Existing file cursors use declared/carried/provider/inferred/
+   runtime provenance truthfully; if only headers are known, fields are `Scalar(Text)` rather than untyped labels.
 6. Update `JobUpstreamSchema`, detached actions, client decoding, editor suggestions, and diagnostics. UI labels may
    render a type but do not learn about runtime backings or a new shape kind.
-7. Add a temporary adapter for the still-legacy `WorkerLane` only where compilation requires it; mark it with DM7
-   deletion ownership and keep the new common shape authoritative.
+7. Route legacy cursor dispatch through `LegacyCursorItemKind` (or the as-built equivalent) and add a temporary
+   adapter for the still-legacy `WorkerLane` only where compilation requires it. Keep both internal, keep the new
+   common shape authoritative, and mark their exact use sites for DM7b/DM7c deletion respectively.
 8. Update the data-source analysis pointer/status only where it describes the now-correct implementation; do not
    duplicate the unified model rationale (CC-20).
 
@@ -46,6 +52,8 @@ wire consumers decode the new vocabulary.
 - Cover unavailable, stable, provisional/coverage, each provenance, and diagnostics.
 - Existing declared-first/no-I/O tests, fingerprinted cache tests, File/Logic source tests, and JS `DataShapeTest`
   remain green after adapting expected values.
+- Seed `SchemaCache` with the legacy tabular/payload on-disk wire form and prove decode failure is a harmless cache
+  miss that inspection replaces with the new envelope; it must not fail the request or preserve a poisoned entry.
 - Build and publish `../kzen-lib` first (`./gradlew build`, then `./gradlew publishToMavenLocal`). From
   `../kzen-auto`, run focused common tests and `:kzen-auto-jvm:test` for data-source/schema packages, then
   `./gradlew build`. If JS sources changed, force `:kzen-auto-js:jsEsbuildBundle --rerun` before a client boot smoke.
@@ -54,4 +62,6 @@ wire consumers decode the new vocabulary.
 
 - `rg "DataShape\\.(Tabular|Payload)" ../kzen-auto` finds no production use.
 - No field type is reduced to a header label and no source-specific payload category exists.
+- `LegacyCursorItemKind` has no wire/client/public-model presence and is confined to the enumerated cursor/read
+  bridge; DM7b is recorded as its sole deletion owner.
 - Publish all kzen-auto artifacts only if a downstream standalone consumer needs this intermediate state.

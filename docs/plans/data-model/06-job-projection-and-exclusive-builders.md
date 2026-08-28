@@ -7,12 +7,12 @@
 
 kzen-auto owns a tested `ColumnProjection` and unpublished record/output builder. Job transport can prove or deny an
 exclusive move, append in place only under that proof, and materialize a native lane once. Formula widen/replace/carry
-semantics are executable before the legacy carrier is removed in DM7.
+semantics are executable before the legacy carrier is removed across DM7a–DM7c.
 
 ## Preconditions and collision control
 
-- Freeze J4/J9/J6 work while DM6–DM7 touch `FormulaWorker`, readers/writers, channels, and element ownership. J6
-  fan-out must consume the explicit alias/copy rule after DM7, not predate it.
+- Freeze J4/J9/J5b/J6 work while DM6–DM7c touch `FormulaWorker`, readers/writers, channels, and element ownership.
+  J6 fan-out must consume the explicit alias/copy rule after DM7c, not predate it.
 - Re-check `JobChannel`, batch/migration carry-over, `JobMessage`, `FlatView`, `WorkerLane`, `FormulaWorker`,
   `CalculatedColumnEval`, filters/sorts/summaries/writers/previews, and `JobElementModelTest`.
 - Keep `ColumnValue` coercion (`"13.0" == 13`) and interned constants exactly as current product behaviour.
@@ -52,4 +52,4 @@ semantics are executable before the legacy carrier is removed in DM7.
 ## Exit criteria
 
 - Open questions 4 and 5 have as-built verdicts; no public mutation leaks through `ValueAccess`.
-- The bridge is named and has exactly one deletion owner: DM7.
+- The bridge is named and has exactly one deletion owner: DM7c.

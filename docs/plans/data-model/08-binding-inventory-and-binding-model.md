@@ -1,6 +1,6 @@
 # DM8 — Logic signature inventory and binding model
 
-> **Status: ready after DM7. One implementation session.** Authority: unified data model §§4.2, 10–10.1,
+> **Status: ready after DM7c. One implementation session.** Authority: unified data model §§4.2, 10–10.1,
 > 14.5 step 5, and §15 “Bindings.”
 
 ## Settled Report decision
@@ -15,16 +15,17 @@ designed feature with an explicit consumer.
 
 Every existing Logic signature is reconciled with actual supplied/produced values, and kzen-lib owns frozen
 `BindingSchema`, validated `DataBindings`, structural snapshot defaults, binding state/origin, sensitivity display
-policy, and the concurrent last-write-wins output builder. Engine APIs still use the tuple compatibility bridge until
-DM9.
+policy, and the concurrent last-write-wins output builder. Engine APIs still use the tuple compatibility bridge
+through DM9a/DM9b; DM9c owns its deletion.
 
 ## Inventory first
 
 1. Enumerate every `LogicSignature`, `TupleDefinition`, `TupleValue`, `Execution.inputs`, `Execution.host`,
-   `JobControl.parameter(s)/yieldResult`, `DataContext.argument/host`, design request binding, Script result, Flow
-   output, Job result, Report result, and test fixture in kzen-lib/kzen-auto. Produce a table in this file's as-built
-   section: flavour, input names/types/presence/defaults, output names/types, actual producers, omission/null use,
-   mismatch, disposition.
+   `JobControl.parameter(s)/yieldResult`, both `JobControl.host(ObjectLocation, Any?)` and
+   `JobControl.host(ObjectLocation, TupleValue)`, `DataContext.argument/host`, design request binding, Script
+   result, Flow output, Job result, Report result, and test fixture in kzen-lib/kzen-auto. Produce a table in this
+   file's as-built section: flavour, input names/types/presence/defaults, output names/types, actual producers,
+   omission/null use, mismatch, disposition.
 2. Include dynamic callers and named host sites (`RunStep`, `RunWorker`, `LogicDataSource`), not only compiler-built
    signatures. Scan repeated request values and routing-parameter removal.
 3. Resolve every mismatch before enabling strict required-output settlement. Unknown cases stop the session; they are
@@ -44,7 +45,8 @@ DM9.
    schema order; settle rejects missing required outputs. Yield chronology is trace metadata, not identity.
 5. Implement whole-binding display sensitivity through `SnapshotResult.Redacted/Rejected`; document explicitly that
    it is not taint propagation.
-6. Add an internal tuple bridge for DM9 only. Name every use and prohibit new tuple call sites.
+6. Add an internal tuple bridge for DM9a–DM9c only. Name every use, prohibit new tuple call sites, and assign final
+   deletion to DM9c.
 
 ## Proof and exit
 
@@ -53,4 +55,4 @@ DM9.
 - Stress concurrent output yields, repeated-name last-write-wins, schema order, and missing-required settle.
 - Pin Report's empty output schema and all inventory dispositions in flavour tests.
 - Run common JVM+JS and full kzen-lib build, publish to Maven Local, then focused kzen-auto compiler/flavour tests.
-- Exit only with a complete inventory and exactly one compatibility bridge owner (DM9).
+- Exit only with a complete inventory and exactly one compatibility bridge deletion owner (DM9c).
