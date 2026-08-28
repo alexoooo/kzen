@@ -1425,10 +1425,14 @@ binding identity. "Reject duplicate supplied names" is a rule about *supplied* i
 nothing about repeated *produced* components. The builder validates each component shallowly as it is set and
 the completed set — every required output produced — at settle. That last check is new behaviour and exposes
 existing signature defects: Report declares `main: String` (`ReportLogicCompiler` builds
-`TupleDefinition.ofMain(LogicType.string)`) while `ReportRun.run()` returns `TupleValue.empty`. Every input and
-output signature is inventoried and reconciled *before* strict construction is enabled (§14.5); what Report's
-result should be — a status, a row count, a run-directory reference, or no declared component — is a product
-decision (§17), not something the binding layer guesses. The type names here are working names: whether the
+`TupleDefinition.ofMain(LogicType.string)`) while `ReportRun.run()` returns `TupleValue.empty`. The product
+decision is settled: **Report declares no output** (2026-08-28). A Report's observable result is the materialized
+report and its existing inspection/download surfaces; the runtime does not invent a status, row count or run-path
+value merely to populate a generic result tuple. `ReportLogicCompiler` therefore drops the false `main`
+declaration before strict output validation is enabled. A future Report return value would be a separately
+designed feature with an explicit type and consumer, not a binding-layer inference. Every other input and output
+signature is likewise inventoried and reconciled *before* strict construction is enabled (§14.5). The type names
+here are working names: whether the
 implementation introduces `BindingSchema` / `DataBindings` as new classes or evolves `TupleDefinition` /
 `TupleValue` in place to these semantics is decided at the implementation spike — in-place evolution is the
 default preference, because IDE-driven refactoring carries every call site — and neither choice changes the
@@ -2031,8 +2035,8 @@ close the type-loss seam early.
    transfer on dequeue, owned-append through it, and materialize-once over a native lane are benchmarked
    against the current path and under many sequential calculated columns.
 5. **Land `BindingSchema` and `DataBindings`.** First inventory every Logic signature against what its run
-   actually binds and produces (Report's `main: String` versus `TupleValue.empty` is the known case) and resolve
-   each discrepancy; then replace `TupleDefinition` / `TupleValue` in `LogicSignature`, `Execution`,
+   actually binds and produces (Report's false `main: String` declaration is removed; §10) and resolve each
+   remaining discrepancy; then replace `TupleDefinition` / `TupleValue` in `LogicSignature`, `Execution`,
    `JobControl` and `DataContext`, with shallow bind-time checks, the result builder's preserved
    last-write-wins semantics, and the omission-semantics migration of §10.1.
 6. **Cut Script and Flow over where generic data actually crosses** — step results and ports — with the replay
@@ -2263,9 +2267,5 @@ Before an execution plan is approved, the following need prototypes or explicit 
    `jvmMain`, and `TypeAssignability`'s compiler probe (in kzen-auto) cannot be reused as-is because it renders
    names (§4.7). Open is whether same-loader generic subtyping uses kotlin-reflect in kzen-lib or delegates to
    the probe through a seam kzen-auto supplies, so kzen-lib does not depend upward.
-8. **Report's declared result.** What `main` should be once outputs are validated at settle — status, row
-   count, run-directory reference, or no declared component. A product decision, needed before step 5 of §14.5.
-
 Those are reasons to review and prototype the proposal before implementation. They are not reasons to retain the
 current opaque and duplicated boundaries.
-
