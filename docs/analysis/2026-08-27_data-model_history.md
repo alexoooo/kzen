@@ -7,7 +7,7 @@
 > the proposal is right and the row records what was true when that review was folded.
 
 
-All three reviews' files were removed after the revision that folded them; these tables are their permanent record.
+Every review's file was removed after the revision that folded it; these tables are their permanent record.
 "Adopted" means the finding is applied above as stated; "modified" means the diagnosis is accepted with a
 different fix; "declined" means the finding is not applied, with the reason.
 
@@ -129,3 +129,54 @@ expresses the old combined result as one value with an explicit record type).
 | Project-data analysis still lists `project`; review chronology and the register obscure the design | Adopted — database doc corrected; dispositions moved to this file; the register became a decision index (unified §16) |
 | Smaller v1 and a two-tier gate | Adopted in part — a foundation gate scoped to the Job / typed-flat path with cutover gates later (§15); scalar vocabulary stays declared with only exercised kinds gated (§1.2) |
 | Alternative: unify semantics, not every carrier | Modified — mostly already the proposal; the residual difference is the Job product; steps 3–4 are the requested prototype (§13.24) |
+
+Two fourth-review dispositions were later revised by the fifth review: the `Provisional`-until-first-value rule
+(now explicit resolution in the owner's loader, with `ResolvedDataContract` as the token's carrier, §4.1, §4.7)
+and the typed-decode rule on `DataDefault.literal` (now `DataDefault(snapshot: DataSnapshot)`, §4.2).
+
+### 5 Fifth review
+
+| Review finding | Disposition |
+|---|---|
+| The JVM-local token has no carrier, lifetime or API path; cache keys, join, lane identity and binding validation all need it | Adopted — JVM-only `ResolvedDataContract(contract, token: NativeTypeToken?)` and `NativeTypeResolver`; the common algebra is structural; native compilation caches by the resolved key (§4.1, §4.7, §12.1) |
+| A live raw `Class` cannot confirm erased generics; a name-only expected declaration has no identity; `TypeAssignability` cannot be reused as-is | Adopted — name-only declarations are structural until explicitly resolved in the owner's loader, the first value is evidence not authority, producer tokens carry generics, a token-less actual satisfies only non-generic requirements, `Provisional` removed from `TypeAcceptance`; Q7 narrowed to the generic-subtyping half; the v1 facet is the `TypeMetadata`-renderable subset with the token holding the full `KType` (§4.1, §4.7, §17) |
+| Publication and in-place Job append contradict: a received element is published | Adopted — Job-internal exclusive transfer on dequeue proven by the transport, trace snapshots never retain, fan-out / replay force copy, `finish()` publishes (§6.2, §11.4, §15) |
+| Native scalar interoperability unspecified; a typed cell has no boxed `Int` | Adopted — scalars project canonically through a closed exact-conversion vocabulary that rejects overflow; scalars carry no facet, records still need theirs (§4.1, §4.7) |
+| Record width is no longer open — widening plus `Native` forces width-tolerant acceptance | Adopted — width-tolerant assignability (ordered subsequence, extra actual fields allowed, optional never satisfies required); equality and `join` stay exact (§4.7, §4.5) |
+| `carry` from the received value does not reproduce the combined `FormulaWorker`; selector, order and collisions undefined | Modified — the review's option 1 rather than its preferred option 2: a Worker widens *or* replaces, combined configurations migrate to two Workers, and `carry: all` after a widening Worker includes its calculated columns; `FieldId` selection, replacement-then-carried order, collision rejection (§11.4, §13.23, §15) |
+| `DataDefault` is under-typed and cannot satisfy native bindings | Adopted — `DataDefault(snapshot: DataSnapshot)`, structural declarations only; native-constructing defaults deferred with computed defaults (§4.2, §10, §1.2) |
+| Nested-union flattening conflicts with tagged identity and the duplicate-ID error | Adopted — unions are flat in v1, no normalization (§4.5, §4.7) |
+| `DataPathSegment.Entry` is not self-describing for non-text keys | Adopted — `Entry(kind, key)` (§4.7) |
+| Duplicate-field snapshot rejection names the wrong invariant | Adopted — duplicate *names* (non-zero occurrences) reject; occurrences contiguous from zero in field order (§4.2, §12.1) |
+| Identity-less backings need a normative tree invariant | Adopted — tree-shaped invariant; an identity capability arrives with the first DAG-shaped backing (§6) |
+| Declaration collections must be frozen defensively; three identities should be named consistently | Adopted — defensive copies in every declaration / envelope constructor (§4); structural digest, declaration key, resolved key (§12.1) |
+| Runtime-only collections have no representable native facet | Adopted — no facet without an expected or inferred `KType` (§4.7, §7.2) |
+| `binary-handle` has no endpoint, resolver or lifetime in the envelope | Adopted — inline within `maximumBinaryBytes` or reject; external references with the deferred grammar (§12.1, §1.2) |
+| `validate` is sequenced before the values it validates | Adopted — type-only step 1, deep `validate` in step 3 (§14.5) |
+| The foundation gate contains the bindings cutover gate | Adopted — the nested-Logic assertion moved to the bindings gate; item 5 is now the exclusive-transfer case (§15) |
+| The Job gate needs explicit alias and combined-transform cases | Adopted (§15) |
+| Editorial: "three" review files, §13.18 after §13.24, stale project-data anchor, identity wording | Adopted — all four corrected |
+
+Three fifth-review dispositions were later revised by the sixth review: the recursive `DataContract` per
+position (now a pure `DataType` with native metadata and tokens aligned by `DataTypePath`, §4, §4.7), the single
+root token (now per path), and the two-Worker `FormulaWorker` migration (now one combined Worker publishing one
+value, §11.4).
+
+### 6 Sixth review
+
+| Review finding | Disposition |
+|---|---|
+| `DataType` equality still includes nested native facets through `DataField` / `Listing` / `Mapping` / `DataVariant` contracts; structural equality, digests and snapshot types are false for nested native values | Adopted — pure structural `DataType`; `DataContract(structural, nativeByPath: Map<DataTypePath, TypeMetadata>)` validated by the constructor and rebased at schema time (§4, §4.1, §13.6) |
+| One root token cannot reach data-class properties or union variants; no actual-side token path; executable boundaries carry no resolved form | Adopted — `ResolvedDataContract(contract, tokenByPath)`, `JvmNativeValueAccess.nativeToken(node)`, resolved companion held by each JVM owner beside the common declaration (§4.7, §6, §10) |
+| Common `join` cannot be idempotent while dropping facets | Adopted — the whole common algebra takes bare `DataType`; `join(t, t) == t` (§4.7) |
+| Cross-loader assignability is not loader equality; a plugin class implementing a parent-loader interface must accept | Adopted — classifier identity and subtype relation per position, never loader equality; both cases gated (§4.7, §15) |
+| Two Workers change the payload expression's column scope | Adopted, the review's option 2 — the combined `FormulaWorker` stays one Worker evaluating against the original input and publishing one value; two authored Workers remain possible (§11.4, §14.5, §15) |
+| Unresolved `Opaque` is structurally indistinguishable from `Dynamic` | Adopted — `Opaque` is never satisfied by the structural algebra, only through the resolver (§4.1, §4.7) |
+| `DataSnapshot` is typed but not frozen | Adopted — private constructor with a recursively freezing, validating factory (§12.1) |
+| Resolved caches need a classloader lifecycle | Adopted — scoped to the plugin / module load generation (§4.7) |
+| Union ambiguity example uses the wrong actual | Adopted — `{a, b}` is the ambiguous actual (§4.5) |
+| `DataRequirement` and requirement wording survive the API split | Adopted — enum removed; the declaration decides (§4.1, §4.5, §4.7, §10, §11.3) |
+| Synchronous trace snapshots should not disable the exclusive transfer | Adopted (§6.2, §15) |
+| Recursive data-class snapshots reject at the opaque cut | Adopted — stated in the gate (§15) |
+| Document-ownership summary still says "per-node annotation" | Adopted (§14.4) |
+| Twelve gate additions | Adopted — folded into §15 |
