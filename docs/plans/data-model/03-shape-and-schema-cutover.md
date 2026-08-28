@@ -15,7 +15,8 @@ wire consumers decode the new vocabulary.
 - DM1 artifacts are published to Maven Local before standalone kzen-auto builds.
 - Read `../kzen-auto/AGENTS.md`. Re-check `DataShape.kt`, `DataSchema.kt`, `DataSchemaDocument.shape`,
   `DataSource.staticShape`, `DataOpener.inspectShape`, `DataCursor.shape`, `DataSourceActions`, `SchemaCache`,
-  `JobUpstreamSchema`, and every JS decoder/store found by `rg "DataShape"`.
+  `FileDataCursor.shape`, `FileDataOpener.inspectBlocking`, `ColumnListingAction`, `JobUpstreamSchema`, and every JS
+  decoder/store found by `rg "DataShape"`.
 - This session does not change `DataCursor` item type, `JobMessage`, or `WorkerLane`; temporary translation at those
   consumers is internal. Introduce one explicitly legacy cursor/opener fact—working name
   `LegacyCursorItemKind`—that says whether yielded items are flat records or payload values. It is not part of

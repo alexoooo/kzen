@@ -1,11 +1,12 @@
-# Job (concurrent dataflow Logic) improvements — remaining phases (J3–J9)
+# Job (concurrent dataflow Logic) improvements — remaining phases (J4–J9)
 
-> **Status: planned.** Successor to `sprint-2/2026-07-16_job-improvements.md` (Sprint 1: J1;
-> Sprint 2: J2 landed 2026-07-21). **Also absorbs `sprint-2/2026-07-21_job-element-model.md`** —
-> its phases 1–3 landed 2026-07-22, and its phase 4 (benchmark-gated reuse) executes inside phase 5
-> here, exactly as that plan specified. The element model is now the **live data contract** for
-> phases 3, 6 and 8, so it is carried below as Appendix A rather than left in the archive.
-> Executor: **Opus-class, one phase per session.** Each phase is self-contained: goal, design
+> **Status: planned; sequencing revised 2026-08-28 by the unified data-model arc.** Successor to
+> `sprint-2/2026-07-16_job-improvements.md` (Sprint 1: J1; Sprint 2: J2 landed 2026-07-21). It also
+> preserves `sprint-2/2026-07-21_job-element-model.md` as the pre-DM baseline in Appendix A. J5a measures that
+> baseline before DM1; DM7c replaces `JobMessage` / `FlatView` / `WorkerLane`; J5b is then re-specified against
+> `DataValue`, followed by J4 and J9. Carrier-specific prose below is historical wherever the section's execution
+> note says to revalidate it; it is not permission to recreate the retired carrier.
+> Executor: **Opus-class, one ledger row per session.** Each phase/session is self-contained: goal, design
 > decisions (already made — do not re-litigate), concrete steps with file anchors, and
 > verification. Phase IDs are stable across the sprint reorganization.
 >
@@ -15,24 +16,26 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 3 — Report subsumption A: **superseded and delivered by DS2/DS3/DS6 (2026-08-24)**
-> - [ ] Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path
-> - [ ] Phase 5 — performance + headless readiness (benchmark-first) — **includes the element
->   model's phase 4 reuse gate**
-> - [ ] Phase 6 — topology: fan-out + non-linear ergonomics — **demand-driven, lowest priority**
+> - [ ] Phase 5a — pre-DM benchmark harness and untouched `JobMessage` / `FlatView` baseline
+> - [ ] DM1–DM11 — tracked in `data-model/README.md`; DM7c retires the element carrier
+> - [ ] Phase 5b — revalidate IO/performance work against `DataValue`, then add headless mode
+> - [ ] Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path, after J5b
+> - [ ] Phase 6 — topology: fan-out + non-linear ergonomics — **demand-driven after DM7c**
 > - [ ] Phase 7 — interactivity remainder: retain=false progress emits, deadlock precision,
->   channel occupancy
-> - [ ] Phase 8 — client sweep + hygiene
+>   channel occupancy; revalidate against the DM7c channel
+> - [ ] Phase 8 — client sweep + hygiene; follow the master ledger and revalidate DM-changed editor seams
 > - [ ] Phase 9 — live-edit carry-forward for file-backed workers (writer append, pivot/explore
->   resume)
+>   resume), after J4
 
-**The strategic spine is J3 → J4 → J9**; J5, J7 and J8 slot around it; **J6 is demand-driven and
-must not block the spine.** Exit for the arc: the composed A/B gate green (the same dataset through
+**The active spine is J5a → DM1–DM11 → J5b → J4 → J9.** J6 is demand-driven after DM7c; J7's
+`JobChannel` work also waits for DM7c and is revalidated there. J8 follows the master ledger rather than being
+pulled through a conflicting editor/model cutover. Exit for the arc: the composed A/B gate green (the same dataset through
 Report and through Job — identical bytes), Report frozen, headless = "the same Job, minus
 observability".
 
 ---
 
-## Landed context — what phases 3–9 stand on
+## Landed context — the pre-DM baseline
 
 **J1 ✓ (Sprint 1)** — bounded progress-teaser wire contract; the Pivot teaser bug fixed.
 
@@ -42,8 +45,8 @@ verify-only** — a Job callee fell into the Script branch and rendered zero row
 `JobConventions.isJob` branch in `RunStepArgumentsEditor`; the Script round-trip fixture needed a
 `ResultStep` (there is **no last-step fallback**).
 
-**Element model phases 1–3 ✓ 2026-07-22 — the biggest change under this plan.** See Appendix A for
-the full contract. In brief:
+**Element model phases 1–3 ✓ 2026-07-22 — the baseline J5a measures before DM1.** See Appendix A for
+the full pre-DM contract. DM7c deletes it before J5b/J4/J6/J7/J8/J9 execute. In brief:
 - `JobMessage(payload, flat: FlatView?)` **replaced `DataRecord`** as the only element crossing Job
   channels, and `Emitter` / `SourceWorker` / `TransformWorker` / `SinkWorker` **lost their generics
   entirely**.
@@ -154,8 +157,11 @@ through a Job (manual); Report's own paths untouched (its suites green).
 
 ## Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path
 
-**Goal.** Close the output-side gaps and write down the Report retirement sequence. Depends on phase
-3 (the parity checklist references its outcomes) and DS7's single-container writer-result contract.
+> **Execution order:** after DM11 and the re-specified J5b. Re-check every Worker/value anchor against `DataValue`;
+> this phase consumes the landed carrier and must not restore `JobMessage`/`FlatView` helpers.
+
+**Goal.** Close the output-side gaps and write down the Report retirement sequence. Its older phase-3 dependency is
+satisfied by DS2/DS3/DS6, and DS7 supplies the single-container writer-result contract.
 
 **Design decisions.**
 - **Grouped export, the Job way.** Report groups by filename regex (`GroupPattern`); a Job stream is
@@ -210,7 +216,8 @@ downloads; Report suites still green (**frozen ≠ broken**).
 
 **Goal.** Know the Job-vs-Report throughput gap; fix the cheap hot-path losses; make every
 interactive-only cost gateable so a headless run is "the same Job, minus observability" — without
-designing multi-process execution yet. **This phase also executes the element model's phase 4.**
+designing multi-process execution yet. This is two sessions separated by the DM arc: J5a records the untouched
+carrier baseline; J5b starts only after DM11 and rewrites every optimization against the landed `DataValue` path.
 
 **Design decisions.**
 - **Benchmark before optimizing.** A JMH-free harness (plain `main` + wall clock over fixtures, in
@@ -221,20 +228,19 @@ designing multi-process execution yet. **This phase also executes the element mo
   pre-engine-rewrite harness measured the batched-channel Job **within ~2.5 % of a single-thread
   inline baseline at 4M rows** — that harness was lost in the rewrite; **rebuild the equivalent and
   re-establish the datum on the current engine.**
-- **`FlatView` is a named baseline row.** The element model's follow-up added one extra 2-field
+- **`FlatView` is a named J5a baseline row.** The element model's follow-up added one extra 2-field
   allocation per flat-lane element and explicitly deferred the judgement here. **Acquit or convict it
-  by measurement** — do not carry it as an open question past this phase.
-- **Known cheap wins, apply after baseline**: hoist per-record `runBlockingIo` to per-batch (read up
+  by measurement, but do not optimize or pool the pre-DM carrier** — DM7c removes it and records the replacement's
+  own foundation benchmark.
+- **Known cheap wins, revalidate in J5b after DM11**: hoist per-record `runBlockingIo` to per-batch (read up
   to `output.batchSize()` records inside one block, in `CsvReaderWorker` / `MultiFileReaderWorker`;
   write a whole received batch per block in `ExportWriterWorker`); presize `Producer.pending` / batch
-  copies in `JobChannel`.
-- **The reuse ceiling — the element model's phase 4, benchmark-gated.** Apply **only where the
-  benchmark convicts allocation**: batch-bounded message arenas / pooled `FlatFileRecord`s recycled
-  after the consumer settles a batch, with **copy-on-retain** for retaining operators (Preview's
-  window, Sort's buffer). Prefer arena-per-batch over free-lists. ⚠️ **Hard constraint: migration
-  carryover (`JobChannel.drainBuffered`) captures live messages — a pool must transfer ownership of
-  captured messages, never recycle them.** The model is deliberately reuse-ready (mutable carrier,
-  nullable flat, ownership discipline); that does not license building reuse without evidence.
+  copies in `JobChannel`. Names and batching seams are hypotheses until the post-DM revalidation.
+- **The reuse ceiling is re-decided over `DataValue`, not inherited from the element model.** Apply an optimization
+  only where J5a plus DM7c's confirmation benchmark convicts the landed path. DM6/DM7c's exclusive-transfer and
+  alias/copy rules are authoritative. Migration carryover (`JobChannel.drainBuffered`) transfers ownership of live
+  values and never licenses recycling an aliased or retained backing. The old message-arena/`FlatView` sketch is
+  explicitly non-executable after DM7c.
 - **Self-managed workers stay a live future direction, gated on benchmark evidence.** The raw
   `Worker` SPI deliberately keeps `suspend` out of the worker-*logic* contract, and `WorkerBase`'s
   hooks mirror an AsyncWorker lifecycle precisely so a hot stage could later be hosted by a
@@ -255,11 +261,10 @@ designing multi-process execution yet. **This phase also executes the element mo
   active-run slot for now.)
 - Deadlock-monitor cost is fine (50 ms daemon poll of atomics); leave it.
 
-**Steps.** **Session A** — (1) harness + baseline table, including the `FlatView` row. **Session B** —
-(2) IO batching + presizing, re-measure; (3) the reuse ceiling **only if convicted**, re-measure;
-(4) `mode` plumbing + headless gates + a headless run test (assert: no progress trace entries except
-finals, no external duplex channels, identical output artifacts); (5) document the measured gap and
-the follow-up list (columnar batch lane? record arena?) as *data-driven* future items.
+**Steps.** **J5a, before DM1** — harness + baseline table, including the `FlatView` row; no carrier optimization.
+**J5b, after DM11** — first rewrite this section's concrete anchors against `DataValue`; then apply IO batching and
+presizing, re-measure, add only benchmark-convicted reuse consistent with DM6/DM7c, add `mode` plumbing/headless
+gates and a headless run test, and record the measured gap plus data-driven follow-ups.
 
 **Verification.** Benchmark table in the as-built; headless test green; interactive Sample Job
 behaviour unchanged.
@@ -268,8 +273,8 @@ behaviour unchanged.
 
 ## Phase 6 — topology: fan-out + non-linear ergonomics
 
-> ⚠️ **PRIORITY — DEMAND-DRIVEN.** The J3 → J4 → J9 spine must not wait on this, and nothing in
-> phases 3–9 depends on it. Pull it only when a real flow needs fan-out.
+> ⚠️ **PRIORITY — DEMAND-DRIVEN AFTER DM7c.** Nothing in the active spine depends on it. Re-elaborate its carrier
+> mechanics against `DataValue` and DM6/DM7c's alias/copy rule when a real flow needs fan-out.
 
 **Goal.** Make branching dataflows expressible without weakening the single-reader guarantee, and
 legible in the ordered-card UI.
@@ -278,9 +283,8 @@ legible in the ordered-card UI.
 - **Fan-out via a `TeeWorker`, not multi-reader channels.** Single-reader is what makes typing,
   carryover and close semantics tractable — keep it. `TeeWorker`: one input, `outputs: List<ChannelOutput>`
   (metadata `is: List, of: ChannelOutput`); forwards each element to every output.
-  **Under the element model: the tee deep-copies the flat part (`FlatFileRecord.clone`) and forwards
-  payloads by reference** — consistent with receiver-ownership. Correctness first, measured cost
-  later.
+  Under `DataValue`, the tee follows the landed rule: transfer at most one exclusive value and alias/copy every
+  additional branch as required by backing lifetime. It does not recreate payload/flat-specific copying.
 - `JobChannelCreator` learns list-typed channel attributes: a `ListAttributeDefinition` of references
   → one `newProducer()` per referenced channel; `ChannelTypeDefiner` treats each list element as a
   producer port. ⚠️ **Re-read `ChannelTypeDefiner` first** — the typed-flow work (`TypeAssignability`,
@@ -339,8 +343,8 @@ cover part of items (b) and (d)'s client half. Survey before building.
   `RunEngineLogicTrace` (the E4 projection owns per-flavour address→wire routings; follow the
   `$job-progress` precedent) to a fixed channels path; `JobChannelDisplay` renders fullness (a thin
   fill bar) + blocked endpoints. Bounded payload (numbers only); **emit non-retained from day one.**
-  ⚠️ `JobChannel`'s buffering was reshaped by `JobMessage` — re-verify `bufferedBatches()` against the
-  current `drainBuffered`. The client half is the deferrable tail if the session runs long.
+  ⚠️ DM7b reshapes `JobChannel` around `DataValue` — re-verify `bufferedBatches()` against the landed
+  `drainBuffered`. The client half is the deferrable tail if the session runs long.
 - **(e) Monitor-held bridge round-trip**: E5 landed as status push, so first *verify* whether an
   async external-request path materialized; if the 1 s worst-case `runBlocking` under the controller
   monitor still stands, reduce exposure by dispatching `route` off the controller monitor — check
@@ -360,7 +364,8 @@ long-running Sample Job (the `retain=false` proof).
 ## Phase 8 — client sweep + hygiene
 
 **Goal.** Apply the render-scoping discipline to `JobController`, kill duplicated client
-boilerplate, and clear the documentation debt. Prefer after phase 3 (the editor fallback).
+boilerplate, and clear the documentation debt. The old phase-3 dependency is satisfied; execute in master-ledger
+order and re-check DM3/DM7a changes to upstream schema, lane summaries, and editor vocabulary first.
 
 **Design decisions & steps.**
 1. **Consumed-subset in `JobController`**: stop storing whole `ClientState`; keep the fields render
@@ -413,8 +418,8 @@ specs); react-scan shows no whole-document re-render on status ticks.
 **Goal.** Close the remaining live-edit gaps: today a pause → edit → resume is exact through readers,
 channels and in-memory accumulators, but every *file-backed* worker restarts — a truncating writer
 silently **drops all rows written before the cut** (the reader resumes from position and never
-re-emits them), and Pivot/Explore re-index from scratch. **Sequence after phase 4** (it touches the
-same Explore/Export code).
+re-emits them), and Pivot/Explore re-index from scratch. **Sequence after J4** (it touches the same
+Explore/Export code) and consume the landed `DataValue` carrier.
 
 **Design decisions.**
 - **The capture-before-teardown seam already exists and is the right one** —
@@ -462,19 +467,21 @@ gap, cards show "resumed".
 | Phase | Size | Risk | Depends on |
 |---|---|---|---|
 | 3 — input formats + services | L (splits 1+4 / 2+3) | Medium | — |
-| 4 — export parity + deprecation | M | Low | 3 |
-| 5 — perf + headless | M (harness) + S (fixes) | Low (measure-first) | — |
-| 6 — fan-out topology | M | Medium (creator/definer) | — (**demand-driven**) |
-| 7 — interactivity remainder | M | Medium (deadlock change) | — |
-| 8 — client sweep + hygiene | M | Low | 3 (editor fallback) |
-| 9 — file-backed carry-forward | M | Medium (migration semantics) | 4 (same files) |
+| 4 — export parity + deprecation | M | Low | DM11, J5b |
+| 5a — baseline harness | M | Low (measurement only) | before DM1 |
+| 5b — perf + headless | S after re-elaboration | Low (measure-first) | DM11 |
+| 6 — fan-out topology | M after re-elaboration | Medium (creator/definer) | DM7c (**demand-driven**) |
+| 7 — interactivity remainder | M after anchor revalidation | Medium (deadlock change) | DM7c |
+| 8 — client sweep + hygiene | M after anchor revalidation | Low | active spine / DM editor seams |
+| 9 — file-backed carry-forward | M | Medium (migration semantics) | J4 (same files) |
 
 ---
 
-## Appendix A — the `JobMessage` element model (the live data contract)
+## Appendix A — the pre-DM `JobMessage` baseline contract
 
-Carried from `sprint-2/2026-07-21_job-element-model.md`, whose phases 1–3 landed 2026-07-22. **This
-is current behaviour, not a proposal.** Phases 3, 6 and 8 above depend on it.
+Carried from `sprint-2/2026-07-21_job-element-model.md`, whose phases 1–3 landed 2026-07-22. This is the behaviour
+J5a measures and remains current only until DM7c deletes it. Later J phases must not treat this appendix as their
+execution contract; it stays here as the before-state needed to interpret the benchmark and migration history.
 
 **The model.** One class is the ONLY element type crossing Job channels:
 

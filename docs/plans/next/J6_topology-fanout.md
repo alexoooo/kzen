@@ -1,12 +1,19 @@
 # J6 — topology: fan-out + non-linear ergonomics — implementation plan
 
-> **Status: planned, execution-ready.** Generated 2026-07-19 by elaborating
-> `../2026-07-25_job-improvements.md` **Phase 6** against current code. Design decisions are
-> PRE-MADE there (TeeWorker, not multi-reader channels; Tee deep-copies `DataRecord`s and passes
-> other elements by reference; no 2D canvas) — do not re-litigate. Every anchor below was re-verified
+> **Status: demand-driven after DM7c; requires re-elaboration before execution.** Generated 2026-07-19 by elaborating
+> `../2026-07-25_job-improvements.md` **Phase 6** against current code. Stable design decisions are
+> PRE-MADE there (TeeWorker, not multi-reader channels; no 2D canvas); the element-copy mechanism is superseded by
+> DM6/DM7c and must be re-elaborated. Every original anchor below was re-verified
 > 2026-07-19 (post SER2–SER5 / Y / G5 / G7 / TP1 / TP3 / TP4): the four headline anchors are
 > **unchanged**, and the real drift found is in *test* land and one API-naming trap (see
 > Current-state findings).
+>
+> ## ⚠️ 2026-08-28 carrier supersession
+>
+> DM7c deletes `JobMessage`, `FlatView`, and the payload/flat-specific copy mechanism described below. Preserve the
+> `TeeWorker`, list-port, single-reader, and UI decisions, but re-elaborate element forwarding from DM6/DM7c's
+> `DataValue` exclusive-transfer and alias/copy rules when demand opens J6. No carrier-specific snippet in this file
+> is executable after DM7c.
 >
 > ## ⚠️ Re-validated 2026-07-25 — the copy rule changed shape
 >
@@ -30,10 +37,9 @@
 > `SelectChannelEditor` now sits on `SelectReferenceEditorBase` (AE5, landed 2026-07-20) —
 > **extend it, don't fork it.**
 >
-> ⚠️ **PRIORITY — DEMAND-DRIVEN.** Per the master plan (`../2026-07-25_master-plan.md`, ledger row 27),
-> J6 is the **lowest-priority member of the J set**: the strategic spine is **J3 → J4 → J9**
-> and it must NOT wait on this phase. Execute J6 only when fan-out demand actually materializes (or
-> as a filler session). Nothing in J2–J9 depends on J6.
+> ⚠️ **PRIORITY — DEMAND-DRIVEN AFTER DM7c.** Per the master plan
+> (`../2026-07-25_master-plan.md`, ledger row 27), execute J6 only when fan-out demand materializes. It is not a filler
+> during DM1–DM7c because it touches the same channel ownership surface; nothing in the active spine depends on it.
 >
 > Executor: one session, Opus-class. Repo: `kzen-auto` (no kzen-lib changes required — verified).
 > All paths below are relative to `C:\Users\ostro\IdeaProjects\kzen-auto` unless prefixed.

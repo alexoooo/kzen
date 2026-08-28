@@ -19,10 +19,12 @@ semantics are executable before the legacy carrier is removed across DM7a–DM7c
 
 ## Implementation and decision gates
 
-1. Define kzen-auto-owned projection descriptors/access over `DataValue`: ordered record fields, explicit scalar
-   `value`, and mapping projection only with a declared/observed key policy. Resolve open question 4 in tests:
-   duplicate names render with `HeaderLabel.render`, nested fields are not flattened in v1 unless explicitly
-   selected, and `<missing>` is a projection rendering for absent optional fields.
+1. Define a kzen-auto-owned contract-level projection descriptor and its value-bound `ColumnProjection` access.
+   The static descriptor is derived from `DataContract` before a value exists and owns ordered record fields,
+   explicit scalar `value`, and mapping projection only with a declared key policy; runtime-observed mapping keys
+   remain value state. Resolve open question 4 in tests: duplicate names render with `HeaderLabel.render`, nested
+   fields are not flattened in v1 unless explicitly selected, and `<missing>` is a projection rendering for absent
+   optional fields.
 2. Add an unpublished record builder that can (a) append to an exclusively transferred appendable flat backing,
    (b) copy/materialize an aliased flat value, and (c) project a non-appendable native/row value once while retaining
    its root native facet. `finish()` freezes and publishes one wider `DataValue`.
@@ -41,7 +43,8 @@ semantics are executable before the legacy carrier is removed across DM7a–DM7c
 ## Proof
 
 - Projection tests cover record/scalar/mapping/opaque, duplicate display labels, optional absence, typed vs text
-  reads, and no data-level `<missing>` sentinel.
+  reads, and no data-level `<missing>` sentinel. For every statically projectable case, prove the descriptor derived
+  from the contract agrees in field IDs/order/labels with the projection bound to a conforming value.
 - Ownership tests cover exclusive move, sender-use rejection, alias copy, fan-out copy, synchronous trace, concurrent
   inspector, migration, freeze-after-finish, and native-facet retention.
 - Formula tests cover widen, replace without carry, selected/all carry, order/collision/rename, one published value,

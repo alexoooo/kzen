@@ -1,14 +1,23 @@
 # J5 — performance + headless readiness — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19; the live constituent plan is now
+> **Status: J5a ready before DM1; J5b blocked until DM11 revalidation.** Generated 2026-07-19; the live constituent plan is now
 > `../2026-07-25_job-improvements.md` Phase 5 (benchmark-first perf + headless mode). Decisions are PRE-MADE there (benchmark before
 > optimizing; no record pooling; headless = a run mode, not a fork; self-managed workers recorded,
-> not built) — this document elaborates them into execution-ready steps **verified against current
-> code** (post SER2–SER5, Y, G5, G7, TP1/TP3/TP4). Every anchor below was re-verified 2026-07-19;
+> not built) — this document contains J5a's executable baseline steps and J5b's pre-DM evidence. Its original
+> anchors were verified against the post SER2–SER5/Y/G5/G7/TP1/TP3/TP4 code; J5b anchors require the newer
+> post-DM revalidation described below.
 > drifted anchors are corrected and one pre-made mechanism was found unimplementable as written and
 > is **rescoped with rationale** (see "Serve-gate realization" — the graph-plan-5b precedent).
-> Master plan: Stage B2; no hard prerequisite; E6 multi-run is DEFERRED, so a headless run occupies
-> the JVM's single active-run slot.
+> Master plan: ledger rows 5 and 6. J5a has no prerequisite and must precede DM1; J5b requires DM11. E6 multi-run
+> is DEFERRED, so a headless run occupies the JVM's single active-run slot.
+>
+> ## ⚠️ 2026-08-28 execution split — carrier-specific J5b text is stale
+>
+> Execute only the harness/fixture/untouched-baseline work as J5a before DM1. DM7c then deletes
+> `JobMessage`, `FlatView`, and their pooling/reuse surface. After DM11, rewrite J5b's concrete batching, reuse, and
+> allocation anchors against `DataValue` and DM6/DM7c's exclusive-transfer/alias rules before implementing them.
+> The `JobMessage`/`FlatView` arena sketches and code snippets below remain pre-DM evidence, not executable steps.
+> Headless-mode goals and the serve-gate rescope survive subject to that post-DM anchor check.
 >
 > ## ⚠️ Re-validated 2026-07-25 — read this before using any anchor below
 >
@@ -22,23 +31,17 @@
 > | `RestHandler.logicStart(parameters, paused)` at `RestHandler.kt:1114-1165` | **`LogicHandler.logicStart(parameters, paused): LogicStartAttempt`** (`server/api/handler/LogicHandler.kt:45`); `paramPauseOnError` at :55, `paramStepMode` at :63 — the `mode` param follows the same pattern |
 > | `RestHandler` calls the controller at `:1142` | the same call now lives in `LogicHandler` |
 >
-> **The reuse ceiling is no longer "do NOT pool" — it is "pool only if the benchmark convicts".**
-> The element model's phase 4 folds into this phase and supplies the shape: batch-bounded message
-> arenas / pooled `FlatFileRecord`s recycled after the consumer settles a batch, with
-> **copy-on-retain** for retaining operators (Preview's window, Sort's buffer); prefer
-> arena-per-batch over free-lists. ⚠️ **Hard constraint: migration carryover
-> (`JobChannel.drainBuffered`) captures live messages — a pool must transfer ownership of captured
-> messages, never recycle them.** Step 11's blanket "do NOT pool" is superseded by this gate.
+> **Historical J5b reuse sketch.** The 2026-07-25 proposal allowed batch-bounded message arenas only if the
+> benchmark convicted allocation. DM7c supersedes that mechanism. Keep it only as evidence for why migration
+> ownership must be measured; any post-DM reuse design starts from `DataValue` and DM6/DM7c.
 >
 > **Add a named baseline row for `FlatView`.** The element-model follow-up collapsed the nullable
 > header/flat pair into `FlatView`, costing one extra 2-field allocation per flat-lane element, and
 > **explicitly deferred the judgement to this benchmark.** Acquit or convict it here; do not carry
 > it forward as an open question.
 >
-> **Sizing: M (harness + baseline) + S (fixes + headless).** If one session doesn't fit, split:
-> **Session A** = steps 1–3 (harness, fixtures, baseline table); **Session B** = steps 4–8 (IO
-> fixes, re-measure, mode plumbing, headless test, docs). Step 4 depends on step 3's numbers;
-> steps 5–7 are independent of 3–4 and can lead Session B.
+> **Sizing: J5a = M (harness + baseline); J5b = re-size after DM11.** The old Session B estimate is not binding
+> because its carrier assumptions are deliberately replaced before execution.
 
 ## Scope & goal
 
@@ -48,7 +51,7 @@
    a table in the constituent plan's as-built note. Re-establish the lost pre-rewrite datum
    (`JobExecutionTest.sliceThroughputBenchmark`: batched-channel Job within **~2.5% of inline at 4M
    rows** on the retired executor — shape recovered from git, see findings F9).
-2. **Fix the cheap hot-path losses** after baselining: hoist per-record `runBlockingIo` to
+2. **After DM11, revalidate and fix the cheap hot-path losses**: hoist per-record `runBlockingIo` to
    per-batch in both readers and both writers; presize/hand-off the channel batch buffers — without
    breaking the one-step ≈ one-batch checkpoint contract or migration losslessness.
 3. **Headless run mode**: a `mode` start parameter (default interactive) gating (a) progress
@@ -58,12 +61,13 @@
 4. **Protect**: `JobControl` (commonMain SPI) stays process-neutral — J5 adds nothing to it;
    record the self-managed-worker constraint without designing it.
 
-NOT in scope (see § Out of scope): record pooling, substrate swap, multi-process, multi-run,
-retain=false progress emits (J7), deadlock-suppression removal (J7), Report freeze/parity (J3/J4).
+NOT in scope before DM1 (see § Out of scope): carrier pooling, substrate swap, multi-process, multi-run,
+retain=false progress emits (J7), deadlock-suppression removal (J7), Report freeze/parity (J4).
 
 ## Dependencies & coordination
 
-- **No hard prerequisite.** J2 (signature) not needed — the benchmark drives engines directly.
+- **J5a has no hard prerequisite and must precede DM1. J5b requires DM11** and begins with an anchor/mechanism
+  rewrite against `DataValue`; J2's signature is not a separate dependency.
 - **J7 owns** `EngineJobControl.publishProgress` retain=false adoption (the in-code note at
   EngineJobControl.kt:106-110) and deadlock-precision (removing the `externallyServing` blanket,
   JobDeadlockMonitor.kt:69-76). J5 must not touch either. J5's headless mode *does* make the
@@ -434,11 +438,9 @@ New files (all under kzen-auto-jvm; stage each with `git add <path>` as written)
     `drainBuffered`'s IdentityHashMap dedup (:130-158) is untouched; `pending` stays confined to
     the worker coroutine (reassignment happens in `flush`, same confinement as before). Update the
     :189-193 comment.
-11. **Do not pool `JobMessage`/`FlatFileRecord` *before* the step-5 table convicts allocation** —
-    ownership-transfer is the simplicity win (the contract is in `JobMessage`'s kdoc). If it does
-    convict, apply the element-model phase-4 shape from the re-validation header (arena-per-batch,
-    copy-on-retain, **carryover transfers ownership rather than recycling**). Do not touch
-    `Input.receiveBatch`/`held` unless step 5 shows them (they are cold/element-lane).
+11. **Historical pre-DM step — do not execute after J5a.** The original plan allowed
+    `JobMessage`/`FlatFileRecord` pooling if the table convicted allocation. DM7c removes that carrier; J5b must
+    formulate any measured reuse against `DataValue`, exclusive transfer, and alias/copy ownership instead.
 
 ### Step 5 — re-measure
 
@@ -601,15 +603,13 @@ Must stay green (the contract net): `JobBatchingTest`, `JobChannelTest`,
 
 ## Out of scope (pre-decided; do not re-open)
 
-- **Message pooling / arena.** Ownership-transfer stays (the contract is in `JobMessage`'s kdoc).
-  If (and only if) the step-3/5 table convicts allocation, the follow-up uses the pre-sketched shape:
-  reuse bounded by channel handoff, retaining operators (Preview/Sort) opt out by copying,
-  arena-per-batch over free-lists — recorded in the as-built, not built.
+- **Pre-DM message pooling / arena.** Never build it. J5b may consider `DataValue`-specific reuse only after its
+  post-DM benchmark and ownership revalidation.
 - **Self-managed workers** — constraint recorded (step 23), design gated on benchmark evidence.
 - **Multi-process execution** — J5 only protects it (step 22); the process boundary is a future plan.
 - **Multi-run (E6)** — deferred; headless occupies the single active-run slot.
 - **Disruptor-in-Job / substrate swap** — explicitly rejected in the constituent plan.
 - **retain=false progress emits, deadlock blanket removal, channel occupancy** — J7.
-- **Grouped export, offline summary, Report parity/freeze** — J3/J4.
+- **Grouped export, offline summary, Report parity/freeze** — J4.
 - **Fan-out / TeeWorker** — J6. **Client sweep** — J8. **UI affordance for headless start** —
   follow-up, not this phase.

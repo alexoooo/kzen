@@ -28,8 +28,8 @@ Session files persist as the execution record for this standalone multi-session 
 | DM4 | `04-values-snapshots-and-validation.md` | Value contract, literals, snapshots, validation | ☐ |
 | DM5 | `05-adapters-and-three-backing-proof.md` | Adapter registry and literal/native/flat/row proof | ☐ |
 | DM6 | `06-job-projection-and-exclusive-builders.md` | Column projection and exclusive builders | ☐ |
-| DM7a | `07a-job-lane-contract-and-bridge.md` | Contract-backed static lanes and green runtime bridge | ☐ |
-| DM7b | `07b-job-value-producers-and-workers.md` | DataValue channels, sources, and column Workers | ☐ |
+| DM7a | `07a-job-lane-contract-and-bridge.md` | Contract-backed static lanes and green static façade | ☐ |
+| DM7b | `07b-job-value-producers-and-workers.md` | Runtime bridge, DataValue channels, sources, and column Workers | ☐ |
 | DM7c | `07c-job-carrier-deletion-and-foundation-gate.md` | Remaining Workers, bridge deletion, foundation gate | ☐ |
 | DM8 | `08-binding-inventory-and-binding-model.md` | Reconciled signatures and binding model | ☐ |
 | DM9a | `09a-core-binding-engine-and-bridge.md` | Additive kzen-lib binding engine and tuple adapter | ☐ |
@@ -46,16 +46,17 @@ The master ledger uses these IDs as stable row identifiers rather than renumberi
 
 1. **J5a first.** Capture the unmodified Job/Report throughput and allocation baseline before DM code changes shape
    or carrier behaviour.
-2. **DM1 → DM7c without J4/J9/J5b/J6 overlap.** DM7c must pass the foundation gate before wider cutover.
-3. **DM8 → DM11.** DM9 is split at publication boundaries so every repository ends each session green.
+2. **DM1 → DM7c without J4/J9/J5b/J6/J7 overlap.** DM7c must pass the foundation gate before wider cutover.
+3. **DM8 → DM11.** DM9 is split at publication boundaries so every repository ends each session green; DM9a's
+   standalone kzen-auto compile against the newly published kzen-lib artifact is the proof that its bridge is real.
 4. **Revalidate and execute J5b against `DataValue`, then J4, then J9.** J5b's `JobMessage`/`FlatView` pooling and
    batch sketches are stale after DM7c; keep its IO/headless goals but rewrite its carrier assumptions first.
 5. **J6 remains demand-driven after DM7c** and must implement fan-out through DM6/DM7c's explicit alias/copy rule.
 6. **DM12 and DM13 are not pre-scheduled.** Their selected reader/provider gates determine when they enter the
    ledger's active sequence.
 
-J7/J8 and unrelated pull-forward work remain independent, but any session touching the same Job files is serialized
-through the master ledger rather than interleaved ad hoc.
+J7/J8 remain separate from the data-model design, but they follow the master ledger. J7's channel work must be
+revalidated after DM7c; neither session is pulled into DM1–DM7c when it touches the same Job files.
 
 ## Cross-repository publication rule
 

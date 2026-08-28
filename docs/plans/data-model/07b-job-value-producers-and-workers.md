@@ -6,8 +6,8 @@
 ## Outcome
 
 Job channels/batches move `DataValue`; data-source cursors emit `DataValue`; source and ordinary column Workers use
-`ColumnProjection` directly. Formula replacement, result sinks, and nested hosts remain green through the DM7a
-single-authority façade until DM7c.
+`ColumnProjection` directly. Formula replacement, result sinks, and nested hosts remain green through DM7b's
+single-authority runtime bridge and DM7a's static façade until DM7c.
 
 ## Preconditions and anchors
 
@@ -18,8 +18,10 @@ single-authority façade until DM7c.
 
 ## Implementation
 
-1. Change Job transport and Worker core loops to `DataValue`, preserving batching, checkpoints, deadlock counts,
-   cancellation, migration, progress, and DM6's move/alias proof.
+1. Add `LegacyJobElementView`, backed by exactly one `DataValue`/builder, at the first unmigrated runtime boundary.
+   It may expose old payload/flat operations during this session but stores no second authoritative value. Change Job
+   transport and Worker core loops to `DataValue`, preserving batching, checkpoints, deadlock counts, cancellation,
+   migration, progress, and DM6's move/alias proof.
 2. Change `DataCursor` to `Iterator<DataValue>` with its non-null canonical shape. Flat file cursors emit the DM5
    backing; native/formula cursors lift through the registry. Delete `LegacyCursorItemKind` and all dispatch based on
    flat-versus-payload carrier history.

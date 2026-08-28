@@ -1,14 +1,20 @@
 # J7 — interactivity remainder — implementation plan
 
-> **Status: ready to execute.** Generated 2026-07-19 from `../2026-07-25_job-improvements.md` Phase 7
-> (rescoped 2026-07-16). Decisions are PRE-MADE in the constituent plan — this document elaborates
-> them into execution-ready steps; it does not re-open them. Every anchor below was re-verified
+> **Status: revalidate after DM7c before execution.** Generated 2026-07-19 from `../2026-07-25_job-improvements.md` Phase 7
+> (rescoped 2026-07-16). Decisions are PRE-MADE in the constituent plan — this document records the original
+> detailed steps; it does not re-open them. Every anchor below was re-verified
 > against current code on 2026-07-19 (post SER2–SER5 / Y / G5 / G7 / TP1 / TP3 / TP4 — drift found
 > was minor: mostly ±2-line comment shifts; one substantive discovery is that the
 > `job-missing-input-test.yaml` fixture is orphaned and ready-made for item (b), and one that the
 > carryover fixture's `signal` suppression channel is already inert under the precise monitor).
 > Master plan: `../2026-07-25_master-plan.md` ledger row 7. One session; if it runs long, split
 > item (a) out as a micro-session (it is fully independent) and/or defer item (d)'s client half.
+>
+> ## ⚠️ 2026-08-28 carrier supersession
+>
+> DM7b rewrites `JobChannel` around `DataValue`, including the batching/migration surface used by item (d). Re-check
+> every channel/deadlock/occupancy anchor after DM7c and update the expected counters before implementation. The
+> product goals remain valid; the `JobMessage`-specific revalidation notes below describe only the pre-DM baseline.
 >
 > ## ⚠️ Re-validated 2026-07-25 — three things moved under this plan
 >

@@ -18,12 +18,14 @@ all binding bridges are deleted. Every downstream sibling proves the clean publi
 3. Update kzen-lib logic spec/architecture by pointer to the unified-model authority and record final symbol names.
 4. Publish all kzen-lib artifacts. Rebuild kzen-auto against the clean artifacts and fix only genuine missed tuple
    callers; a miss reopens DM9b's inventory rather than adding a shim.
-5. Publish all kzen-auto artifacts, then rebuild kzen-project, kzen-launcher, kzen-shell, and kzen-sample-plugin in
-   dependency order. No release-train version bump.
+5. Publish all kzen-auto artifacts, then rebuild kzen-project and kzen-sample-plugin as direct downstream proof.
+   Rebuild kzen-launcher and kzen-shell afterward as release-train integration checks, not as evidence specific to
+   tuple removal. No release-train version bump.
 
 ## Proof and exit
 
-- Run full kzen-lib and kzen-auto builds plus standalone downstream builds.
+- Run full kzen-lib and kzen-auto builds, the direct downstream proof builds, and the release-train integration
+  checks classified above.
 - Repository-wide `rg "TupleDefinition|TupleValue|TupleComponent"` finds no production model use; historical docs
   and the review record are not rewritten.
 - Binding/end-to-end gates pass with one public Logic boundary and no parallel legacy carrier.

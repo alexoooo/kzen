@@ -25,7 +25,8 @@ through DM9a/DM9b; DM9c owns its deletion.
    `JobControl.host(ObjectLocation, TupleValue)`, `DataContext.argument/host`, design request binding, Script
    result, Flow output, Job result, Report result, and test fixture in kzen-lib/kzen-auto. Produce a table in this
    file's as-built section: flavour, input names/types/presence/defaults, output names/types, actual producers,
-   omission/null use, mismatch, disposition.
+   omission/null use, mismatch, and disposition. For each production positional-host caller, record the intended
+   target binding and whether the positional overload survives, becomes an explicitly named call, or is removed.
 2. Include dynamic callers and named host sites (`RunStep`, `RunWorker`, `LogicDataSource`), not only compiler-built
    signatures. Scan repeated request values and routing-parameter removal.
 3. Resolve every mismatch before enabling strict required-output settlement. Unknown cases stop the session; they are

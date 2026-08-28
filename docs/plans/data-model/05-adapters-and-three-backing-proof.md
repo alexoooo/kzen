@@ -42,9 +42,9 @@ direct `FlatFileRecord : ValueAccess` design survives only if it wins the requir
    the losing path in the same session.
 7. Make parser-produced records self-contained/strongly held so rows remain readable after cursor advance/close.
    Add a hosted-child result lifetime test in kzen-lib or the first kzen-auto integration seam.
-8. Update sample plugin and SPI docs/build ordering. Rebuild the three sample-plugin source paths and explicitly run
-   kzen-project-jvm's `SampleExtensionTest`; a sample-plugin build alone does not prove the downstream loader path.
-   New reader output may use `DataValue`; do not cut Job yet.
+8. Update sample plugin and SPI docs/build ordering. Update and rebuild every `kzen-sample-plugin` source referencing
+   `FlatFileRecord` or `ReportDefiner`, and explicitly run kzen-project-jvm's `SampleExtensionTest`; a sample-plugin
+   build alone does not prove the downstream loader path. New reader output may use `DataValue`; do not cut Job yet.
 
 ## Proof and build order
 

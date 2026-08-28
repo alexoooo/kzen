@@ -18,14 +18,15 @@
 
 | ID | Document | Scope | Open phases |
 |---|---|---|---|
-| **J** | `2026-07-25_job-improvements.md` | Job flavour + Report subsumption; carries the `JobMessage` element-model contract | J3–J9 |
+| **J** | `2026-07-25_job-improvements.md` | Job flavour + Report subsumption; its pre-DM `JobMessage` contract is superseded by DM7c before the remaining carrier-sensitive phases execute | J4–J9 |
+| **DM** | `data-model/README.md` | Unified data model — type/value/binding foundation and per-flavour cutovers | DM1–DM11 (DM12/DM13 gated) |
 | **E** | `2026-07-25_extensibility-improvements.md` | Plugin registration, plugin UX, Custom power; absorbs reflection R5/R6 | E1–E6 |
 | **DA/SH** | `2026-07-25_desktop-and-hosting.md` | Desktop app distribution + the hosting trio's hygiene tail | SH5, DA1–DA5 (DA6 parked) |
 | **FL** | `2026-07-25_flow-improvements.md` | Flow flavour | FL5, FL6 |
 | **C** | `2026-07-25_core-and-verification.md` | Graph perf tail + accumulated verification debt | C1–C4 |
 | **CX** | `2026-07-31_context-improvements.md` | Context generalization — a **design-space exploration**, added mid-sprint on the first sustained use of CTX/CTX2 | CX1–CX8 |
 
-Execution-ready elaborations for the independent items live under `docs/plans/next/` — see its README.
+Detailed elaborations and their current ready/blocked status live under `docs/plans/next/` — see its README.
 
 **CX is the odd one out**: it began as a *design-space exploration*, not a phase list with pre-made
 decisions. Its §3 records a verdict per axis with the argument for it. The user reviewed and ratified
@@ -39,7 +40,8 @@ disposal and atomic call-site bootstrap. CX8 is deliberately still a design gate
 renumbered sequence. The active spine is J5a, the unified-data-model foundation and binding cutover through DM11,
 then a DataValue-aware J5b, J4, and J9. Consumer/design-gated DM rows are listed but do not become executable merely
 by appearing above unrelated work. Rows marked *pull-forward* remain independent unless they touch the same Job
-files as the active spine.
+files as the active spine. Status legend: `☐` open; `☑` landed; `◪` partially landed; `⊘` superseded or closed
+without execution; `◇` gated and not schedulable until its named gate opens.
 
 | # | Session | Delivers | Plan · phase | Elab | Status |
 |---|---|---|---|---|---|
@@ -52,8 +54,8 @@ files as the active spine.
 | DM4 | **DM4** — values/snapshots/validation | `DataValue`, literal/native access, bounded snapshots, and deep validation | data-model · DM4 | `data-model/04-values-snapshots-and-validation.md` | ☐ |
 | DM5 | **DM5** — adapter/backing proof | Adapter registry plus literal/native/flat/fake-row proof and plugin classpath verdict | data-model · DM5 | `data-model/05-adapters-and-three-backing-proof.md` | ☐ |
 | DM6 | **DM6** — projection/builders | Column projection, exclusive transfer proof, and output builders | data-model · DM6 | `data-model/06-job-projection-and-exclusive-builders.md` | ☐ |
-| DM7a | **DM7a** — lane contract/bridge | Contract-backed static lanes and a green single-authority compatibility façade | data-model · DM7a | `data-model/07a-job-lane-contract-and-bridge.md` | ☐ |
-| DM7b | **DM7b** — value producers/workers | DataValue channels, source producers, and column Workers; delete the cursor item-kind bridge | data-model · DM7b | `data-model/07b-job-value-producers-and-workers.md` | ☐ |
+| DM7a | **DM7a** — lane contract/façade | Contract-backed static lanes and a green single-authority static façade | data-model · DM7a | `data-model/07a-job-lane-contract-and-bridge.md` | ☐ |
+| DM7b | **DM7b** — value producers/workers | Runtime bridge, DataValue channels, source producers, and column Workers; delete the cursor item-kind bridge | data-model · DM7b | `data-model/07b-job-value-producers-and-workers.md` | ☐ |
 | DM7c | **DM7c** — carrier deletion/gate | Formula/sinks/hosts cutover, foundation benchmark gate, then legacy carrier deletion | data-model · DM7c | `data-model/07c-job-carrier-deletion-and-foundation-gate.md` | ☐ |
 | DM8 | **DM8** — binding inventory/model | Reconcile all Logic signatures, settle Report as no-output, and add binding vocabulary | data-model · DM8 | `data-model/08-binding-inventory-and-binding-model.md` | ☐ |
 | DM9a | **DM9a** — core binding engine | Additive kzen-lib binding-native engine with tuple bridge retained | data-model · DM9a | `data-model/09a-core-binding-engine-and-bridge.md` | ☐ |
@@ -61,8 +63,8 @@ files as the active spine.
 | DM9c | **DM9c** — tuple deletion/proof | Delete tuple APIs only after inventory is clean, publish, and rebuild downstream | data-model · DM9c | `data-model/09c-tuple-deletion-and-downstream-proof.md` | ☐ |
 | DM10 | **DM10** — Script boundary | DataValue recorded results/handoffs plus deliberate `IfStep` branch-join migration | data-model · DM10 | `data-model/10-script-generic-boundary-cutover.md` | ☐ |
 | DM11 | **DM11** — Flow boundary/gate | Flow message/port cutover and consolidated post-cutover adoption gate | data-model · DM11 | `data-model/11-flow-generic-boundary-cutover.md` | ☐ |
-| 6 | **J5b** — DataValue perf fixes + headless | **Revalidate after DM7c:** retain IO/headless goals, but rewrite stale `JobMessage`/`FlatView` pooling and batching assumptions against the landed `DataValue` carrier before implementation | J · P5 session B | `next/J5` | ☐ |
-| 3 | **J4** — Report subsumption B | After DM7c/J5b: `groupBy` export parity, summary/Explore offline persistence, composed A/B gate, Report frozen | J · P4 | — | ☐ |
+| 6 | **J5b** — DataValue perf fixes + headless | **Revalidate after DM11:** retain IO/headless goals, but rewrite stale `JobMessage`/`FlatView` pooling and batching assumptions against the landed `DataValue` carrier before implementation | J · P5 session B | `next/J5` | ☐ |
+| 3 | **J4** — Report subsumption B | After J5b: `groupBy` export parity, summary/Explore offline persistence, composed A/B gate, Report frozen | J · P4 | — | ☐ |
 | 4 | **J9** — file-backed carry-forward | After J4: writer append cursor, Pivot store carry, Explore append, `resumed` progress key | J · P9 | — | ☐ |
 | 7 | **J7** — interactivity remainder | `retain=false` progress emits, deadlock precision, channel occupancy | J · P7 | `next/J7` | ☐ |
 | 8 | **J8** — Job client sweep + hygiene | Consumed-subset `JobController`, editor dedup, doc debt | J · P8 | — | ☐ |
@@ -173,16 +175,17 @@ resulting diff:
   A fixture settled it, not a reading — and the first version of that fixture failed, which is how row 45's
   output-signature mismatch surfaced.
 
-**Next up: rows 43a/43b and 45, none claimed.** Row 43's remainder is now two small independent pieces (a Job
+**Independent CX follow-ups: rows 43a/43b and 45, none claimed.** Row 43's remainder is two small independent pieces (a Job
 document-level signature, which is a near-copy of row 41's Flow work and unblocked; and a Worker read path
 needing a new `JobControl` member). Row 45 is three quiet hosted-Report defects, of which (a) — the UI request
 addressing — is the only substantial one. Nothing in the CX arc blocks anything else any more.
 
 ### What to run right now
 
-Row 1 (**J3a**). If a change of pace is wanted, rows **20 (SH5)**, **23 (C1)**, **21 (FL5)** and
-**15 (DA1)** are all independent and can be taken at any point. Rows **9 (E1)** and **25 (C2)**
-need the user present — schedule them rather than waiting for a gap.
+Run **J5a** next to capture the untouched baseline, then follow DM1–DM11, the re-specified J5b, J4, and J9 in ledger
+order. If a change of pace is wanted, rows **20 (SH5)**, **23 (C1)**, **21 (FL5)** and **15 (DA1)** remain
+independent only when their files do not collide with the active session. Rows **9 (E1)** and **25 (C2)** need the
+user present — schedule them rather than waiting for a gap.
 
 Rows **30–32 (XC-N)** are independent of everything above and are a **defect fix** — a shipped verb
 that does not do what its spec says. Row 30 must precede row 31 (kzen-lib → `publishToMavenLocal` →
@@ -202,8 +205,9 @@ disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
 1. **J5a → DM1–DM7c → DM8–DM11 → J5b → J4 → J9** is the active spine. J5a captures the untouched
    baseline; DM7c closes the carrier gate; J5b is re-specified against the landed carrier before J4/J9 reshape
    adjacent Report/Explore/export surfaces.
-2. **Do not overlap J4/J9/J5b/J6 with DM1–DM7c.** J8's older J3 dependency is already satisfied by landed
-   DS2/DS3/DS6, but any actual file collision still serializes through the ledger.
+2. **Do not overlap J4/J9/J5b/J6/J7 with DM1–DM7c.** J7 directly changes `JobChannel`; its elaboration must be
+   revalidated against the landed carrier. J8's older J3 dependency is already satisfied by DS2/DS3/DS6, but it
+   still follows the ledger and any actual file collision serializes execution.
 3. **J5b's old element-model sketch is not executable text after DM7c.** Preserve its IO batching, measured
    optimization, and headless-mode goals, but discard `JobMessage`/`FlatView` pooling assumptions. Any reuse under
    `DataValue` must be benchmark-convicted and obey the hard constraint that migration carryover

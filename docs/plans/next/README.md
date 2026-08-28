@@ -1,6 +1,7 @@
 # docs/plans/next — execution elaborations for the independent backlog
 
-> Detailed, execution-ready elaborations of individual constituent-plan phases: anchors refreshed,
+> Detailed execution elaborations of individual constituent-plan phases: anchors refreshed when status is ready,
+> with blocked/revalidation-required plans labelled in the live set,
 > "check first" questions pre-resolved. **The constituent plans remain the authority on design
 > rationale**; these documents are the execution layer. Executor: Opus-class, one plan per session.
 >
@@ -15,7 +16,7 @@
 > Sprint 2's, one layer up. Current cases: `context-and-resource.md`, `context-moved-ownership.md`,
 > `nested-frame-move-to.md`, `detached-download-content.md`.
 >
-> **All five were re-validated 2026-07-25** against the post-Sprint-2 codebase — they were written
+> **The five elaborations present on 2026-07-25 were re-validated that day** against the post-Sprint-2 codebase — they were written
 > 2026-07-19, before J2, before the typed element model, and before the `RestHandler` split, so
 > every one of them had stale anchors. See each file's re-validation note.
 
@@ -23,9 +24,9 @@
 
 | Plan | Item | Constituent plan | Ledger row | Notes |
 |---|---|---|---|---|
-| `J5_perf-headless.md` | J5 — benchmark-first perf + headless mode | job · P5 | 5–6 | **Session A = steps 1–3, Session B = steps 4–8.** Also executes the element model's phase-4 reuse gate. Carries a pre-recorded rescope: the headless serve-gate as literally specified is unsatisfiable (finding F5) — headless stamps synthesized duplex channels non-external instead |
-| `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job · P7 | 7 | Five lettered items with verdicts pre-resolved. Item (a) `retain=false` is **extractable as a micro-session**; item (d)'s client half is the deferrable tail |
-| `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job · P6 | 27 | ⚠️ **DEMAND-DRIVEN — lowest priority.** The J3→J4→J9 spine must not wait on it, and nothing depends on it |
+| `J5_perf-headless.md` | J5 — benchmark-first perf + headless mode | job · P5 | 5–6 | **J5a is executable before DM1: harness + untouched baseline only. J5b is blocked until DM11 and must be re-specified against `DataValue`; its old `JobMessage`/`FlatView` pooling sketch is non-executable.** The headless serve-gate rescope remains valid unless post-DM revalidation disproves it |
+| `J7_interactivity-remainder.md` | J7 — retain=false, deadlock precision, occupancy | job · P7 | 7 | **Revalidate after DM7c:** item (d) changes `JobChannel`, so this is not pull-forward through the carrier cutover. Item (a) may remain mechanically extractable only after a collision check |
+| `J6_topology-fanout.md` | J6 — TeeWorker + list ports | job · P6 | 27 | ⚠️ **DEMAND-DRIVEN AFTER DM7c.** Re-elaborate copying against DM6/DM7c alias/ownership rules; the old payload/flat mechanics are historical |
 | `DA1_jcef-spike.md` | DA1 — JCEF engine spike | desktop-and-hosting · DA1 | 15 | **Closes engine gate D1; gates DA2–DA5.** Scratch branch only — nothing merges as-is |
 | `context-and-resource.md` | CTX — first-class context + slot-owned resources | — (standalone: design + elaboration in one document) | 28 | **LANDED 2026-07-29** — all three sessions; see its § As-built for the deviations. Same-day second pass replaced the inert-by-omission notation design with `by: Nominal` weak references + a kzen-lib inferMetadata hardening (§ As-built addendum). ⚠️ Standalone ⇒ **do not delete**; it is the only record of a breaking change's design. Held here until Sprint 3 closes, then archived to the sprint README's directory as an as-built record. **Partially superseded by CTX2** (nearest-slot binding → explicit export chain) |
 | `nested-frame-move-to.md` | XC-N — nested-frame move-to (Set Next Statement inside a sub-Script) | — (standalone: design + elaboration in one document) | 30–32 | ✅ **LANDED 2026-07-30** — three sessions; read **§13 and §14** for the deviations. **Filed as a DEFECT, not an extension** (§10.2): no spec asserted the root-frame restriction, and `Execution.moveTarget`'s KDoc anticipated the opposite. ⚠️ **§5 is superseded by §14.1** — the user's manual smoke (row 32) found the loop-transit parking rationale was **false**: the walk already resumed mid-iteration, with a passing regression test on the identical shape, so loop-hosted *transit* shipped and only loop-body *targets* stay parked. That smoke also found two client defects XC-N1 itself introduced (rejections rendered on the *parent* document; the drag handle painted valid against a guaranteed refusal) — 634 green tests had not caught either. ⚠️ Standalone ⇒ archive, don't delete |
@@ -65,11 +66,11 @@
 Behind another item, or better planned once their prerequisite lands (so they elaborate reality
 rather than a prediction):
 
-- **J4** (now **after DS3 / DS6 / DS7**, not J3 — J3 is superseded by the DS arc; J4's `groupBy`
-  export shares `ExportWriterWorker` with DS7 and its `MultiFileReaderWorker` group column becomes
-  `DataUnit.attributes` stamped as columns), **J9** (after J4 — same files; DS3's `ReadWorker` cursor is
+- **J4** (after DM11 and the re-specified J5b; J4's `groupBy` export shares `ExportWriterWorker` with DS7 and its
+  `MultiFileReaderWorker` group column becomes `DataUnit.attributes` stamped as columns), **J9** (after J4 — same
+  files; DM7c's `DataValue` path and DS3's `ReadWorker` cursor are
   the reader half of its concern), **J8** (after DS4/DS6 — the editors it dedupes now include
-  `FileSelectionEditor` / `SelectDataSourceEditor`)
+  `FileSelectionEditor` / `SelectDataSourceEditor`; re-check DM3/DM7a editor vocabulary before execution)
 - **E2–E6** — all behind the **E1 ratification session**, which is the user's call and reshapes
   them. E4's C7 half is the exception: settled finding, `@Ignore`d test already committed, runnable
   any time

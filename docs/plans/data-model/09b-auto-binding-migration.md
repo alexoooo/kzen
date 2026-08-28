@@ -16,8 +16,9 @@ cleanup point for DM9c.
    capability.
 2. Change `JobControl` inputs/results/yields and **both** host overloads: positional
    `host(instructions, input: Any?)` and named `host(instructions, arguments: TupleValue)`. The binding-native API
-   binds against the callee schema; any positional convenience delegates through the first declared binding without
-   restoring an untyped core contract.
+   binds against the callee schema. Migrate or retain positional calls exactly according to DM8's recorded
+   disposition; if the inventory preserves first-declared binding for the current single positional production
+   caller, record that as the as-built compatibility rule rather than assuming it for arbitrary future callers.
 3. Change `DataContext.arguments`/`host`, `WorkerDataContext`, `DesignDataContext`, `LogicDataSource`, `RunWorker`,
    `RunStep`, and every named/dynamic host site. Remove routing parameters before binding and preserve repeated
    request values as listings.
