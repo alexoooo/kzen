@@ -1,6 +1,6 @@
 # DM1 — structural type contract and common algebra
 
-> **Status: ready after plan ratification. One implementation session.** Authority:
+> **Status: landed 2026-08-28.** Authority:
 > [`docs/analysis/2026-08-27_data-model.md`](../../analysis/2026-08-27_data-model.md) §§4, 4.2–4.7, 12.1,
 > 14.5 step 1, and 15 “Semantic model.” This file sequences that contract; it does not restate or alter it.
 
@@ -69,3 +69,26 @@ is aligned beside the structural tree and cannot affect structural equality or i
 - Record final package/API names in this file's as-built section if they differ from the proposal's working names;
   update the arc README only when that changes a cross-session contract, and update later anchors to the as-built
   symbols.
+
+## As-built — 2026-08-28
+
+- Added the common structural vocabulary under `tech.kzen.lib.common.exec.data.type` and diagnostics under
+  `tech.kzen.lib.common.exec.data.problem`. `DataType`, `DataContract`, identifiers, paths, scalar kinds,
+  assignability/selection results, canonical `ExecutionValue` lowering, and digests are additive; no legacy API or
+  consumer changed.
+- `DataTypePath` is a regular frozen value rather than the proposal's inline class, because its caller-supplied list
+  must be copied. `Record`, `Union`, `DataContract`, `DataProblem`, `VariantSelection.Ambiguous`, and
+  `TypeMetadata.generics` likewise copy collection inputs; changing `TypeMetadata` from a data class to a regular
+  value class preserves its constructor/properties/equality while closing the mutable-list hole.
+- Added schema-only `ListingElement`, `MappingKey`, and `MappingValue` path segments beside the design's runtime
+  `Field`/`Entry`/`Element`/`Variant` segments. The authority requires metadata for a uniform listing element and
+  mapping value but its runtime segments can identify only a concrete index/key; explicit schema positions avoid
+  sentinel indices and fabricated mapping keys. Metadata on `MappingKey` remains rejected.
+- `DataTypeAlgebra` is a stateless object. Mixed integer/floating joins conservatively widen to `Dynamic`: the
+  property table demonstrated that choosing a floating width after an integer promotion makes join order-dependent
+  for signed/unsigned inputs. Assignability still permits exact width-safe integer-to-floating acceptance.
+- Proof: 12 focused common tests cover construction/freeze invariants, all scalar/type round trips, ordered identity,
+  structural versus declaration digests, width/optionality/nullability/collection variance, all three union
+  relations, external tags, ambiguity/no-match, nullable union roots, and the join laws over 19 representative
+  types. `:kzen-lib-common:jvmTest --tests "tech.kzen.lib.common.exec.data.type.*"`,
+  `:kzen-lib-common:jsTest`, and the full `build` all passed from `../kzen-lib`.

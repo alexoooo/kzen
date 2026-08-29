@@ -1,6 +1,6 @@
 # J5 — performance + headless readiness — implementation plan
 
-> **Status: J5a ready before DM1; J5b blocked until DM11 revalidation.** Generated 2026-07-19; the live constituent plan is now
+> **Status: J5a landed 2026-08-28; J5b blocked until DM11 revalidation.** Generated 2026-07-19; the live constituent plan is now
 > `../2026-07-25_job-improvements.md` Phase 5 (benchmark-first perf + headless mode). Decisions are PRE-MADE there (benchmark before
 > optimizing; no record pooling; headless = a run mode, not a fork; self-managed workers recorded,
 > not built) — this document contains J5a's executable baseline steps and J5b's pre-DM evidence. Its original

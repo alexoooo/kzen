@@ -1,6 +1,6 @@
 # DM9c — tuple API deletion and downstream proof
 
-> **Status: ready after DM9b. One cleanup/publication session led from kzen-lib.** Authority: unified data model
+> **Status: complete 2026-08-28.** Authority: unified data model
 > §§10–11.1 and §14.5 step 5. Constituent tracker: `README.md`.
 
 ## Outcome
@@ -29,3 +29,15 @@ all binding bridges are deleted. Every downstream sibling proves the clean publi
 - Repository-wide `rg "TupleDefinition|TupleValue|TupleComponent"` finds no production model use; historical docs
   and the review record are not rewritten.
 - Binding/end-to-end gates pass with one public Logic boundary and no parallel legacy carrier.
+
+## As built — 2026-08-28
+
+- Binding-native `Logic.signature/run`, `Execution.inputs/host`, `Outcome.Success`, engine storage, and migration
+  are the sole public path. The temporary capability/adapter and the complete `exec.tuple` package were deleted;
+  no compatibility shim or overload remains.
+- kzen-project's sample Script step and its acceptance test were migrated to `ScriptStepDefinition.ofMain`,
+  `BindingName("main")`, and `DataValue` materialization. The direct kzen-project and sample-plugin proofs pass.
+- Full kzen-lib and kzen-auto builds pass. kzen-auto artifacts were published, then kzen-project, launcher, shell,
+  and the Maven sample plugin rebuilt successfully. No release-train version changed.
+- Production-source searches for `TupleDefinition`, `TupleValue`, `TupleComponent`, `exec.tuple`, the temporary
+  `BindingLogic`, and `bindingSignature` are empty. Historical review material is outside this production gate.

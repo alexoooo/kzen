@@ -1,6 +1,6 @@
 # DM3 — `DataShape` observation envelope and typed schema cutover
 
-> **Status: ready after DM1; may execute before DM2. One implementation session.** Authority: unified data model
+> **Status: landed 2026-08-28.** Authority: unified data model
 > §5, §11.5, §14.5 step 2, and the shape portions of §15; data-source model §§2.4, 4.3, and 7 retains ownership of
 > source selection/inspection.
 
@@ -66,3 +66,20 @@ wire consumers decode the new vocabulary.
 - `LegacyCursorItemKind` has no wire/client/public-model presence and is confined to the enumerated cursor/read
   bridge; DM7b is recorded as its sole deletion owner.
 - Publish all kzen-auto artifacts only if a downstream standalone consumer needs this intermediate state.
+
+## As built — 2026-08-28
+
+- Added the common observation envelope and both canonical codecs in kzen-lib. `DataShape` now carries one
+  `DataContract`; provenance, stability/coverage, and diagnostics are immutable and validated.
+- Replaced kzen-auto's shape cases with the shared type. `DataSchemaDocument` preserves ordered declared field
+  types and nested native metadata, cursor shapes are non-null, and schema compatibility compares contracts rather
+  than observation provenance.
+- Added the deliberately temporary `LegacyCursorItemKind` plus `LegacyDataShapeBridge`. Their production use is
+  limited to file-cursor/read dispatch, legacy Worker-lane projection, header projection, and the generated formula
+  adapter that still emits the missing-cell sentinel. DM7b/DM7c remain the deletion owners.
+- Legacy `shape.json` is treated as a disposable miss and is replaced atomically by the new envelope. Tests cover
+  typed schema construction (`String`, `Int`, nullable, ordering), both codecs, declared-first inspection, cache
+  replacement, file/logic sources, Job reader migration, and JS stores.
+- Proof passed: full kzen-lib build and Maven Local publication; focused common/JVM/JS kzen-auto tests; forced
+  `:kzen-auto-js:jsEsbuildBundle --rerun`; the Job integration cluster after adding the bridge import to generated
+  formula source; and the full kzen-auto build (75 tasks, 7m17s).

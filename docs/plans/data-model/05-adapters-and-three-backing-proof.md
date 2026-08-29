@@ -1,6 +1,6 @@
 # DM5 — adapter registry and three-backing vertical proof
 
-> **Status: ready after DM2–DM4 and J5a baseline. One implementation session spanning kzen-lib then kzen-auto.**
+> **Status: landed 2026-08-28. One implementation session spanning kzen-lib then kzen-auto.**
 > Authority: unified data model §§6.1, 7, 7.2–7.4, 14.3, 14.5 step 3, and foundation-gate items 1, 6, and 7.
 
 ## Outcome
@@ -62,3 +62,25 @@ direct `FlatFileRecord : ValueAccess` design survives only if it wins the requir
 
 - Foundation-gate items 1, 6, and 7 are proven; no eager row-to-map conversion exists.
 - Every new file is explicitly staged in its owning sibling; no version bump.
+
+## As-built (2026-08-28)
+
+- Added deterministic JVM adapters with exact-class precedence, duplicate rejection, ordered capability fallback,
+  cached Kotlin data-class/Java-record plans, explicit refusal of arbitrary iterables, runtime heterogeneous
+  collection joining, tagged expected unions, native identity retention, and opaque stopping for recursive types.
+  Literal, native data-class, direct flat-record, and fake typed-row fixtures now pass the same typed traversal.
+- Retained direct `FlatFileRecord : ValueAccess`; the wrapper prototype was removed. On the five-run, one-million-row
+  confirmation, direct access had a 302.5 ms median (3,305,713 rows/s; 289.5–317.2 ms spread) versus the wrapper's
+  418.2 ms median (2,390,920 rows/s; 341.0–604.1 ms spread), a 38% median-throughput advantage. Both measured
+  0 heap-delta bytes/row after JIT scalar replacement. The 250,000-row epsilon run measured 591.2 bytes/row for
+  both paths, and the deterministic warmed primitive-read pin remained at or below 4,096 bytes per 100,000 reads.
+- The plugin compile graph added `kzen-lib-common-jvm`, coroutines, serialization JSON/core, and annotations 23;
+  runtime additionally added kotlin-reflect, dexx collections, Guava 33.6 and its support artifacts. The SPI guide
+  records this accepted cost, and a parent-first loader test proves the plugin and host see the identical
+  `ValueAccess` class object.
+- Flat rows carry a shared immutable header, create no per-field wrapper, and preserve header semantics through
+  clear/copy/clone/exchange. Parser-emitted rows remain readable after cursor close; native and hosted-child values
+  remain readable while reachable; cyclic/opaque snapshot rejection does not call `toString()`.
+- Proof: full kzen-lib build/publication passed; plugin/focused integration tests and the full kzen-auto build passed
+  (82 tasks, including JVM/common/JS suites); the Maven sample plugin passed dependency convergence and compilation;
+  standalone kzen-project's exact `SampleExtensionTest` selector and full build passed. No release version changed.

@@ -1,6 +1,6 @@
 # DM2 — JVM native contracts, resolution, and static description
 
-> **Status: ready after DM1. One implementation session.** Authority: unified data model §§4.1, 4.7 “Platform
+> **Status: landed 2026-08-28.** Authority: unified data model §§4.1, 4.7 “Platform
 > seams,” 7.2–7.3, 14.5 step 1, and the native portions of the adoption gate.
 
 ## Outcome
@@ -58,3 +58,32 @@ after structural acceptance. The session closes open question 7 with executable 
 
 - Open question 7 has an as-built verdict with evidence; no name-based executable compatibility remains.
 - Publish all kzen-lib artifacts to Maven Local (`./gradlew publishToMavenLocal`) for DM5 and later kzen-auto work.
+
+## As-built — 2026-08-28
+
+- Added common `TypeMetadata.toDataContract()` and JVM `NativeTypeToken`, `ResolvedDataContract`,
+  `NativeTypeDescriber`, `NativeTypeResolver`, `DefaultNativeTypeResolver`, and `NativeTypeResolutionScope` under
+  `tech.kzen.lib.common.exec.data.type`. The mapper covers primitives, exact numeric/temporal/UUID scalars,
+  lists, object/primitive arrays, maps, Kotlin data classes, Java records, exact describer overrides, recursive
+  opaque cuts, and opaque fallback.
+- Native metadata and token maps are frozen and path-identical. `NativeTypeToken.loader` is nullable because JVM
+  bootstrap-defined classifiers such as boxed primitives genuinely have no defining `ClassLoader`; manufacturing
+  an application loader would misstate identity. Resolved-contract equality includes `KType` plus loader identity.
+- `kotlin.reflect.full.isSubtypeOf` was sufficient after an explicit JVM classifier-identity/assignability check.
+  Tests prove covariant and invariant generics, nested generics, nullability, same-FQN sibling-loader rejection,
+  and child-loader implementation of a parent interface. No compiler-provider seam or rendered-name comparison was
+  needed, closing open question 7 in favour of the local reflection implementation.
+- Exact describers run before built-in baselines. A resolved parent generic may prove a scalar child that correctly
+  carries no native facet; otherwise a missing nested token rejects. Expected `Opaque` is admitted only by the JVM
+  path after native subtype proof, never by common structural algebra. Same-shaped native union variants select by
+  their rebased tokens.
+- Resolver caches are instance-scoped to `NativeTypeResolutionScope`; `close()` clears them and permanently rejects
+  reuse. A dynamically compiled loader became collectible under bounded GC retries after release. Name-only
+  declarations resolve only through an explicit owner loader.
+- `JvmNativeValueAccess`, the `DataValue` resolver overload, and value-level scalar overflow/precision checks move
+  mechanically to DM4 step 1: their required `DataNode`, `ValueAccess`, and live scalar reads do not exist before
+  that session. Adding placeholder node/value APIs in DM2 would have pre-empted DM4's measured handle gate. DM4 now
+  names these as completion work; no consumer can exercise them before then.
+- Proof: 10 new tests cover the common lossy mapping and JVM cases above. Full
+  `:kzen-lib-common:jvmTest :kzen-lib-common:jsTest` and `build` passed from `../kzen-lib`, followed by a successful
+  `publishToMavenLocal` of common/JVM/JS/reflect-KSP artifacts.

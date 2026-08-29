@@ -1,6 +1,6 @@
 # DM6 — Job column projection, exclusive transfer, and output builders
 
-> **Status: ready after DM5. One implementation session; prototype seam, not full carrier cutover.** Authority:
+> **Status: landed 2026-08-28. One implementation session; prototype seam, not full carrier cutover.** Authority:
 > unified data model §§6.2, 11.4, 13.20, 13.23, open questions 4–5, and foundation-gate items 3–5.
 
 ## Outcome
@@ -56,3 +56,28 @@ semantics are executable before the legacy carrier is removed across DM7a–DM7c
 
 - Open questions 4 and 5 have as-built verdicts; no public mutation leaks through `ValueAccess`.
 - The bridge is named and has exactly one deletion owner: DM7c.
+
+## As-built (2026-08-28)
+
+- Open question 4: `ColumnProjectionDescriptor` is derived before a value and binds without changing field
+  identity/order. Records expose top-level fields, scalars use explicit `value`, mappings require an ordered declared
+  key policy, opaque/dynamic/unselected unions refuse the capability, and nested fields require an explicit record
+  path selection. Duplicate labels render through `HeaderLabel.render`; absent optional/mapping cells remain
+  `DataState.Absent` and only the projection renders `<missing>`. Text columns retain `ColumnValue` coercion and
+  interned constants, while declared numeric columns use typed primitive reads.
+- Open question 5: `JobValueDelivery` carries the internal move/alias fact. One receiver, no sender alias, no replay
+  or fan-out, and either no trace or a synchronously completed snapshot prove exclusivity; a live inspector forces a
+  copy. Sender use is rejected after a move and migration adopts a physical delivery once. `RecordOutputBuilder`
+  appends directly only under that proof, copies aliased flat rows, and materializes native/row projections once
+  while retaining the exact native root. `finish()` freezes the builder and publishes one wider value.
+- `FormulaValueTransformer` evaluates calculated and replacement expressions against the original projection,
+  implements widen/replace/no-carry, selected/all carry, replacement-first/source-order output, explicit rename and
+  collision rejection, and never publishes its private widened intermediate.
+- Benchmark-driven caching reduced the 100,000-row/eight-append flat lane from 8,019.5 ms in the discarded first
+  prototype to 514.0 ms (194,563 rows/s); native was 1,617.2 ms (61,833 rows/s). The same run's direct typed-read
+  reference was 30.3 ms (3,301,158 rows/s). The retained paths assert 0 projections + 8 appends for flat and exactly
+  1 projection + 8 appends for native, independent of overlay depth. A 50,000-row epsilon-GC run measured 14,519.6
+  and 20,884.9 bytes/row respectively (the harness includes row creation, eight builders, and contracts); no
+  `Composed` overlay exists.
+- Proof: projection/ownership/builder/Formula suites and the focused channel, migration, element-model, and
+  calculated-expression suites passed. The full kzen-auto build passed (78 tasks, JVM/common/JS suites).

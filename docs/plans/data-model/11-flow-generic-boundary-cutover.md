@@ -1,6 +1,6 @@
 # DM11 — Flow port and message-inspection cutover
 
-> **Status: ready after DM10. One kzen-auto implementation session.** Authority: unified data model §§11.3,
+> **Status: complete 2026-08-28.** Authority: unified data model §§11.3,
 > 13.22, 14.5 step 6, and Flow/end-to-end portions of §15.
 
 ## Outcome
@@ -42,3 +42,32 @@ capability dispatch, and migration are unchanged.
 - Generic Flow channels do not carry `Any?`; typed authoring APIs still expose `T`.
 - All foundation plus bindings/Script/Flow cutover gates pass. Record a consolidated acceptance matrix in this
   file's as-built section.
+
+## As built — 2026-08-28
+
+- `RequiredInput`/`OptionalInput` and output declarations expose `DataContract`. Active messages, batches,
+  migration output state, queued edges, and hosted results carry `DataValue`; typed vertex authoring buffers retain
+  their ergonomic `T` surface and lift immediately at the runner edge.
+- Native ports project through `DefaultNativeTypeResolver` and preserve the original instance. Structural ports
+  receive the same `DataValue`. A bound null is a queued value and is distinct from no message, including required
+  input readiness. Capability-only run inputs/outputs are included in the compiled binding signature.
+- Connection compatibility is enforced when the receiving port accepts a delivery, where both structural and
+  loader-local native contracts are available. Existing graph-structure validation remains compile-time; the
+  runtime seam rejects native mismatch, nullability, scalar overflow, and loader-identity mismatch before vertex
+  code observes a value.
+- Runner-owned bounded snapshots provide ordinary data inspection; rejection produces a trace diagnostic without
+  failing execution. `FlowVertex.inspectMessage` remains only as an optional renderer for non-data capability state.
+- The focused native-identity, structural-identity, and present-null channel tests pass alongside the existing
+  readiness, select-last/FizzBuzz, double-emit, migration, context, closure, capability, and cross-flavour hosting
+  tests. The composition proof is distributed across the existing Script↔Flow, Script→Job, Flow-hosted-Logic,
+  RunWorker, and Report-hosting oracles rather than duplicating them in one four-hop fixture.
+
+### Consolidated acceptance matrix
+
+| Gate | Accepted evidence |
+|---|---|
+| Foundation DM1–DM7c | Structural/native algebra, literal/native/flat/row backings, bounded snapshots, exclusive builders, one `DataValue` Job carrier, and the post-cutover benchmark gate are green. |
+| Bindings DM8–DM9c | Required/optional/default/sensitive bindings, concurrent output settlement, canonical engine API, tuple deletion, publication, and direct downstream rebuilds are green. |
+| Script DM10 | Typed replay/migration/handoff, native identity, implicit/control-flow semantics, snapshot diagnostics, Formula canary, and focused/full tests are green. |
+| Flow DM11 | Contracted ports, `DataValue` messages/migration, native/structural/null identity, wiring/readiness/capability/context semantics, and focused/full tests are green. |
+| Consolidated builds | kzen-lib `build`; kzen-auto `build publishToMavenLocal`; kzen-project, kzen-launcher, and kzen-shell `build`; kzen-sample-plugin Maven `test` all pass. |

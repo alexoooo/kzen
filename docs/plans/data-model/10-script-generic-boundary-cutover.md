@@ -1,6 +1,6 @@
 # DM10 — Script recorded-result and handoff cutover
 
-> **Status: ready after DM9c. One kzen-auto implementation session.** Authority: unified data model §§7, 11.2,
+> **Status: complete 2026-08-28.** Authority: unified data model §§7, 11.2,
 > 13.22, 14.5 step 6, and Script portions of §15.
 
 ## Outcome
@@ -50,3 +50,22 @@ the recorded result and handoff.
 
 - `ScriptReplayState` and generic handoffs contain no untyped value maps; user-authored step bodies remain ergonomic.
 - Script portion of the end-to-end/lifetime gate passes.
+
+## As built — 2026-08-28
+
+- `ScriptReplayState`, `ScriptMigrationState`, completed outcomes, and generic step-to-step handoffs carry
+  `DataValue?`. A completed step is lifted against the `DataContract` derived from its declared or compiler-inferred
+  `TypeMetadata`; Script outputs are settled directly as `DataBindings`.
+- Native/generated consumers project through `JobDataValues.boundary`, preserving native identity and exact scalar
+  width. Structural access remains on `DataNode`; no per-field `DataValue` wrapper is introduced.
+- Early Result, implicit terminal results, loops, branches, pause/resume, live-edit migration, hosted Script calls,
+  optional/default/null inputs, and the product-specific `IfStep` join rules remain pinned by the full suite.
+- Trace previews use bounded `DataSnapshot` capture. Redaction, opaque/cyclic values, or policy rejection produce a
+  diagnostic and cannot fail the Script.
+- The compiler continues to use inferred `KType`/`TypeMetadata` as its cache authority and derives the common
+  `DataContract` at the execution boundary; loader-local resolved tokens are checked when JVM consumers project a
+  value rather than being serialized into common Script definitions. Typed step-private carry state remains
+  `Any?`; it is opaque user state, not generic result transport.
+- The Formula inference canary, focused Script tests, all 888 JVM tests (one skipped), and the aggregate kzen-auto
+  build/publication passed. `StepExpressionCompiler`'s generated shape did not change, so the AGENTS cold-cache
+  condition did not apply and no code-cache format migration was required.

@@ -30,3 +30,26 @@ source-compatible and a new binding-native path DM9b can adopt.
 - Existing kzen-lib tests remain green. Build and publish all kzen-lib artifacts to Maven Local.
 - Run a standalone kzen-auto compile against the published artifact without source edits. DM9b starts only if it is
   green, proving the bridge is real.
+
+## As-built — 2026-08-28
+
+- Added the temporary `BindingLogic` / `BindingLogicSignature` capability, `Execution.inputBindings`,
+  `Execution.hostBindings`, and the binding-root `RunEngine` constructor. Every temporary name and overload carries
+  the DM9c deletion/promotion owner in source.
+- `NodeRuntime` now stores only `DataBindings`. Root and hosted input validation/default application, binding-native
+  dispatch, output collection, required-output settlement, and child return values remain binding-native. The
+  public `Outcome.Success` and legacy `Execution.inputs/host` tuple views are projected only at the adapter edge.
+- Legacy `Logic` dispatch uses `TupleBindingBridge` in one engine location. The old contract permitted undeclared
+  returned tuple components (including many long-standing kzen-lib fixtures with an empty signature and a `main`
+  return), so the bridge creates run-local declarations for those produced components. This is deliberately the
+  sole source-compatibility concession; binding-native Logic is always settled against its exact schema, and DM9c
+  deletes the concession with the tuple model.
+- JVM projection preserves a native root's exact object identity and materializes structural literals only for the
+  temporary readable tuple view. The engine-owned adapter registry is closed exactly once on shutdown/disposal.
+- Added binding-engine tests for defaulted and supplied-null origin, nested required-input rejection before child
+  code, missing required output, native identity, hosted/root reads after settlement, and binding/legacy child
+  failure attribution. Existing pause, migrate, host, trace, ambient-context, resource, and retention tests remain
+  green because those mechanics were left on the same node lifecycle.
+- Full kzen-lib build passed (57 tasks), `publishToMavenLocal` passed (59 tasks), and an unchanged standalone
+  `:kzen-auto-jvm:compileKotlin` against the published artifact passed (13 tasks, 35 seconds). This is the required
+  proof that DM9b begins from a real additive bridge rather than a coordinated half-cutover.

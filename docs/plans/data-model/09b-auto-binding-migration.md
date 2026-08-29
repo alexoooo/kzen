@@ -1,6 +1,6 @@
 # DM9b — kzen-auto Logic, JobControl, and DataContext binding migration
 
-> **Status: ready after DM9a. One kzen-auto implementation session.** Authority: unified data model §§10.2,
+> **Status: complete 2026-08-28.** Authority: unified data model §§10.2,
 > 11.1 and §14.5 step 5. Constituent tracker: `README.md`.
 
 ## Outcome
@@ -35,3 +35,17 @@ cleanup point for DM9c.
   incidental wire/diagnostic use is classified for DM9c rather than silently retained.
 - Run focused flavour/data-source tests, `FormulaStepTest`, full kzen-auto build, publish all kzen-auto artifacts,
   and rebuild kzen-project standalone. End green with the kzen-lib bridge still available.
+
+## As built — 2026-08-28
+
+- `ScriptLogic`, `FlowLogic`, `JobLogic`, `WorkerLogic`, and `ReportLogic` use `LogicSignature` backed by
+  `BindingSchema` and return `DataBindings`. Report has matching empty input/output schemas.
+- `JobControl`, `EngineJobControl`, `DataContext`, `LogicDataSource`, `RunWorker`, and `RunStep` bind named inputs
+  against the callee schema. The positional host path retains the existing one-argument rule: it targets the first
+  declared input; arbitrary multi-input calls use named bindings.
+- Required omissions fail before child execution, defaults are applied once, present null stays distinct from
+  unbound, and `ProducedBindingsBuilder` validates outputs at settlement. Concurrent Job yields retain first-yield
+  binding order while same-name updates preserve their position.
+- The production inventory reached zero tuple dataflow callers before the bridge was removed. Focused flavour,
+  data-source, migration, native-identity, and Formula tests passed; the complete kzen-auto build and publication
+  were green.

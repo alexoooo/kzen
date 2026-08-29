@@ -45,3 +45,21 @@ carrier/lane façades are deleted after the measured foundation gate passes.
 - Focused Job/data-source/worker/migration tests, `FormulaStepTest`, full kzen-auto build, sample-plugin build, and
   standalone kzen-project build pass. Publish all kzen-auto artifacts; no version bump.
 - Mark the foundation gate pass/fail in `README.md`; DM8 cannot start on failure.
+
+## As-built
+
+- Formula widening/replacement evaluates both expressions against the original `DataValue`; notation-level
+  `FormulaCarrySpec` selects all or named/renamed carry fields, and the builder preserves declared order and
+  collision policy. Result sinks and nested Logic hosts use the same explicit boundary materialization.
+- `JobLaneDescriptor` is the only static lane authority. Runtime channels, migration carry-over, first-party and
+  test Workers use `DataValue`; `JobMessage`, `WorkerLane`, `LegacyJobElementView`, `FlatView`, and their conversion
+  helpers were deleted after the pre-deletion foundation build passed.
+- The first measured post-cutover S1 run exposed a 7.5% regression (27,721.1 ms versus the 25,774.9 ms J5a
+  baseline). Profiling found per-row flat-contract reconstruction and exception-driven native probing. Caching the
+  shared flat header and making the no-native flat receiver explicit reduced the pre-deletion median to 23,375.3 ms.
+  The post-deletion confirmation median was 25,634.5 ms (39,010 rows/s), 0.5% faster than baseline and within the
+  five-percent gate.
+- The focused 153-test worker/data-source matrix, explicit `FormulaStepTest`, pre- and post-deletion full kzen-auto
+  builds, Maven sample-plugin build, and standalone kzen-project build passed. All kzen-auto publications were
+  refreshed in Maven Local without a version bump. The downstream JS sample view also adopted the current
+  observation-location contract discovered by the standalone build.

@@ -1,6 +1,6 @@
 # DM7b — DataValue channels, source producers, and column Workers
 
-> **Status: ready after DM7a. One kzen-auto implementation session.** Authority: unified data model §§6.2,
+> **Status: ☑ landed 2026-08-28.** Authority: unified data model §§6.2,
 > 11.4–11.5 and §14.5 step 4. Constituent tracker: `README.md`.
 
 ## Outcome
@@ -39,3 +39,16 @@ single-authority runtime bridge and DM7a's static façade until DM7c.
 - Prove flat input is not eagerly materialized, field reads allocate no wrapper, and aliased/fan-out elements copy.
 - `rg "LegacyCursorItemKind"` is empty; `JobMessage`/`LegacyJobElementView` uses are restricted to the named DM7c
   remainder. The repository ends green before Formula/sink/host migration begins.
+
+## As-built
+
+- `JobChannel`, all worker base loops, active batches, migration carry-over, and every source now carry
+  `DataValue`; `DataCursor` emits it directly and `LegacyCursorItemKind` was deleted.
+- Flat rows retain their direct `FlatFileRecord` backing. Native, mapping, scalar, and projected records bind a
+  `ColumnProjection` only when a column worker asks for one; superset gaps remain `DataState.Absent`, with
+  `<missing>` introduced only by projection rendering.
+- Formula, ResultSink, and Run are the only active production users of the one-value DM7c runtime view. The static
+  `WorkerLane` view remains the DM7a descriptor façade; test/custom endpoint compatibility is confined to DM7c.
+- The focused source/channel/migration and 23-worker matrix passed (148 tests), including literal, mapping, flat,
+  and native payload paths. The full kzen-auto build passed on 2026-08-28 (75 tasks, 889 JVM tests with one skipped;
+  `BUILD SUCCESSFUL in 6m 23s`).

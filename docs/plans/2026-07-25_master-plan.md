@@ -37,8 +37,8 @@ disposal and atomic call-site bootstrap. CX8 is deliberately still a design gate
 ## Session ledger
 
 **One row per session.** Table order is execution order, while the `#` column is a stable identifier rather than a
-renumbered sequence. The active spine is J5a, the unified-data-model foundation and binding cutover through DM11,
-then a DataValue-aware J5b, J4, and J9. Consumer/design-gated DM rows are listed but do not become executable merely
+renumbered sequence. J5a and the unified-data-model cutover through DM11 are complete; the remaining active spine
+is a DataValue-aware J5b, J4, and J9. Consumer/design-gated DM rows are listed but do not become executable merely
 by appearing above unrelated work. Rows marked *pull-forward* remain independent unless they touch the same Job
 files as the active spine. Status legend: `☐` open; `☑` landed; `◪` partially landed; `⊘` superseded or closed
 without execution; `◇` gated and not schedulable until its named gate opens.
@@ -47,22 +47,22 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 |---|---|---|---|---|---|
 | 1 | **J3a** — pluggable input formats | ~~`PluginReaderWorker` bridging the plugin SPI + `encoding` on native readers~~ **SUPERSEDED 2026-08-21 by DS2/DS3** (rows 52–53): the plugin-format read lives in the shared `FileDataOpener`, `encoding` in `DataPart.encoding` | J · P3 steps 1,4 | `next/J3` | ⊘ |
 | 2 | **J3b** — design-time services | ~~Column pre-scan route + `JobUpstreamSchema` fallback on `WorkerLane` + `SortSpecEditor` dropdown~~ **SUPERSEDED 2026-08-21 by DS6** (row 56): `DataSourceActions action=shape` prefers the source's static declaration and falls back to the opener's bounded `inspectShape`; `JobUpstreamSchema` gains a provider list | J · P3 steps 2,3 | `next/J3` | ⊘ |
-| 5 | **J5a** — benchmark baseline | Harness + Report-vs-Job results table, incl. the `FlatView` allocation row | J · P5 session A | `next/J5` | ☐ |
-| DM1 | **DM1** — structural type contract | Common structural type vocabulary, invariants, algebra, lowering, and digests | data-model · DM1 | `data-model/01-type-contract-and-algebra.md` | ☐ |
-| DM2 | **DM2** — JVM native resolution | `KType` mapping, loader-local native tokens, and resolved assignability | data-model · DM2 | `data-model/02-jvm-native-types-and-resolution.md` | ☐ |
-| DM3 | **DM3** — shape/schema cutover | Observation envelope, typed declared schemas, non-null cursor shape, and explicit internal legacy item-kind bridge | data-model · DM3 | `data-model/03-shape-and-schema-cutover.md` | ☐ |
-| DM4 | **DM4** — values/snapshots/validation | `DataValue`, literal/native access, bounded snapshots, and deep validation | data-model · DM4 | `data-model/04-values-snapshots-and-validation.md` | ☐ |
-| DM5 | **DM5** — adapter/backing proof | Adapter registry plus literal/native/flat/fake-row proof and plugin classpath verdict | data-model · DM5 | `data-model/05-adapters-and-three-backing-proof.md` | ☐ |
-| DM6 | **DM6** — projection/builders | Column projection, exclusive transfer proof, and output builders | data-model · DM6 | `data-model/06-job-projection-and-exclusive-builders.md` | ☐ |
-| DM7a | **DM7a** — lane contract/façade | Contract-backed static lanes and a green single-authority static façade | data-model · DM7a | `data-model/07a-job-lane-contract-and-bridge.md` | ☐ |
-| DM7b | **DM7b** — value producers/workers | Runtime bridge, DataValue channels, source producers, and column Workers; delete the cursor item-kind bridge | data-model · DM7b | `data-model/07b-job-value-producers-and-workers.md` | ☐ |
-| DM7c | **DM7c** — carrier deletion/gate | Formula/sinks/hosts cutover, foundation benchmark gate, then legacy carrier deletion | data-model · DM7c | `data-model/07c-job-carrier-deletion-and-foundation-gate.md` | ☐ |
-| DM8 | **DM8** — binding inventory/model | Reconcile all Logic signatures, settle Report as no-output, and add binding vocabulary | data-model · DM8 | `data-model/08-binding-inventory-and-binding-model.md` | ☐ |
-| DM9a | **DM9a** — core binding engine | Additive kzen-lib binding-native engine with tuple bridge retained | data-model · DM9a | `data-model/09a-core-binding-engine-and-bridge.md` | ☐ |
-| DM9b | **DM9b** — auto binding migration | Migrate kzen-auto Logic, both Job hosts, and data-source callers while bridge remains | data-model · DM9b | `data-model/09b-auto-binding-migration.md` | ☐ |
-| DM9c | **DM9c** — tuple deletion/proof | Delete tuple APIs only after inventory is clean, publish, and rebuild downstream | data-model · DM9c | `data-model/09c-tuple-deletion-and-downstream-proof.md` | ☐ |
-| DM10 | **DM10** — Script boundary | DataValue recorded results/handoffs plus deliberate `IfStep` branch-join migration | data-model · DM10 | `data-model/10-script-generic-boundary-cutover.md` | ☐ |
-| DM11 | **DM11** — Flow boundary/gate | Flow message/port cutover and consolidated post-cutover adoption gate | data-model · DM11 | `data-model/11-flow-generic-boundary-cutover.md` | ☐ |
+| 5 | **J5a** — benchmark baseline | Harness + Report-vs-Job results table, incl. the `FlatView` allocation row | J · P5 session A | `next/J5` | ☑ 2026-08-28 |
+| DM1 | **DM1** — structural type contract | Common structural type vocabulary, invariants, algebra, lowering, and digests | data-model · DM1 | `data-model/01-type-contract-and-algebra.md` | ☑ 2026-08-28 |
+| DM2 | **DM2** — JVM native resolution | `KType` mapping, loader-local native tokens, and resolved assignability | data-model · DM2 | `data-model/02-jvm-native-types-and-resolution.md` | ☑ 2026-08-28 |
+| DM3 | **DM3** — shape/schema cutover | Observation envelope, typed declared schemas, non-null cursor shape, and explicit internal legacy item-kind bridge | data-model · DM3 | `data-model/03-shape-and-schema-cutover.md` | ☑ 2026-08-28 |
+| DM4 | **DM4** — values/snapshots/validation | `DataValue`, literal/native access, bounded snapshots, and deep validation. **☑ LANDED 2026-08-28** — one backing-local inline-long node API supports table and direct encodings; the literal allocation pin, bounded immutable snapshots, exact JVM scalar projection, and explicit deep validation are green. See the plan's As-built. | data-model · DM4 | `data-model/04-values-snapshots-and-validation.md` | ☑ 2026-08-28 |
+| DM5 | **DM5** — adapter/backing proof | Adapter registry plus literal/native/flat/fake-row proof and plugin classpath verdict. **☑ LANDED 2026-08-28** — deterministic adapters, the direct flat backing, loader identity, lifetime checks, and downstream sample/project consumers are green; see the measured As-built verdict. | data-model · DM5 | `data-model/05-adapters-and-three-backing-proof.md` | ☑ 2026-08-28 |
+| DM6 | **DM6** — projection/builders | Column projection, exclusive transfer proof, and output builders. **☑ LANDED 2026-08-28** — projection policy and exclusive-transfer/open-builder verdicts are executable; flat/native eight-append measurements and the full build are green. | data-model · DM6 | `data-model/06-job-projection-and-exclusive-builders.md` | ☑ 2026-08-28 |
+| DM7a | **DM7a** — lane contract/façade | Contract-backed static lanes and a green single-authority static façade. **☑ LANDED 2026-08-28** — the descriptor is the sole contract authority, the temporary `WorkerLane` view is derived, cache identities are separated, and the full kzen-auto build is green. | data-model · DM7a | `data-model/07a-job-lane-contract-and-bridge.md` | ☑ 2026-08-28 |
+| DM7b | **DM7b** — value producers/workers | Runtime bridge, DataValue channels, source producers, and column Workers; delete the cursor item-kind bridge. **☑ LANDED 2026-08-28** — all Job transport/cursors/sources carry `DataValue`, ordinary column Workers bind projections directly, cursor carrier-history dispatch is deleted, and the full kzen-auto build is green. | data-model · DM7b | `data-model/07b-job-value-producers-and-workers.md` | ☑ 2026-08-28 |
+| DM7c | **DM7c** — carrier deletion/gate | Formula/sinks/hosts cutover, foundation benchmark gate, then legacy carrier deletion. **☑ LANDED 2026-08-28** — one `DataValue` carrier, explicit Formula carry/boundaries, legacy carrier/lane façades deleted, downstream builds green, and S1 at 25,634.5 ms versus the 25,774.9 ms baseline. | data-model · DM7c | `data-model/07c-job-carrier-deletion-and-foundation-gate.md` | ☑ 2026-08-28 |
+| DM8 | **DM8** — binding inventory/model | Reconcile all Logic signatures, settle Report as no-output, and add binding vocabulary. **☑ LANDED 2026-08-28** — frozen schemas/bindings, defaults/origins/sensitivity, concurrent strict output settlement, Report's honest empty output, and the complete host/signature disposition inventory are green. | data-model · DM8 | `data-model/08-binding-inventory-and-binding-model.md` | ☑ 2026-08-28 |
+| DM9a | **DM9a** — core binding engine | Additive kzen-lib binding-native engine with tuple bridge retained. **☑ LANDED 2026-08-28** — engine storage, validation, hosting, and output settlement are binding-native; the single temporary tuple edge preserves unchanged consumers and standalone kzen-auto compilation is green. | data-model · DM9a | `data-model/09a-core-binding-engine-and-bridge.md` | ☑ 2026-08-28 |
+| DM9b | **DM9b** — auto binding migration | All kzen-auto flavours, Job hosts, and data-source callers are binding-native; focused/full builds and publication passed. | data-model · DM9b | `data-model/09b-auto-binding-migration.md` | ☑ 2026-08-28 |
+| DM9c | **DM9c** — tuple deletion/proof | Canonical binding API promoted, tuple/bridge surface deleted, and all direct/release-train downstream builds passed. | data-model · DM9c | `data-model/09c-tuple-deletion-and-downstream-proof.md` | ☑ 2026-08-28 |
+| DM10 | **DM10** — Script boundary | Recorded results/replay/migration/handoffs carry DataValue; native projection, snapshots, Formula canary, and full suite passed. | data-model · DM10 | `data-model/10-script-generic-boundary-cutover.md` | ☑ 2026-08-28 |
+| DM11 | **DM11** — Flow boundary/gate | Contracted ports and DataValue messages/migration landed; consolidated foundation/binding/Script/Flow and downstream gates passed. | data-model · DM11 | `data-model/11-flow-generic-boundary-cutover.md` | ☑ 2026-08-28 |
 | 6 | **J5b** — DataValue perf fixes + headless | **Revalidate after DM11:** retain IO/headless goals, but rewrite stale `JobMessage`/`FlatView` pooling and batching assumptions against the landed `DataValue` carrier before implementation | J · P5 session B | `next/J5` | ☐ |
 | 3 | **J4** — Report subsumption B | After J5b: `groupBy` export parity, summary/Explore offline persistence, composed A/B gate, Report frozen | J · P4 | — | ☐ |
 | 4 | **J9** — file-backed carry-forward | After J4: writer append cursor, Pivot store carry, Explore append, `resumed` progress key | J · P9 | — | ☐ |
@@ -182,8 +182,8 @@ addressing — is the only substantial one. Nothing in the CX arc blocks anythin
 
 ### What to run right now
 
-Run **J5a** next to capture the untouched baseline, then follow DM1–DM11, the re-specified J5b, J4, and J9 in ledger
-order. If a change of pace is wanted, rows **20 (SH5)**, **23 (C1)**, **21 (FL5)** and **15 (DA1)** remain
+Re-elaborate and run **J5b** next against the landed `DataValue` carrier, then follow J4 and J9 in ledger order.
+If a change of pace is wanted, rows **20 (SH5)**, **23 (C1)**, **21 (FL5)** and **15 (DA1)** remain
 independent only when their files do not collide with the active session. Rows **9 (E1)** and **25 (C2)** need the
 user present — schedule them rather than waiting for a gap.
 
@@ -202,8 +202,8 @@ disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
 
 ## Dependency rules (the live ones)
 
-1. **J5a → DM1–DM7c → DM8–DM11 → J5b → J4 → J9** is the active spine. J5a captures the untouched
-   baseline; DM7c closes the carrier gate; J5b is re-specified against the landed carrier before J4/J9 reshape
+1. **J5b → J4 → J9** is the remaining active spine. J5a captured the untouched baseline and DM1–DM11 closed
+   the carrier/flavour gates; J5b is re-specified against the landed carrier before J4/J9 reshape
    adjacent Report/Explore/export surfaces.
 2. **Do not overlap J4/J9/J5b/J6/J7 with DM1–DM7c.** J7 directly changes `JobChannel`; its elaboration must be
    revalidated against the landed carrier. J8's older J3 dependency is already satisfied by DS2/DS3/DS6, but it

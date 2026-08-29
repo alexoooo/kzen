@@ -1,6 +1,6 @@
 # DM4 — live value contract, literals, snapshots, and deep validation
 
-> **Status: ready after DM1; DM2 is required for JVM-native validation tests. One implementation session.**
+> **Status: ☑ LANDED 2026-08-28.** DM1 and DM2 prerequisites landed in the same data-model work stream.
 > Authority: unified data model §§4.7, 6, 6.2–6.3, 7.1, 12.1, 14.5 step 3, and §15.
 
 ## Outcome
@@ -18,8 +18,10 @@ shows a concrete failure. Record the verdict and remove the losing prototype bef
 
 ## Implementation
 
-1. Add `DataNode`, `DataValue`, `DataState`, `DataAccessException`, and the full `ValueAccess` operations. Contract
-   violations fail immediately with a `DataProblem`; successful primitive reads allocate nothing.
+1. Add `DataNode`, `DataValue`, `DataState`, `DataAccessException`, and the full `ValueAccess` operations. In jvmMain,
+   complete DM2's value-dependent surface with `JvmNativeValueAccess`, the `NativeTypeResolver` overload accepting a
+   `DataValue`, and exact scalar projection with overflow/precision rejection. Contract violations fail immediately
+   with a `DataProblem`; successful primitive reads allocate nothing.
 2. Implement an immutable literal backing and explicit `recordOf`/`RecordLiteral` authoring form. Maps remain
    mappings; record literals preserve order and unique names. Null and absent remain distinct.
 3. Implement mapping-key canonicalization and rejection: null/mixed keys stay opaque, canonical-text collisions
@@ -51,3 +53,19 @@ shows a concrete failure. Record the verdict and remove the losing prototype bef
 
 - Open question 2 has an as-built verdict and benchmark/allocation evidence.
 - Every live value is readable while reachable; no retention state or write method appears in the public API.
+
+## As-built (2026-08-28)
+
+- Kept one public inline `DataNode(Long)` token. Tokens remain backing-local: the heterogeneous literal backing uses a
+  backing-owned node table, while fixed-layout/native backings can encode indexes or offsets directly without changing
+  the API. No accessor split was justified. A warmed 100,000-iteration primitive field-read allocation pin permits at
+  most 4,096 bytes and passes on the table-backed literal; reads create no child `DataValue` wrappers.
+- Added the read-only `DataValue`/`ValueAccess` contract, distinct absent/null/present states, ordered record literals,
+  mapping-key canonicalization, hostile-backing failure coverage, explicit deep validation, and JVM native scalar
+  resolution with exact overflow rejection.
+- `DataSnapshot` freezes all materialized containers and binary data, preserves structural type for typed decoding,
+  strips native metadata, and rejects opaque values, revisited container identities, duplicate record occurrences,
+  generic binary handles, sensitive values according to policy, and every configured resource limit without returning
+  partial output.
+- Proof: common JVM and JS value/snapshot suites passed; the full `kzen-lib` build passed (57 tasks), followed by a
+  successful `publishToMavenLocal` (59 tasks).

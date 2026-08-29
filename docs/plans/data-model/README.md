@@ -1,6 +1,6 @@
 # Unified data model — constituent implementation plan
 
-> **Status: ready for execution through DM7c; later gates are named below.** Design authority:
+> **Status: DM1–DM11 complete; DM12/DM13 remain consumer/design gated.** Design authority:
 > [`docs/analysis/2026-08-27_data-model.md`](../../analysis/2026-08-27_data-model.md). Review record:
 > [`review.md`](review.md). This README owns sequencing, tracking, and arc-wide as-built coordination; each numbered
 > file owns exactly one implementation session and its detailed proof.
@@ -22,21 +22,21 @@ Session files persist as the execution record for this standalone multi-session 
 
 | ID | Session file | Outcome | Status |
 |---|---|---|---|
-| DM1 | `01-type-contract-and-algebra.md` | Common structural type and algebra | ☐ |
-| DM2 | `02-jvm-native-types-and-resolution.md` | JVM type resolution and native identity | ☐ |
-| DM3 | `03-shape-and-schema-cutover.md` | Observation envelope, typed schemas, explicit legacy cursor bridge | ☐ |
-| DM4 | `04-values-snapshots-and-validation.md` | Value contract, literals, snapshots, validation | ☐ |
-| DM5 | `05-adapters-and-three-backing-proof.md` | Adapter registry and literal/native/flat/row proof | ☐ |
-| DM6 | `06-job-projection-and-exclusive-builders.md` | Column projection and exclusive builders | ☐ |
-| DM7a | `07a-job-lane-contract-and-bridge.md` | Contract-backed static lanes and green static façade | ☐ |
-| DM7b | `07b-job-value-producers-and-workers.md` | Runtime bridge, DataValue channels, sources, and column Workers | ☐ |
-| DM7c | `07c-job-carrier-deletion-and-foundation-gate.md` | Remaining Workers, bridge deletion, foundation gate | ☐ |
-| DM8 | `08-binding-inventory-and-binding-model.md` | Reconciled signatures and binding model | ☐ |
-| DM9a | `09a-core-binding-engine-and-bridge.md` | Additive kzen-lib binding engine and tuple adapter | ☐ |
-| DM9b | `09b-auto-binding-migration.md` | kzen-auto Logic/Job/data-source binding migration | ☐ |
-| DM9c | `09c-tuple-deletion-and-downstream-proof.md` | Tuple API deletion and downstream rebuild | ☐ |
-| DM10 | `10-script-generic-boundary-cutover.md` | Script recorded-result/handoff cutover | ☐ |
-| DM11 | `11-flow-generic-boundary-cutover.md` | Flow port/message cutover and consolidated gate | ☐ |
+| DM1 | `01-type-contract-and-algebra.md` | Common structural type and algebra | ☑ 2026-08-28 |
+| DM2 | `02-jvm-native-types-and-resolution.md` | JVM type resolution and native identity | ☑ 2026-08-28 |
+| DM3 | `03-shape-and-schema-cutover.md` | Observation envelope, typed schemas, explicit legacy cursor bridge | ☑ 2026-08-28 |
+| DM4 | `04-values-snapshots-and-validation.md` | Value contract, literals, snapshots, validation | ☑ 2026-08-28 |
+| DM5 | `05-adapters-and-three-backing-proof.md` | Adapter registry and literal/native/flat/row proof | ☑ 2026-08-28 |
+| DM6 | `06-job-projection-and-exclusive-builders.md` | Column projection and exclusive builders | ☑ 2026-08-28 |
+| DM7a | `07a-job-lane-contract-and-bridge.md` | Contract-backed static lanes and green static façade | ☑ 2026-08-28 |
+| DM7b | `07b-job-value-producers-and-workers.md` | Runtime bridge, DataValue channels, sources, and column Workers | ☑ 2026-08-28 |
+| DM7c | `07c-job-carrier-deletion-and-foundation-gate.md` | Remaining Workers, bridge deletion, foundation gate | ☑ 2026-08-28 |
+| DM8 | `08-binding-inventory-and-binding-model.md` | Reconciled signatures and binding model | ☑ 2026-08-28 |
+| DM9a | `09a-core-binding-engine-and-bridge.md` | Additive kzen-lib binding engine and tuple adapter | ☑ 2026-08-28 |
+| DM9b | `09b-auto-binding-migration.md` | kzen-auto Logic/Job/data-source binding migration | ☑ 2026-08-28 |
+| DM9c | `09c-tuple-deletion-and-downstream-proof.md` | Tuple API deletion and downstream rebuild | ☑ 2026-08-28 |
+| DM10 | `10-script-generic-boundary-cutover.md` | Script recorded-result/handoff cutover | ☑ 2026-08-28 |
+| DM11 | `11-flow-generic-boundary-cutover.md` | Flow port/message cutover and consolidated gate | ☑ 2026-08-28 |
 | DM12 | `12-first-structured-reader.md` | First tape-backed structured reader | ◇ consumer-gated |
 | DM13 | `13-first-durable-row-source.md` | First real durable row and constraint/lifetime verdict | ◇ design-gated |
 

@@ -1,11 +1,11 @@
 # Data source model — values, resolution, shape and opening
 
-> **Status: landed design contract for source selection; item and argument typing pending.** The value and
+> **Status: landed source selection and shape contract; cursor item and argument typing pending.** The value and
 > source/opener portions were delivered by DS0–DS8 and this document owns them: refs, parts, units, manifests,
 > the resolve/open/inspect protocol, the schema cache and the source packages. What a cursor *item* is, what a
 > `DataContext` *argument* is, and the shape vocabulary those contracts name are owned by the
-> [unified data model](2026-08-27_data-model.md) (its §5, §10.2 and §11.5); the landed `Any?` item,
-> `argument(name): Any?` and `DataShape.Tabular | Payload` forms are the implementation state that model replaces,
+> [unified data model](2026-08-27_data-model.md) (its §5, §10.2 and §11.5); the remaining landed `Any?` item and
+> `argument(name): Any?` forms are the implementation state that model replaces,
 > not an alternate contract. The Job adapter, UI, execution semantics and complete chronological landing record
 > live in [`2026-08-20_job-data-source.md`](2026-08-20_job-data-source.md); formats, providers, readers and
 > durable storage live in the [project-data analysis](2026-08-26_database.md).
@@ -129,7 +129,7 @@ interface DataOpener {
 }
 
 interface DataCursor: Iterator<Any?>, AutoCloseable {     // landed; target item type is DataValue
-    val shape: DataShape?                                 // landed; target is non-null
+    val shape: DataShape                                  // landed
 }
 
 interface DataContext {
@@ -143,8 +143,8 @@ interface DataContext {
 }
 ```
 
-The sketch shows the landed value edges so the protocol reads against today's code. Their typed replacements —
-`Iterator<DataValue>`, a non-null `DataShape`, and `arguments: DataBindings` with `host` over bindings — are
+The sketch shows the landed value edges so the protocol reads against today's code. Their remaining typed
+replacements — `Iterator<DataValue>` and `arguments: DataBindings` with `host` over bindings — are
 specified by the [unified data model](2026-08-27_data-model.md#102-datacontext) together with `DataShape`,
 `DataShapeResult` and the recursive `DataType` they name. The source protocol depends only on the fact that there
 is one semantic item type per cursor and one enumerable, typed argument set per call; it never has parallel
@@ -265,9 +265,9 @@ structural declaration on `FileDataSource`.
 not discard the types and publish only labels. A legacy flat consumer may explicitly project a compatible record
 to `HeaderListing`, but that lossy view is local to the consumer and never becomes the source's shape.
 
-The current implementation still drops those types when constructing `DataShape.Tabular`. That behaviour is the
-specific code defect to remove — step 2 of the [unified data model's sequencing](2026-08-27_data-model.md#145-sequencing);
-it is not retained as a compatibility rule.
+DM3 corrected the implementation: `DataSchemaDocument.shape()` now constructs an ordered typed record, and the
+temporary flat-record bridge projects `HeaderListing` only at legacy Job/UI consumers. The bridge is scheduled for
+deletion by DM7b/DM7c rather than retained as a compatibility rule.
 
 ## 5. Boundaries and snapshot semantics
 

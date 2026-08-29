@@ -1,6 +1,6 @@
 # DM7a — Job lane contract and green static façade
 
-> **Status: ready after DM6. One kzen-auto implementation session.** Authority: unified data model §11.4 and
+> **Status: landed 2026-08-28.** Authority: unified data model §11.4 and
 > §14.5 step 4. Constituent tracker: `README.md`.
 
 ## Outcome
@@ -37,3 +37,14 @@ callers can read their old view only by projecting the canonical contract.
 - End with channels and `JobMessage` unchanged, one canonical static lane, and only the actively used `WorkerLane`
   façade named for DM7c. DM7b introduces its runtime bridge at the first production use rather than landing dead
   production code here.
+
+## As built
+
+- `JobLaneDescriptor` is the sole owner of the lane `DataContract` and optional `ResolvedDataContract`; its legacy
+  construction path immediately projects payload and columns into that contract.
+- `WorkerLane` retains only the descriptor. Its payload and flat-column members are derived compatibility accessors
+  explicitly owned for deletion by DM7c, so they cannot drift from the canonical contract.
+- source shapes and inferred formula `KType`s now enter the descriptor through structural/native resolution, while
+  declaration, structural, and resolved identities have separate stable cache keys.
+- descriptor, validator, formula-source, sink, run-worker, and formula inference tests passed, followed by the full
+  kzen-auto build (`75` tasks, `BUILD SUCCESSFUL`).

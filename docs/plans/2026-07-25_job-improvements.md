@@ -16,8 +16,8 @@
 >
 > **Progress tracker** (update as phases land):
 > - [x] Phase 3 — Report subsumption A: **superseded and delivered by DS2/DS3/DS6 (2026-08-24)**
-> - [ ] Phase 5a — pre-DM benchmark harness and untouched `JobMessage` / `FlatView` baseline
-> - [ ] DM1–DM11 — tracked in `data-model/README.md`; DM7c retires the element carrier
+> - [x] Phase 5a — pre-DM benchmark harness and untouched `JobMessage` / `FlatView` baseline (2026-08-28)
+> - [x] DM1–DM11 — unified data model and all flavour cutovers landed (2026-08-28)
 > - [ ] Phase 5b — revalidate IO/performance work against `DataValue`, then add headless mode
 > - [ ] Phase 4 — Report subsumption B: export parity, offline persistence, deprecation path, after J5b
 > - [ ] Phase 6 — topology: fan-out + non-linear ergonomics — **demand-driven after DM7c**
@@ -27,7 +27,7 @@
 > - [ ] Phase 9 — live-edit carry-forward for file-backed workers (writer append, pivot/explore
 >   resume), after J4
 
-**The active spine is J5a → DM1–DM11 → J5b → J4 → J9.** J6 is demand-driven after DM7c; J7's
+**The remaining active spine is J5b → J4 → J9.** J6 is demand-driven after DM7c; J7's
 `JobChannel` work also waits for DM7c and is revalidated there. J8 follows the master ledger rather than being
 pulled through a conflicting editor/model cutover. Exit for the arc: the composed A/B gate green (the same dataset through
 Report and through Job — identical bytes), Report frozen, headless = "the same Job, minus
@@ -268,6 +268,44 @@ gates and a headless run test, and record the measured gap plus data-driven foll
 
 **Verification.** Benchmark table in the as-built; headless test green; interactive Sample Job
 behaviour unchanged.
+
+### Phase 5a as-built — 2026-08-28
+
+The JMH-free harness landed as `JobReportBenchmark` with deterministic S0–S3 fixtures, a `benchJob` JavaExec
+task, and `JobBenchmarkSmokeTest` correctness pins. Timed intervals exclude context creation and compilation;
+each implementation has one discarded warmup and three measured fresh-engine runs. S1 and S3 assert byte-identical
+outputs, while S2 asserts the 400-row pivot and checks `s000` min/average/max against the inline aggregate.
+
+Normal-GC medians on the local Java 26 Windows development machine:
+
+| Scenario | Implementation | Rows | Median ms | Spread ms | Rows/s | GC count/ms |
+|---|---|---:|---:|---:|---:|---:|
+| S0 carrier | flat record | 1,000,000 | 164.0 | 129.7–244.0 | 6,096,011 | 2/3 |
+| S0 carrier | `JobMessage` + `FlatView` | 1,000,000 | 131.9 | 128.6–144.4 | 7,582,536 | 2/1 |
+| S1 slice | Job | 1,000,000 | 25,774.9 | 24,410.6–27,791.2 | 38,797 | 8/34 |
+| S1 slice | inline | 1,000,000 | 130.0 | 129.1–148.8 | 7,692,172 | 0/0 |
+| S2 aggregate | Job | 1,000,000 | 48,114.1 | 34,501.0–48,775.9 | 20,784 | 5/40 |
+| S2 aggregate | Report | 1,000,000 | 3,790.2 | 3,385.6–3,914.3 | 263,840 | 6/90 |
+| S2 aggregate | inline | 1,000,000 | 349.0 | 346.1–451.4 | 2,865,232 | 0/0 |
+| S2h headerless | Job | 1,000,000 | 26,563.4 | 22,014.1–29,102.4 | 37,646 | 6/35 |
+| S3 export | Job | 1,000,000 | 33,218.9 | 30,739.8–33,695.5 | 30,103 | 35/84 |
+| S3 export | Report | 1,000,000 | 1,736.7 | 1,725.9–1,977.6 | 575,815 | 1/18 |
+
+The 4,000,000-row S1 continuity run measured Job at 104,699.6 ms / 38,205 rows/s (spread
+73,204.5–143,417.7 ms) and inline at 355.3 ms / 11,258,726 rows/s (331.3–360.1 ms). Job therefore reached
+0.34% of inline throughput, so the retired executor's within-2.5% result is not re-established on the current
+engine. The stable ~38k rows/s across the 1M and 4M runs convicts the per-record blocking path rather than a
+fixed startup cost.
+
+The 250,000-row Epsilon pass measured 519.2 bytes/row for `FlatFileRecord` and 566.6 bytes/row for
+`JobMessage.ofFlat`, isolating `JobMessage` + `FlatView` at **47.4 additional bytes/row**. The representative S1
+Job path measured 1,937.8 bytes/row versus 165.9 bytes/row inline. `FlatView` is therefore convicted, but no
+pre-DM pooling or carrier optimization was made because DM7c deletes that surface. J5b must re-benchmark the
+landed `DataValue` path and retain the planned per-batch IO investigation; the allocation result does not license
+reuse outside DM6/DM7c's exclusive-transfer and alias/copy rules.
+
+Commands: `benchJob` at 1M by scenario, S1 at 4M, and `benchJob -PbenchEpsilon` for S0/S1 at the bounded default
+250K. The smoke suite passed all four correctness paths. No production source changed in J5a.
 
 ---
 
