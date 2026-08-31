@@ -20,6 +20,7 @@
 |---|---|---|---|
 | **J** | `2026-07-25_job-improvements.md` | Job flavour + Report subsumption; its pre-DM `JobMessage` contract is superseded by DM7c before the remaining carrier-sensitive phases execute | J4–J9 |
 | **DM** | `data-model/README.md` | Unified data model — type/value/binding foundation and per-flavour cutovers | DM1–DM11 (DM12/DM13 gated) |
+| **DR** | `data-read-config/README.md` | Configurable, provider-neutral data reading — layered content/coding/character/reader composition, configured formats, typed contracts through Job/UI | DR1–DR7 |
 | **E** | `2026-07-25_extensibility-improvements.md` | Plugin registration, plugin UX, Custom power; absorbs reflection R5/R6 | E1–E6 |
 | **DA/SH** | `2026-07-25_desktop-and-hosting.md` | Desktop app distribution + the hosting trio's hygiene tail | SH5, DA1–DA5 (DA6 parked) |
 | **FL** | `2026-07-25_flow-improvements.md` | Flow flavour | FL5, FL6 |
@@ -70,6 +71,13 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 | 8 | **J8** — Job client sweep + hygiene | Consumed-subset `JobController`, editor dedup, doc debt | J · P8 | — | ☐ |
 | DM12 | **DM12** — first structured reader | Consumer-gated tape-backed reader; not scheduled until a selected reader needs it | data-model · DM12 | `data-model/12-first-structured-reader.md` | ◇ |
 | DM13 | **DM13** — first durable row | Provider/design-gated row backing, constraints, and measured lifetime; not scheduled yet | data-model · DM13 | `data-model/13-first-durable-row-source.md` | ◇ |
+| DR1 | **DR1** — resolved-read identity | `ResolvedReadSpec`/`ReaderConfig` snapshot, capability vocabulary, digests, cache/migration identity; no behaviour change | DR · DR1 | `data-read-config/01-resolved-read-identity.md` | ☐ |
+| DR2 | **DR2** — schema capability + Custom discovery | `RecordSchema` extracted from its document wrapper; capability/inheritance-based prototype discovery (coordinate with E4) | DR · DR2 | `data-read-config/02-schema-capability-and-custom-discovery.md` | ☐ |
+| DR3 | **DR3** — sequential content stack | Provider-neutral sequential handles, explicit gzip/identity coding, character decoding, lifetime/cancellation proof | DR · DR3 | `data-read-config/03-sequential-content-stack.md` | ☐ |
+| DR4 | **DR4** — configured delimited reader | Configured framing/dialect/header/schema with typed emission; atomic CSV/TSV cutover to configured instances | DR · DR4 | `data-read-config/04-configured-delimited-reader.md` | ☐ |
+| DR5 | **DR5** — fake-provider proof | Fake object-store provider runs the full reader suite; architectural neutrality pin | DR · DR5 | `data-read-config/05-fake-provider-proof.md` | ☐ |
+| DR6 | **DR6** — Job/UI/expression cutover | Full `DataContract` through validation, cards/connectors, typed expressions; selection UI with schema drafts | DR · DR6 | `data-read-config/06-job-ui-expression-cutover.md` | ☐ |
+| DR7 | **DR7** — acceptance/performance gate | Fixture matrices, full sibling builds, opt-in 100k canary baseline and threshold | DR · DR7 | `data-read-config/07-acceptance-and-performance-gate.md` | ☐ |
 | 9 | **E1** — extensibility ratification | Verdicts on D1–D6 + gate R5-G — **needs the user**; unblocks rows 10–14 | E · E1 | — | ☐ |
 | 10 | **E2** — plugin module registration | Plugin-shipped `ModuleReflection` + pure-Java path via the R1 mirror (**was R5**) | E · E2 | — | ☐ |
 | 11 | **E3** — plugin UX | Per-document classloader isolation, JAR upload, cached listing, per-definer diagnostics | E · E3 | — | ☐ |
