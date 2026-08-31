@@ -36,7 +36,7 @@ from its first commit. A fake object-store provider proves that neutrality witho
 credential model or browser. Local plain bytes, local gzip bytes, fake-S3 plain bytes and fake-S3 gzip bytes must
 all reach the same configured delimited reader.
 
-The configured format is an immutable effective-read specification, not a mutable coordinate consulted again
+The configured format is an immutable resolved-read specification, not a mutable coordinate consulted again
 during a run. Its identity includes the reader capability and version, complete dialect, schema, typed-decode
 policy, content-coding chain, and character-decoding policy. A manifest or migration key combines that identity
 with the selected object's fingerprint. The schema cache uses the same combination. Changing any input that can
@@ -52,6 +52,22 @@ not reduce typed fields to `TypeMetadata + HeaderListing`. Declared fields get t
 structure uses explicit keyed dynamic access. A calculated field's inferred type is appended to the output contract
 instead of being unconditionally converted to Text.
 
+### 1.1 Three authoring tiers
+
+The layers exist to serve one product gradient: simple reads are immediate, intermediate reads are configurable
+in the UI, and advanced reads are code.
+
+| Tier | User action | What supplies the rest |
+|---|---|---|
+| Immediate | Select a file/ref | Built-in configured instances (RFC-4180 CSV, TSV) plus hint-based preselection; header labels observed; contract is honest Text/dynamic |
+| Configured | Author or adjust format/schema notation through the UI | The same configured reader; an inspection-driven schema draft can seed the declaration |
+| Code | Contribute a reader capability, schema or source as a plugin or Logic | The same capability vocabulary; no generic branch changes |
+
+The immediate tier must stay one selection. Built-in configured instances and extension/media-type preselection
+make an ordinary `.csv` readable without authoring anything; the strictness in this document (declared schemas
+for typed headerless input, fail-fast decoding) applies to the typed tiers and must not remove the untyped
+immediate read.
+
 ## 2. Scope and non-goals
 
 ### 2.1 Immediate scope
@@ -65,7 +81,7 @@ This proposal covers:
 - one configurable delimited-text reader with header and headerless policies;
 - declared typed record schemas authored as ordinary notation;
 - typed `DataValue` emission through the existing `DataCursor` and Job lane;
-- complete effective-spec fingerprinting for manifests, migration and inspection caches;
+- complete resolved-spec fingerprinting for manifests, migration and inspection caches;
 - capability-based Custom prototype discovery;
 - Job/UI contract display and typed expression propagation; and
 - small deterministic fixtures plus the opt-in external 100,000-row canary.
@@ -84,6 +100,10 @@ The contracts must leave room for, but this work does not implement:
 - a universal quarantine subsystem.
 
 Those are distinct consumers. They must not be simulated by optional branches in the flat reader.
+
+Deferring user-programmable parser grammars does not close the advanced tier: a code-authored reader capability
+(the plugin SPI) and Logic-authored sources remain the escape hatch for anything the configured reader cannot
+express, using the same capability vocabulary this document defines.
 
 ## 3. Current state and the gaps this proposal closes
 
@@ -140,7 +160,7 @@ They still resolve to the same ordered values:
 DataUnit(
     attributes = ...,
     parts = listOf(
-        DataPart(role, opaqueRef, effectiveReadSpec)
+        DataPart(role, opaqueRef, resolvedReadSpec)
     )
 )
 ```
@@ -152,6 +172,12 @@ display and fingerprint metadata, but no reader reads those provider-specific ke
 Resolution produces a stable point-in-time manifest. It must not reopen browsing or re-run a prefix query while a
 cursor advances. The source owns ordering and missing-object policy; the reader receives one selected part at a
 time.
+
+Format-to-part assignment is source-owned and deliberately simple in v1: a source names one configured format,
+and resolution stamps that format's resolved spec onto every part it produces, so multiple files grouped by
+date read identically. Per-part or per-role overrides stay open in the model — the resolved spec already
+travels on `DataPart`, so a differently-configured source can assign different specs without a contract change —
+but no override surface ships until multi-part use cases demand one.
 
 ### 4.2 Content access resolves refs to capabilities
 
@@ -198,7 +224,7 @@ turning its id into a temporary `Path`, it has not proved the contract.
 
 ### 4.3 Content coding wraps byte capabilities
 
-Content coding is an ordered transformation from bytes to bytes. The effective spec names it explicitly:
+Content coding is an ordered transformation from bytes to bytes. The resolved spec names it explicitly:
 
 ```text
 provider bytes -> gzip decoder -> decoded bytes
@@ -209,7 +235,7 @@ list if composition is real and bounded; it must not claim arbitrary chains that
 opened.
 
 Filename extensions, provider metadata and magic bytes may suggest a default while the source/format is being
-resolved. They do not remain runtime precedence rules. By cursor-open time the effective spec says `none` or
+resolved. They do not remain runtime precedence rules. By cursor-open time the resolved spec says `none` or
 `gzip`, and its digest includes that answer. Otherwise renaming an identical object or changing a provider hint can
 change interpretation without changing manifest identity.
 
@@ -228,7 +254,7 @@ The character-decoding spec contains at least:
 - unmappable-character policy where the platform distinguishes it.
 
 `REPORT`/fail is the safe default. Replacement is allowed only when explicitly authored and must identify the
-replacement behaviour in the effective spec. Silent ignore is not a safe product default because it can merge
+replacement behaviour in the resolved spec. Silent ignore is not a safe product default because it can merge
 tokens and change keys. If retained as an expert option, it receives its own explicit value and tests.
 
 BOM handling must have one deterministic precedence rule. Recommended:
@@ -239,9 +265,14 @@ BOM handling must have one deterministic precedence rule. Recommended:
 3. a detect-from-BOM mode fails when no supported BOM exists; and
 4. the BOM is consumed as encoding metadata, not emitted into the first field.
 
-The resolved charset and BOM policy, not merely the author's pre-resolution `auto` value, enter the effective-spec
+The resolved charset and BOM policy, not merely the author's pre-resolution `auto` value, enter the resolved-spec
 fingerprint. Character failures are reported with source/part and byte-offset context. They are distinct from a
 well-formed character sequence whose field text cannot be decoded as the declared semantic type.
+
+The character decoder is a contract, not necessarily a physical `Reader` layer: an implementation may fuse
+decoding with byte-level tokenization (just as framing and tokenization share one state machine) provided BOM,
+malformed-input and failure-offset behaviour remain exactly as specified. The tuned flat path is byte-oriented
+today and should stay eligible.
 
 ### 4.5 The configured record reader owns framing and fields
 
@@ -287,6 +318,13 @@ The reader emits one `DataValue` per logical record under one `DataContract`. Fl
 each field's semantic type authoritative, so a decimal field is a decimal accessor, not Text with a UI-only type
 label.
 
+Typed decoding needs decode options, not only a failure policy. Following the project-data schema/decoding-policy
+composition, the configured format carries at least a null-token rule and (as types are added) numeric
+grouping/locale, temporal patterns and boolean tokens — format-level defaults with per-field overrides in the
+schema. The first cut needs only the null-token rule and locale-free numeric parsing, but they are named,
+resolved into the resolved spec and digested like every other member: two formats differing only in null token
+are different identities.
+
 Typed conversion failure occurs at the reader boundary early enough to attach source, unit, record index, field
 path and offending-span context without retaining sensitive whole-record text. It must not be deferred until an
 unrelated downstream expression happens to access the field.
@@ -306,35 +344,47 @@ The cursor's `shape` is the resolved observation. A declaration is `Declared/Sta
 shape is an observation with its honest provenance/stability. Runtime records are checked against the declared
 contract rather than silently replacing it.
 
-## 5. Effective-read identity
+## 5. Resolved-read identity
 
 ### 5.1 One immutable resolved specification
 
 Use one immutable value approximately containing:
 
 ```kotlin
-data class EffectiveReadSpec(
+data class ResolvedReadSpec(
     val reader: ReaderCapabilityIdentity,
+    val contentCodings: List<ContentCodingSpec>,
+    val readerConfig: ReaderConfig
+)
+
+data class DelimitedReadConfig(
     val framing: RecordFramingSpec,
     val dialect: FieldDialectSpec,
     val header: HeaderPolicy,
+    val characters: CharacterDecodingSpec,
     val schema: RecordSchemaSnapshot?,
-    val typedDecode: TypedDecodePolicy,
-    val contentCodings: List<ContentCodingSpec>,
-    val characters: CharacterDecodingSpec
-)
+    val typedDecode: TypedDecodePolicy
+): ReaderConfig
 ```
 
-The snapshot contains effective values after defaults and references have resolved. It is not a live graph object.
+The snapshot contains resolved values after defaults and references have resolved. It is not a live graph object.
 Two safe representations are acceptable:
 
 1. embed the canonical immutable snapshot in `DataPart`; or
 2. carry a reference plus a resolved definition digest/version and retain the resolved snapshot in run state.
 
-The opener must never resolve the mutable reference a second time midway through a run. The effective spec's
+The opener must never resolve the mutable reference a second time midway through a run. The resolved spec's
 canonical digest includes every member and is independent of map insertion order where order is not semantic.
 Reader capability identity includes a compatibility/version token supplied by the capability, not an unstable
 runtime class name alone.
+
+`ReaderConfig` is capability-owned and canonically digestable; the envelope's only generic members are reader
+identity and content codings. Each reader family contributes its own config type — a JDBC or Parquet reader's
+config has no `characters`, `header` or `framing` member at all — and `DelimitedReadConfig` is the delimited-text
+family's, whose record selector is trivially "each record". This keeps the spec aligned with the project-data
+composition of codec/dialect, record selector and schema/decoding policy without forcing every future reader
+through text-shaped fields. (The project-data analysis calls this snapshot the effective configured format;
+"resolved" names the same concept once defaults and references have settled.)
 
 ### 5.2 Content fingerprint and read-spec fingerprint are different identities
 
@@ -344,11 +394,11 @@ The selected content fingerprint answers “did the selected bytes/object change
 - S3 may use version id, or ETag plus size when its provider defines that combination as stable; and
 - another provider may use its own opaque canonical token.
 
-The effective-read digest answers “would the same bytes be interpreted the same way?” They combine for manifest,
+The resolved-read digest answers “would the same bytes be interpreted the same way?” They combine for manifest,
 migration and schema-cache identity:
 
 ```text
-part identity = role + canonical ref + content fingerprint + effective-read digest
+part identity = role + canonical ref + content fingerprint + resolved-read digest
 ```
 
 Changing any of the following invalidates inspection and migration compatibility:
@@ -363,11 +413,11 @@ Changing any of the following invalidates inspection and migration compatibility
 | Charset/BOM/malformed-character policy | Different characters or failure behaviour result |
 
 Extension, media type and provider name are not independently included after they have resolved to the same
-effective values. They are selection inputs, not semantic identity once resolution is complete.
+resolved values. They are selection inputs, not semantic identity once resolution is complete.
 
 ### 5.3 Migration compatibility
 
-A live cursor may transfer across an edit only when both the selected part identity and effective-read digest are
+A live cursor may transfer across an edit only when both the selected part identity and resolved-read digest are
 equal. A delimiter, schema, gzip or charset edit restarts rather than adopting the existing parser position. This
 is stricter than comparing a format coordinate and prevents a cursor parsed under one dialect from continuing
 under another object that happens to share the same reference.
@@ -488,8 +538,13 @@ Source selection and format selection may share one composed UI:
 4. show the resulting contract and diagnostics; and
 5. persist source and format notation separately.
 
-Provider media type, extension and content-coding hints may preselect suggestions. The user-visible effective
+Provider media type, extension and content-coding hints may preselect suggestions. The user-visible resolved
 choice remains explicit, and inspection reports what was actually resolved.
+
+Inspection may additionally offer a schema draft — field names and candidate types inferred from the bounded
+sample — that the user materializes as an `AuthoredRecordSchema` and can then edit. Inference is an
+authoring-time convenience that produces a declaration; it is never a runtime rung that silently types a read,
+so runs stay deterministic under the declared contract.
 
 ## 8. Job, UI and expressions
 
@@ -610,7 +665,7 @@ or package test can pin that architectural rule in addition to behavioural tests
 | UTF-16 with BOM | Endianness resolved deterministically; values equal UTF-8 fixture |
 | Explicit endian conflicts with BOM | Clear character-decoding failure before record emission |
 | Malformed byte sequence with fail policy | Source/part and byte offset diagnostic; cursor closes stack |
-| Malformed byte sequence with replace policy | Replacement is observable and effective-spec digest differs |
+| Malformed byte sequence with replace policy | Replacement is observable and resolved-spec digest differs |
 
 ### 10.3 Framing and tokenization
 
@@ -683,7 +738,7 @@ An end-to-end Job test and a client projection test prove:
 The existing external measurements file is an opt-in integration/performance input, never a checked-in fixture or
 built-in default. A generic canary harness accepts path/ref, configured format, expected row count and optional
 performance threshold from test arguments. Its production dependencies see only the ordinary local source,
-effective format and record schema.
+resolved format and record schema.
 
 Acceptance for that invocation is:
 
@@ -702,7 +757,7 @@ labelled canary; it cannot turn ordinary reader tests green by skipping them.
 
 This is a multi-concern design and should land through green vertical boundaries:
 
-1. **Identity and capability model.** Add effective-read snapshot/digest, content capability vocabulary and cache
+1. **Identity and capability model.** Add resolved-read snapshot/digest, content capability vocabulary and cache
    key tests without changing the active reader.
 2. **Schema composition and Custom discovery.** Extract `RecordSchema`, delegate from the document, make source
    references capability-based, and change prototype listing to inheritance/capability discovery.
@@ -727,7 +782,7 @@ The following designs violate the composition boundary:
 - hard-coded field names or a hard-coded semicolon chosen from a filename/domain check;
 - `if (provider is S3)` or `if (ref.source == ...)` inside parsing, gzip, character or expression code;
 - reader APIs accepting `Path`, bucket/key or provider SDK objects;
-- gzip hidden in the local provider or inferred again after the effective spec is captured;
+- gzip hidden in the local provider or inferred again after the resolved spec is captured;
 - ZIP opened by selecting the first entry implicitly;
 - framing input with `readLine()` before quote-aware tokenization;
 - direct-name checks in generic Custom prototype discovery;
@@ -746,14 +801,15 @@ The following designs violate the composition boundary:
 | FR3 | First provider work | Local sequential adapter plus fake provider proof; production S3 deferred |
 | FR4 | Compression | Explicit content-coding layer; gzip wrapper now, ZIP as future container/parts |
 | FR5 | Encoding | Separate character-decoding spec with deterministic BOM and malformed-input policy |
-| FR6 | Format identity | Immutable canonical effective snapshot including reader, dialect, schema, typed policy, coding and characters |
-| FR7 | Cache/migration identity | Content fingerprint plus complete effective-read digest |
+| FR6 | Format identity | Immutable canonical `ResolvedReadSpec`: reader identity + content codings + capability-owned reader config (for delimited text: framing, dialect, header, characters, schema, typed policy) |
+| FR7 | Cache/migration identity | Content fingerprint plus complete resolved-read digest |
 | FR8 | Schema ownership | Generic `RecordSchema` capability; document is an optional wrapper |
 | FR9 | Custom discovery | Inheritance/capability-based `CustomCreatable`, never direct concrete-name equality |
 | FR10 | Runtime values | Existing flat `ValueAccess`/`DataValue`; no structural tape |
 | FR11 | Job contract | Complete `DataContract` through validation, UI and expressions |
 | FR12 | Browsing | Source/provider capability outside the reader; local and S3 return opaque selectable refs |
 | FR13 | External file | Opt-in generic canary only; no production knowledge or checked-in dependency |
+| FR14 | Format-to-part assignment | One source-level format stamped on every part in v1; per-part overrides remain possible through `DataPart`'s carried spec, deferred until real multi-part use cases |
 
 The implementation still needs to settle a few narrow details before its first code session:
 
