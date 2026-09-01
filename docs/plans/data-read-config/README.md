@@ -1,7 +1,7 @@
 # Configurable data reading — constituent implementation plan
 
 > **Status: not started.** Design authority:
-> [`docs/analysis/2026-08-29_configurable-flat-data-reading.md`](../../analysis/2026-08-29_configurable-flat-data-reading.md)
+> [`docs/analysis/2026-08-29_data-reading.md`](../../analysis/2026-08-29_data-reading.md)
 > (which extends the data-source model, Job data sources, project data, and unified data model analyses). This
 > README owns sequencing, tracking, and arc-wide as-built coordination; each numbered file owns exactly one
 > implementation session and its detailed proof.
