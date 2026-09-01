@@ -7,7 +7,9 @@
 
 A test fake object-store provider proves the reader stack is provider-neutral: the same configured delimited
 reader, unchanged, consumes plain and gzip objects behind opaque bucket/key-like ids. The neutrality is pinned
-architecturally as well as behaviourally.
+architecturally as well as behaviourally. This is a full reader/provider **conformance suite**, not the first
+proof that a sourced ref can open — DR3's minimal in-memory provider already proved lookup, fingerprint
+handshake and acquisition cancellation (review-1 §4.5).
 
 ## Implementation
 
@@ -17,9 +19,11 @@ architecturally as well as behaviourally.
    condition to design against.
 2. Run the DR4 reader suite over fake-provider refs: plain and gzip, same configured format and schema,
    asserting values and contract identical to the local runs, and that the provider contains no gzip branch.
-3. Capability mismatch: a sequential-requiring reader over a range-only fake handle fails before parser
-   construction, naming required and available capabilities.
+3. Capability mismatch: a reader requiring the test-only unknown capability (FR21) over the fake provider's
+   sequential-only content fails before parser construction, naming required and available capabilities.
 4. Cancellation and lifetime over the fake provider: both §9 races, close-counting at the provider handle.
+   Fingerprint handshake over the fake provider: an object whose observed fingerprint changed after resolution
+   is rejected, never cached or parsed.
 5. Pin the architecture: a focused dependency/package test asserting production parsing code imports no
    filesystem or provider SDK type (§10.1).
 

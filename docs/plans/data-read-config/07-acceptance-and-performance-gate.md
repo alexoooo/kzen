@@ -11,9 +11,10 @@ Run the complete acceptance surface — fixture matrices, full sibling builds, a
 
 ## Implementation
 
-1. Sweep the checked-in fixture matrices from all prior sessions in one run: composition/neutrality (§10.1),
-   character decoding (§10.2), framing/tokenization (§10.3), identity/migration (§10.4), lifetime (§10.5),
-   Job/UI/expression propagation (§10.6).
+1. Sweep the checked-in fixture matrices from all prior sessions in one run: composition/neutrality including
+   stale-fingerprint rejection and gzip integrity (§10.1), character decoding (§10.2), framing/tokenization
+   including record-syntax failures, budget cases (pathological records, decompression) and Decimal precision
+   (§10.3, §9.1), identity/migration (§10.4), lifetime (§10.5), Job/UI/expression propagation (§10.6).
 2. Build the generic canary harness (§10.7): path/ref, configured format, expected row count and optional
    performance threshold arrive as test arguments; production dependencies see only an ordinary local source,
    resolved format and record schema. Absence of the external file skips only the labelled canary — it must not
@@ -21,9 +22,11 @@ Run the complete acceptance surface — fixture matrices, full sibling builds, a
 3. Run the canary against the external measurements file: exactly 100,000 records, exactly the two
    user-authored fields, typed access to the numeric field, correct final record and harness-chosen
    aggregate/checksum, bounded streaming memory.
-4. Record throughput against the current flat-reader/Job baseline (J5a lineage) and settle the acceptable
-   regression threshold (analysis §13 q6) with the user. Only a measured shortfall opens an optimization
-   follow-up; it is scoped and reviewed separately, not folded into this session.
+4. Record throughput against the current flat-reader/Job baseline (J5a lineage), measured separately for
+   parsing and for Job end-to-end so a regression can be assigned to the reader, typed projection or lane
+   machinery, and settle the acceptable regression threshold (analysis §13 q6) with the user. Only a measured
+   shortfall opens an optimization follow-up; it is scoped and reviewed separately, not folded into this
+   session.
 5. Final §12 rejection sweep across the arc's whole diff, and full builds of every sibling the arc touched
    (kzen-lib first with `publishToMavenLocal` if it changed, then kzen-auto, then dependents).
 

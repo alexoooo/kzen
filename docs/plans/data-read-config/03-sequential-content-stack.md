@@ -8,27 +8,37 @@
 Resolve opaque refs to provider-neutral byte capabilities and wrap them with explicit content coding and
 character decoding, with the ownership/close/cancellation rules proven by close-counting tests. After this
 session, local plain and local gzip bytes reach a charset-decoded character stream through one composition,
-with no filesystem type visible above the local provider.
+with no filesystem type visible above the local provider — and a **minimal opaque in-memory provider** proves
+provider lookup, fingerprint verification and acquisition cancellation before the configured reader (DR4)
+depends on the stack (review-1 §4.3). The full fake-object-store conformance matrix stays in DR5.
 
 ## Implementation
 
-1. Settle handle placement (analysis §13 q1): provider-neutral `SequentialByteContent` (and the range
-   vocabulary as a declared-but-unimplemented capability) in common code as small byte interfaces, or JVM
-   wrappers over channels — decide from actual consumer placement and record the choice here.
+1. Settle handle placement (analysis §13 q1): provider-neutral `SequentialByteContent` in common code as small
+   byte interfaces, or JVM wrappers over channels — decide from actual consumer placement and record the choice
+   here. Only `SequentialBytes` ships (FR21); the mismatch path uses DR1's test-only unknown capability.
 2. Implement `DataContentProvider` + `DataContentDescriptor` (§4.2) and `DataContentProviderLookup`: plain refs
    go to the local provider, sourced refs resolve their durable `DataSourceId`, unknown providers fail with a
    source diagnostic before any reader work. Unsupported access fails before parser construction.
-3. Rework the local path: `FileDataOpener`'s ref→`DataLocation` conversion and the hard-coded
+3. Execute the fingerprint handshake (FR17): acquisition returns a handle bound to an observed fingerprint or
+   version; the composition root compares against `DataPart`'s expected fingerprint before parser work; mismatch
+   fails with a source diagnostic and is never cached. For local files, open the handle and validate attributes
+   against the resolved fingerprint.
+4. Rework the local path: `FileDataOpener`'s ref→`DataLocation` conversion and the hard-coded
    `FileFlatDataSource` become the local provider's private interior; gzip inference moves out of
    `FileFlatDataStream`.
-4. Content coding (§4.3): explicit `none`/`gzip` wrappers over provider bytes; hints (extension, magic bytes)
+5. Implement the minimal opaque in-memory provider and sourced ref: opaque ids, bytes and fingerprint behind
+   the provider API, exercising lookup, handshake and acquisition cancellation through the same composition.
+6. Content coding (§4.3): explicit `none`/`gzip` wrappers over provider bytes; hints (extension, magic bytes)
    may preselect during resolution but the resolved spec is authoritative by open time. ZIP is explicitly not a
-   coding.
-5. Character decoding (§4.4): charset, BOM policy with the four-rule deterministic precedence, malformed-input
+   coding. Gzip integrity is deterministic (§9.1): truncated/corrupt streams fail with a content-coding
+   diagnostic; trailing bytes after the stream are an error. Cancellation is checked inside decompression, not
+   only at record boundaries.
+7. Character decoding (§4.4): charset, BOM policy with the four-rule deterministic precedence, malformed-input
    policy (`REPORT`/fail default; replacement only when explicitly authored). Settle the BOM option names and
    generic UTF-16 no-BOM behaviour (analysis §13 q3). Failures carry source/part and byte offset. The decoder
    is a contract, not necessarily a physical `Reader` — fusion with byte-level tokenization stays eligible.
-6. Ownership (§9): construction transfers outward only on success; close is outside-in exactly once; failed
+8. Ownership (§9): construction transfers outward only on success; close is outside-in exactly once; failed
    construction closes acquired inner layers and suppresses secondary close failures; both cancellation races
    covered (acquiring side closes a never-returned handle).
 
@@ -39,5 +49,9 @@ with no filesystem type visible above the local provider.
 - §10.5 lifetime subset: success, exhaustion, early close, failure, cancellation during acquisition and during
   pull — close count exactly one per acquired resource at every layer, order outside-in, no finalizer reliance.
 - Local plain and local gzip produce identical character streams for identical semantic content.
+- Handshake tests: a local file mutated between resolve and open is rejected with a source diagnostic, never
+  cached or parsed (§10.1 stale-fingerprint row); the in-memory provider proves the same over an opaque sourced
+  ref, plus acquisition cancellation.
+- Gzip integrity: truncated stream and trailing-data fixtures fail deterministically.
 - Full build of every touched sibling; existing reader behaviour unchanged (the configured reader arrives in
   DR4).

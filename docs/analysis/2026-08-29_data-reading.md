@@ -1,6 +1,9 @@
 # Configurable, provider-neutral flat-data reading
 
-> **Status: proposed.** This analysis selects configurable typed delimited text as the first consumer of the
+> **Status: proposed; amended per [review 1](2026-08-29_data-reading_review-1.md)** (reader capability runtime,
+> canonical config wire, fingerprint handshake, exact Decimal, decode-override ownership, header/syntax
+> semantics, operational budgets, no unused range/rows APIs).
+> This analysis selects configurable typed delimited text as the first consumer of the
 > project-data analysis's configured-format and provider-content seams. It is an immediate typed-flat extension,
 > not DM12's first structural reader. The external 100,000-row measurements file is an acceptance and performance
 > canary only: no production symbol, branch, default, field name or built-in model may mention that file or its
@@ -36,6 +39,12 @@ from its first commit. A fake object-store provider proves that neutrality witho
 credential model or browser. Local plain bytes, local gzip bytes, fake-S3 plain bytes and fake-S3 gzip bytes must
 all reach the same configured delimited reader.
 
+The layers are made executable by an explicit runtime reader capability: a registered component that owns its
+namespaced identity and compatibility version, decodes/validates/canonicalizes its configuration, produces the
+canonical config digest, declares its required content capability, inspects bounded samples and opens the cursor
+(§4.7). A registry resolves it without a `when` over reader names, and one generic composition root performs the
+fixed orchestration from resolved spec to cursor.
+
 The configured format is an immutable resolved-read specification, not a mutable coordinate consulted again
 during a run. Its identity includes the reader capability and version, complete dialect, schema, typed-decode
 policy, content-coding chain, and character-decoding policy. A manifest or migration key combines that identity
@@ -59,7 +68,7 @@ in the UI, and advanced reads are code.
 
 | Tier | User action | What supplies the rest |
 |---|---|---|
-| Immediate | Select a file/ref | Built-in configured instances (RFC-4180 CSV, TSV) plus hint-based preselection; header labels observed; contract is honest Text/dynamic |
+| Immediate | Select a file/ref | Built-in configured instances (RFC-4180 CSV, TSV) plus hint-based preselection; header labels observed; the contract is an observed `Record` of Text fields — `Dynamic` only where member structure is genuinely unknown |
 | Configured | Author or adjust format/schema notation through the UI | The same configured reader; an inspection-driven schema draft can seed the declaration |
 | Code | Contribute a reader capability, schema or source as a plugin or Logic | The same capability vocabulary; no generic branch changes |
 
@@ -74,7 +83,9 @@ immediate read.
 
 This proposal covers:
 
-- a provider/content boundary with sequential-byte and range capability vocabulary;
+- a provider/content boundary with sequential-byte capability (extensible capability identities; no range/row
+  APIs until a named consumer exists, FR21);
+- the runtime reader capability, registry and generic composition root (§4.7);
 - a local sequential provider and a fake provider used to prove object-store composition;
 - explicit plain/gzip content coding;
 - explicit character decoding, including BOM and malformed-character behaviour;
@@ -187,7 +198,6 @@ Introduce one boundary approximately shaped as:
 interface DataContentProvider {
     suspend fun describe(context: DataContext, ref: DataRef): DataContentDescriptor
     suspend fun openSequential(context: DataContext, ref: DataRef): SequentialByteContent
-    suspend fun openRanges(context: DataContext, ref: DataRef): RangeByteContent
 }
 
 data class DataContentDescriptor(
@@ -199,15 +209,20 @@ data class DataContentDescriptor(
 )
 ```
 
-Only supported methods are callable. An implementation may instead return a typed capability object rather than a
+Only supported access is callable. An implementation may instead return a typed capability object rather than a
 set plus methods; the invariant is that unsupported access fails before parser work starts, and the reader declares
-what it requires. The initial delimited reader requires `SequentialBytes`. A later Parquet reader can require
-`Ranges`. A relational reader can require `Rows` without pretending its values were bytes.
+what it requires. The initial delimited reader requires `SequentialBytes`.
 
-`SequentialByteContent` and `RangeByteContent` are provider-neutral handles. They may adapt JVM `InputStream` /
-channels internally, but they expose no `Path`, AWS SDK type, bucket, HTTP response or provider client. Their owner
-closes them. The range capability defines stable object identity for the handle's lifetime so several ranges cannot
-silently come from different object versions.
+**Only `SequentialBytes` ships.** The capability *identity* vocabulary is open-ended — a later Parquet reader can
+require a range capability and a relational reader can require rows without pretending its values were bytes — but
+no range or row interface, method or type is declared until its first named consumer exists with actual lifetime,
+batching, seek/version and cancellation requirements. Declaring them now would fix APIs without evidence. The
+generic required-versus-available mismatch path is proven with a test-only unknown capability identity instead.
+
+`SequentialByteContent` is a provider-neutral handle. It may adapt JVM `InputStream` / channels internally, but it
+exposes no `Path`, AWS SDK type, bucket, HTTP response or provider client. Its owner closes it. Acquisition binds
+the handle to one observed content fingerprint or immutable version for its whole lifetime, so a handle cannot
+silently switch object versions mid-read (§5.2 defines the expected-versus-observed handshake).
 
 A `DataContentProviderLookup` performs the only dispatch:
 
@@ -299,9 +314,17 @@ Header policy is explicit:
 
 | Policy | Field identities | First physical record |
 |---|---|---|
-| Header present | Read labels, validate/project against a declared schema when present | Consumed as metadata |
+| Header present | Read labels, map against a declared schema when present (rule below) | Consumed as metadata |
 | Header absent | Taken from the declared ordered schema | Emitted as data |
 | Infer labels | Generated positional labels only when no declaration exists | Emitted as data |
+
+Header-to-schema mapping is explicit, not "validate/project" left open. The default for a header-bearing declared
+read is **name-based mapping with exact set equality**: every declared field name must appear exactly once in the
+header and vice versa; physical reordering is permitted (the mapping resolves each declared field to its observed
+column ordinal once, at open time); comparison is case-sensitive with no normalization beyond the configured
+trimming rule. Missing, extra or duplicate header labels fail with a diagnostic naming the labels. Any tolerant
+variant (ignore-extra, case-insensitive, normalized) is a named policy value. Because these choices change emitted
+values, the mapping policy is part of the resolved configuration and its digest.
 
 The recommended typed-flat product requires a declared schema for headerless typed input. Positional labels remain
 an honest dynamic/Text fallback for an undeclared ad-hoc read, but they are not a substitute for a two-field typed
@@ -310,6 +333,13 @@ contract. Automatic header guessing is excluded: a first data row is often indis
 Width, duplicate-label and missing/extra-field policy belong to the configured reader. The immediate default is
 strict width and unique field identity. Any tolerant projection must name its behaviour and produce diagnostics;
 it cannot silently shift values after a missing delimiter.
+
+Malformed record *syntax* is its own failure category, distinct from malformed bytes (§4.4) and from typed-value
+conversion (§4.6), with its own diagnostic kind and a strict fail default. The defined syntax failures include at
+least: an unterminated quoted field at end of input; a quote inside an unquoted field; unexpected characters after
+a closing quote; and a bare CR or mixed record separators outside the configured separator policy. The dialect
+also pins two easily-ambiguous behaviours deterministically: empty input yields zero records (it is not one blank
+record), and trimming applies to unquoted values only unless a quoted-trim policy is explicitly configured.
 
 ### 4.6 Typed decoding emits the existing value contract
 
@@ -320,10 +350,23 @@ label.
 
 Typed decoding needs decode options, not only a failure policy. Following the project-data schema/decoding-policy
 composition, the configured format carries at least a null-token rule and (as types are added) numeric
-grouping/locale, temporal patterns and boolean tokens — format-level defaults with per-field overrides in the
-schema. The first cut needs only the null-token rule and locale-free numeric parsing, but they are named,
-resolved into the resolved spec and digested like every other member: two formats differing only in null token
-are different identities.
+grouping/locale, temporal patterns and boolean tokens — format-level defaults with per-field overrides. **Decode
+overrides are reader-config-owned, not schema-owned**: `RecordSchema` stays purely semantic (§6.1), and
+`DelimitedReadConfig` carries every decode override, keyed by field path. Reader-specific concepts such as numeric
+token patterns never leak into the reader-neutral schema. The first cut needs only the null-token rule and
+locale-free numeric parsing, but they are named, resolved into the resolved spec and digested like every other
+member: two formats differing only in null token are different identities.
+
+The first implementation supports an explicit kind matrix: Text, bounded integers, Floating, Decimal and Boolean.
+Temporal and binary kinds are deferred; format resolution rejects a schema containing an unsupported kind before
+any content is opened, rather than failing per-value at runtime.
+
+Decimal is exact end to end. The reader validates and stores canonical exact decimal text; `scalar()` remains the
+complete lossless representation; generated accessors construct/project `BigDecimal` from that canonical value;
+JVM native scalar binding accepts `BigDecimal` without passing through `Double`; and Job boundary/materialization
+code must not flatten Decimal to binary floating point (today `JobDataValues` routes `ScalarKind.Decimal` through
+`readDouble` — that routing is corrected as part of this work, a named kzen-lib + kzen-auto change, not a DR6
+discovery). Tests use values that expose precision loss, not only small exactly representable decimals.
 
 Typed conversion failure occurs at the reader boundary early enough to attach source, unit, record index, field
 path and offending-span context without retaining sensitive whole-record text. It must not be deferred until an
@@ -343,6 +386,40 @@ no-op configuration.
 The cursor's `shape` is the resolved observation. A declaration is `Declared/Stable`; an inferred header-only
 shape is an observation with its honest provenance/stability. Runtime records are checked against the declared
 contract rather than silently replacing it.
+
+### 4.7 Reader capability runtime and composition root
+
+`ReaderCapabilityIdentity` and capability-owned `ReaderConfig` are values; a runtime component makes them
+executable. Each reader family contributes one capability implementation responsible for:
+
+- its stable, namespaced identity and compatibility version;
+- decoding, validating and canonicalizing its configuration from the generic envelope;
+- producing the canonical configuration digest;
+- declaring the content capability a resolved configuration requires;
+- inspecting a bounded sample; and
+- opening the cursor over an acquired provider-neutral handle.
+
+A registry (or graph-discovered lookup) resolves the capability from its identity — never a `when` over reader
+names. One generic composition root then performs the fixed orchestration:
+
+```text
+resolve reader capability
+  -> verify required content capability against the descriptor
+  -> acquire provider content at the expected fingerprint/version (§5.2 handshake)
+  -> apply content codings
+  -> let the reader apply its reader-owned decoding/configuration
+  -> transfer the completed stack to the cursor (§9)
+```
+
+Without this contract, `ConfiguredDelimitedReader` would become another directly wired special case even though
+its configuration carries a generic identity — the very coupling §3 removes.
+
+Identity collision rules: a reader identity is a logical name qualified by an owning namespace or plugin
+coordinate, plus a capability-supplied compatibility token. A runtime class name is neither durable nor sufficient
+across classloaders and never participates in identity. Registering a second capability under an existing
+identity fails loudly at registration, not at first open. The capability SPI lives where third-party readers
+compile against it (module ownership is confirmed at DR1 start, since it determines the cross-repo publication
+chain).
 
 ## 5. Resolved-read identity
 
@@ -378,6 +455,26 @@ canonical digest includes every member and is independent of map insertion order
 Reader capability identity includes a compatibility/version token supplied by the capability, not an unstable
 runtime class name alone.
 
+The canonical wire form is **canonical `ExecutionValue`**. An arbitrary plugin-owned `ReaderConfig` subtype cannot
+ride a wire of concrete `format`/`encoding` strings (today's `DataPart`) or a closed polymorphic serializer, so
+the boundary is:
+
+- **generic envelope**: reader identity, content-coding specifications, canonical reader-config data
+  (`ExecutionValue` tree) and its digest — understood without loading the reader implementation;
+- **capability boundary**: the reader capability (§4.7) decodes and validates that data into its runtime
+  configuration type;
+- **common/client wire**: carries only the canonical envelope; and
+- **run state**: the validated immutable runtime snapshot, resolved once.
+
+`ExecutionValue` is chosen because kzen-lib's digest machinery over it is common-code (cross-process/platform
+digest stability comes for free) and its canonical form already settles ordering, scalar spelling and
+absent-versus-null semantics — no bespoke JSON canonicalization rules are invented.
+
+**Transition rule**: replacing `DataPart` identity is not done as additive shadow state alongside an unmodified
+opener — two simultaneous sources of truth is exactly the dual mode this arc's stop rules prohibit. The identity
+session includes the minimum opener integration needed to make the resolved snapshot canonical immediately;
+today's coordinate-string `format`/`encoding` members and their digest are replaced, not shadowed.
+
 `ReaderConfig` is capability-owned and canonically digestable; the envelope's only generic members are reader
 identity and content codings. Each reader family contributes its own config type — a JDBC or Parquet reader's
 config has no `characters`, `header` or `framing` member at all — and `DelimitedReadConfig` is the delimited-text
@@ -393,6 +490,21 @@ The selected content fingerprint answers “did the selected bytes/object change
 - local may use canonical ref id + size + modified time initially;
 - S3 may use version id, or ETag plus size when its provider defines that combination as stable; and
 - another provider may use its own opaque canonical token.
+
+Size plus modified time is an explicitly **weak freshness token**, never described as a content digest. Providers
+that offer immutable version IDs use them.
+
+A resolved fingerprint is only useful if opening verifies it — a local file can change between resolution and
+cursor construction, and the same race exists for an unversioned object-store ref. The handshake is therefore:
+
+1. `DataPart` carries the fingerprint expected from resolution;
+2. acquisition returns a handle bound to an observed fingerprint or immutable version;
+3. the composition root compares expected and observed identity before any parser work; and
+4. a mismatch fails with a source diagnostic and requires re-resolution — it is never cached or parsed under the
+   stale identity.
+
+For local files, the first implementation opens the file handle and validates its attributes against the resolved
+fingerprint. The acceptance matrix mutates a file between resolve and open and proves stale identity is rejected.
 
 The resolved-read digest answers “would the same bytes be interpreted the same way?” They combine for manifest,
 migration and schema-cache identity:
@@ -454,6 +566,10 @@ Exact names may change, but dependencies follow the capability:
 The ordered field model remains `DataContract(DataType.Record(...))`, including native metadata rebased by path.
 No new parallel `ColumnType` model is introduced.
 
+`RecordSchema` is purely semantic: `contract(): DataContract` and nothing reader-shaped. Per-field decode
+overrides (null tokens, numeric patterns and the like) live in the reader's own config keyed by field path
+(§4.6), so the schema stays reusable by any future reader family.
+
 ### 6.2 Discover Custom prototypes by capability
 
 The Custom “Add” catalogue currently scans for objects whose direct `is` text equals `Prototype`. That makes the
@@ -476,6 +592,11 @@ format prototype and a source prototype from each duplicating the Kotlin impleme
 
 The catalogue should group/filter by contributed capability while retaining one generic creation mechanism. A
 new capability adds one metadata declaration at its owning archetype, not a new branch in `CustomCreate`.
+Generic catalogue code must not enumerate `RecordSchema`, `ConfiguredRecordFormat` and `DataSource` as a closed
+set (and must not import them): it discovers a contributed creation descriptor/category — label, implementation
+and editor metadata, creation defaults — from inherited graph metadata. The regression test contributes a
+completely new test-only capability/category, not merely another `RecordSchema` subtype, proving both subtype
+inheritance and open-ended category discovery.
 
 ### 6.3 Illustrative user-authored composition
 
@@ -641,6 +762,24 @@ control.
 Tests use close-counting wrappers at every layer and assert one close per acquired resource. A finalizer or garbage
 collector is never part of correctness.
 
+### 9.1 Operational budgets
+
+A streaming parser is not automatically memory-bounded: one unterminated quoted record can grow without limit, and
+a small gzip input can expand into a very large decoded stream. The first implementation carries the budgets with
+a real failure mode:
+
+- maximum record size and maximum field size, failing with the record index and configured limit;
+- cancellation checks inside long records and inside decompression, not only at record boundaries; and
+- bounded inspection (records/bytes) for the sampling path.
+
+Gzip integrity and trailing-data behaviour are deterministic and tested: a truncated or corrupt stream fails with
+a content-coding diagnostic, and trailing bytes after the gzip stream are an error, not silently ignored.
+
+Budgets are **execution policy, not semantic configuration**: they are excluded from the resolved-spec digest, and
+a limit-induced failure is never cached as an inspection result — so raising a limit cannot be defeated by a stale
+cache, and two runs differing only in limits share migration identity. A decoded-bytes budget and a field-count
+budget are deferred until a consumer needs them; they follow the same execution-policy rule when added.
+
 ## 10. Acceptance matrix
 
 ### 10.1 Composition and provider neutrality
@@ -651,7 +790,9 @@ collector is never part of correctness.
 | Local gzip UTF-8 | Local ref, `gzip`, same charset/format/schema | Same values and contract as plain case |
 | Fake-S3 plain | Sourced opaque ref served by fake provider, `none` | Same configured reader instance/capability; no path conversion |
 | Fake-S3 gzip | Same fake provider, gzip object, `gzip` | Same values/contract; provider has no gzip branch |
-| Capability mismatch | Sequential reader over a range-only fake handle | Fails before parser construction with required/available capabilities |
+| Capability mismatch | Reader requiring a test-only unknown capability over a sequential-only handle | Fails before parser construction with required/available capabilities |
+| Stale fingerprint | File mutated between resolve and open | Open fails with source diagnostic; stale identity never cached or parsed |
+| Truncated/trailing gzip | Corrupt gzip stream; bytes after the gzip stream | Deterministic content-coding failure; trailing data is an error |
 
 The fake provider test should fail if production parsing imports a filesystem or S3 SDK type. A focused dependency
 or package test can pin that architectural rule in addition to behavioural tests.
@@ -683,6 +824,16 @@ Small fixtures cover each behaviour independently and in combinations:
 | CRLF and LF | Both behave as configured, with no extra empty record |
 | Wrong width | Strict diagnostic names record and expected/actual width |
 | Malformed typed value | ST17 policy applied with record index and field path |
+| Unterminated quoted field at end of input | Record-syntax diagnostic; no partial record emitted |
+| Quote inside an unquoted field | Record-syntax diagnostic under the strict default |
+| Characters after a closing quote | Record-syntax diagnostic naming the offset |
+| Empty input | Zero records, not one blank record |
+| Bare CR / mixed record separators | Behaviour follows configured separator policy; deviation is a record-syntax diagnostic |
+| Trimming | Applies to unquoted values only unless quoted-trim explicitly configured |
+| Oversized record/field | Budget failure (§9.1) names record index and configured limit; never cached |
+| Header reordered vs declaration | Name-based mapping resolves ordinals; values land under declared fields |
+| Header missing/extra/duplicate label | Mapping failure naming the labels |
+| Decimal precision | Values that a `Double` round-trip would corrupt survive exactly (§4.6) |
 
 A useful checked-in headerless fixture is deliberately generic:
 
@@ -728,6 +879,8 @@ An end-to-end Job test and a client projection test prove:
 - the source output is `Record(key: Text, value: Decimal)`, not two Text headers;
 - the same contract reaches downstream validation and the connector/card renderer;
 - a typed expression using `value` compiles and runs without text coercion;
+- a Decimal field reaches the expression as exact `BigDecimal` — no `Double` on the path (§4.6) — proven with a
+  precision-losing value;
 - a calculated numeric field retains its inferred numeric contract downstream;
 - a `Dynamic` source requires explicit keyed access and still runs against each concrete value;
 - Unavailable and inspection error render differently; and
@@ -748,7 +901,8 @@ Acceptance for that invocation is:
 - correct final record and aggregate/checksum chosen by the test harness;
 - bounded streaming memory; and
 - throughput recorded against the current flat-reader/Job baseline before deciding whether an allocation or
-  buffering optimization is necessary.
+  buffering optimization is necessary — measured separately for parsing and for Job end-to-end, so a regression
+  can be assigned to the reader, typed projection or lane machinery before optimization begins.
 
 Automated CI relies on the small checked-in fixtures. Absence of the external file skips only the explicitly
 labelled canary; it cannot turn ordinary reader tests green by skipping them.
@@ -757,19 +911,30 @@ labelled canary; it cannot turn ordinary reader tests green by skipping them.
 
 This is a multi-concern design and should land through green vertical boundaries:
 
-1. **Identity and capability model.** Add resolved-read snapshot/digest, content capability vocabulary and cache
-   key tests without changing the active reader.
-2. **Schema composition and Custom discovery.** Extract `RecordSchema`, delegate from the document, make source
-   references capability-based, and change prototype listing to inheritance/capability discovery.
-3. **Sequential content stack.** Adapt local refs to provider-neutral sequential handles; add identity and gzip
-   wrappers, character decoding and close/cancellation tests.
+1. **Identity, reader capability and wire.** Add the resolved-read snapshot/digest, the reader capability/registry
+   contract (§4.7), the canonical `ExecutionValue` config wire and fingerprint-handshake semantics (§5), plus
+   cache-key tests over canonical data — including the minimum opener integration that makes the resolved snapshot
+   canonical (no shadow identity). Only content capabilities with an implemented consumer ship.
+2. **Schema composition and Custom discovery.** Extract `RecordSchema` (purely semantic), delegate from the
+   document, make source references capability-based, and change prototype listing to inheritance/capability
+   discovery — tested with both a third-party schema subtype and a novel creation category.
+3. **Sequential content stack plus minimal provider-bound proof.** Adapt local refs to provider-neutral sequential
+   handles; add identity and gzip wrappers, character decoding and close/cancellation tests; include a minimal
+   opaque in-memory provider and sourced ref proving provider lookup, fingerprint verification and acquisition
+   cancellation before the configured reader depends on the stack.
 4. **Configured delimited reader.** Parameterize framing/dialect/header/schema, emit typed flat `DataValue`s, and
-   atomically migrate built-in CSV/TSV configured instances and fixtures.
-5. **Fake-provider proof.** Run the same reader suite over opaque fake-S3 refs, including gzip and cancellation.
-6. **Job/UI/expression cutover.** Remove `HeaderListing` reductions from the canonical client path, render contracts,
-   and retain calculated-field types.
-7. **Acceptance/performance gate.** Run focused fixtures, full relevant sibling builds and the opt-in external
-   canary; record measurements before adding pools or leases.
+   atomically migrate built-in CSV/TSV configured instances and fixtures. If one session is unsafe, split at the
+   green boundary: an inactive but fully tested parser/typed-value implementation first, then archetypes,
+   built-in instances and the atomic product cutover.
+5. **Fake-provider conformance.** Run the same reader suite over opaque fake-S3 refs, including gzip, capability
+   mismatch and cancellation — a full reader/provider conformance suite, not the first proof a sourced ref opens.
+6. **Job/UI/expression cutover** — three independently landable green boundaries: (a) canonical
+   `DataContract`/`DataShapeResult` propagation through server and client Job projection; (b) typed expression
+   access and calculated-field contract retention (including the exact Decimal path); (c) shared contract
+   rendering plus source/format/schema-draft authoring UI.
+7. **Acceptance/performance gate.** Run focused fixtures (including stale-fingerprint rejection, syntax failures,
+   budget cases and Decimal precision), full relevant sibling builds and the opt-in external canary; record
+   parsing and end-to-end measurements separately before adding pools or leases.
 
 The exact session split may change with dependency direction. Each step ends with one active canonical contract;
 there is no long-lived “legacy CSV versus configured format” mode.
@@ -789,7 +954,13 @@ The following designs violate the composition boundary:
 - a second schema type parallel to `DataContract`;
 - reducing the Job lane to `TypeMetadata + HeaderListing` before validation/UI;
 - converting every calculated field to Text;
-- silently accepting unsupported malformed-value policies; and
+- silently accepting unsupported malformed-value policies;
+- declaring range/row content APIs before their first named consumer exists;
+- a `when` over reader names in place of the capability registry, or reader identity derived from a runtime class
+  name;
+- routing `ScalarKind.Decimal` through `Double` anywhere between reader and expression;
+- generic Custom catalogue code importing or enumerating a closed set of creatable capabilities;
+- parsing or caching content whose observed fingerprint does not match the resolved expectation; and
 - adding leases, eager materialization or pooling without the specified lifetime/performance measurement.
 
 ## 13. Decisions and remaining implementation questions
@@ -810,16 +981,27 @@ The following designs violate the composition boundary:
 | FR12 | Browsing | Source/provider capability outside the reader; local and S3 return opaque selectable refs |
 | FR13 | External file | Opt-in generic canary only; no production knowledge or checked-in dependency |
 | FR14 | Format-to-part assignment | One source-level format stamped on every part in v1; per-part overrides remain possible through `DataPart`'s carried spec, deferred until real multi-part use cases |
+| FR15 | Reader capability runtime | Registered capability component + registry + generic composition root (§4.7); namespaced identity with compatibility token, never a runtime class name |
+| FR16 | Canonical config wire | Canonical `ExecutionValue` envelope; capability decodes/validates; minimum opener integration makes the snapshot canonical immediately — no shadow identity |
+| FR17 | Open-time verification | `DataPart` carries the expected fingerprint; acquisition binds an observed one; mismatch fails before parser work; size+mtime is a weak freshness token, not a digest |
+| FR18 | Decode-override ownership | `RecordSchema` purely semantic; reader config owns all decode overrides keyed by field path; v1 kinds Text/Integer/Floating/Decimal/Boolean, unsupported kinds rejected at resolution |
+| FR19 | Exact Decimal | Canonical decimal text in the backing; `BigDecimal` accessors and native binding; no `Double` on the path; `JobDataValues` Decimal routing corrected |
+| FR20 | Operational budgets | Max record/field size, in-record and in-decompression cancellation, deterministic gzip integrity; budgets are execution policy — outside the digest, failures never cached |
+| FR21 | API restraint | Only `SequentialBytes` ships; range/row APIs wait for their first named consumer; mismatch path proven via a test-only unknown capability |
 
 The implementation still needs to settle a few narrow details before its first code session:
 
-1. whether provider-neutral sequential/range handles live in common code as small byte interfaces or in JVM code
-   as wrappers over channels;
-2. the canonical wire form and compatibility version for `ReaderCapabilityIdentity`;
+1. whether provider-neutral sequential handles live in common code as small byte interfaces or in JVM code as
+   wrappers over channels;
+2. which module owns the reader-capability SPI (it determines the cross-repo publication chain — confirmed at
+   DR1 start);
 3. the exact BOM option names and generic UTF-16 no-BOM behaviour;
 4. whether v1 exposes only `fail-part` or also fully implements `skip-record` and substitution;
 5. the Custom UI ownership of shared versus inline configured formats; and
 6. the measured baseline and acceptable regression threshold for the external canary.
+
+(The canonical wire form, previously open, is settled by FR16: canonical `ExecutionValue` with a
+capability-supplied compatibility token and namespaced identity.)
 
 None changes the architectural decision: source selection, content access, coding, character decoding, record
 reading and typed emission remain separate, and every composition converges on the same `DataContract` /

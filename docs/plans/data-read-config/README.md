@@ -2,6 +2,7 @@
 
 > **Status: not started.** Design authority:
 > [`docs/analysis/2026-08-29_data-reading.md`](../../analysis/2026-08-29_data-reading.md)
+> as amended per [review 1](../../analysis/2026-08-29_data-reading_review-1.md)
 > (which extends the data-source model, Job data sources, project data, and unified data model analyses). This
 > README owns sequencing, tracking, and arc-wide as-built coordination; each numbered file owns exactly one
 > implementation session and its detailed proof.
@@ -25,13 +26,13 @@ Session files persist as the execution record for this multi-session arc. When a
 
 | ID | Session file | Outcome | Status |
 |---|---|---|---|
-| DR1 | `01-resolved-read-identity.md` | `ResolvedReadSpec`/`ReaderConfig` snapshot, capability vocabulary, digests and cache/migration identity | ☐ |
-| DR2 | `02-schema-capability-and-custom-discovery.md` | `RecordSchema` capability extraction and capability-based Custom prototype discovery | ☐ |
-| DR3 | `03-sequential-content-stack.md` | Provider-neutral sequential content, gzip/identity coding, character decoding, lifetime/cancellation | ☐ |
-| DR4 | `04-configured-delimited-reader.md` | Configured delimited reader with typed emission; atomic CSV/TSV cutover | ☐ |
-| DR5 | `05-fake-provider-proof.md` | Fake object-store provider runs the full reader suite; neutrality pinned | ☐ |
-| DR6 | `06-job-ui-expression-cutover.md` | Full `DataContract` through Job validation, cards/connectors, expressions; schema-draft authoring | ☐ |
-| DR7 | `07-acceptance-and-performance-gate.md` | Fixture matrix, full sibling builds, opt-in 100k-row canary baseline | ☐ |
+| DR1 | `01-resolved-read-identity.md` | `ResolvedReadSpec`/`ReaderConfig` snapshot, reader capability runtime/registry, canonical `ExecutionValue` wire, fingerprint handshake, digests and cache/migration identity | ☐ |
+| DR2 | `02-schema-capability-and-custom-discovery.md` | `RecordSchema` capability extraction and open-ended capability-based Custom prototype discovery | ☐ |
+| DR3 | `03-sequential-content-stack.md` | Provider-neutral sequential content, gzip/identity coding, character decoding, lifetime/cancellation, minimal in-memory provider-bound proof | ☐ |
+| DR4 | `04-configured-delimited-reader.md` | Configured delimited reader with typed emission; atomic CSV/TSV cutover (may split at the green parser/cutover boundary) | ☐ |
+| DR5 | `05-fake-provider-proof.md` | Fake object-store provider runs the full reader/provider conformance suite; neutrality pinned | ☐ |
+| DR6 | `06-job-ui-expression-cutover.md` | Full `DataContract` through Job validation, cards/connectors, expressions; schema-draft authoring — executed as three green sub-boundaries (server type flow / typed expressions incl. exact Decimal / UI) | ☐ |
+| DR7 | `07-acceptance-and-performance-gate.md` | Fixture matrix incl. stale-fingerprint, syntax, budget and Decimal-precision cases; full sibling builds; opt-in 100k-row canary with split parsing/end-to-end baseline | ☐ |
 
 ## Authoritative execution order
 
@@ -46,8 +47,9 @@ Session files persist as the execution record for this multi-session arc. When a
    structural tape. DM12/DM13 stay gated in the data-model arc.
 
 Open implementation questions from analysis §13 are settled inside sessions: handle placement (common vs JVM)
-and BOM option names in DR3; `ReaderCapabilityIdentity` wire form in DR1; v1 malformed-value policy surface in
-DR4; shared-versus-inline format UI ownership in DR6; canary baseline and threshold in DR7.
+and BOM option names in DR3; SPI module ownership in DR1 (the wire form itself is settled: canonical
+`ExecutionValue`, FR16); v1 malformed-value policy surface in DR4; shared-versus-inline format UI ownership in
+DR6; canary baseline and threshold in DR7.
 
 ## Cross-repository publication rule
 
@@ -55,6 +57,12 @@ Sessions confirm code ownership at their start (the affected surfaces live mostl
 change follows the composite rule). Every kzen-lib session ends with a full kzen-lib build and, when a later
 kzen-auto session consumes the new surface, `publishToMavenLocal` for all subprojects. Each session ends with the
 focused tests it names plus a full build of every sibling it modified. No session changes release-train versions.
+
+Two known cross-repo consequences: DR1 names the module that owns the reader-capability SPI at session start —
+if it lands in `kzen-auto-plugin` (where third-party readers compile against it), the
+`:kzen-auto-plugin:publishToMavenLocal` rule applies to DR1 and every later session touching the SPI. The exact
+Decimal path (FR19) is a named kzen-lib + kzen-auto change and triggers the full kzen-lib publish chain in
+whichever session lands it (DR4 reader side, DR6 accessor/binding side).
 
 ## Arc-wide stop rules
 

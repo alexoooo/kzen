@@ -14,7 +14,9 @@ concrete-name checks or duplicated implementation metadata.
 
 1. Split `DataSchemaDocument` (§6.1): a `RecordSchema` capability exposing `contract(): DataContract`, an
    `AuthoredRecordSchema` implementation, and the document as an optional wrapper delegating to it. The ordered
-   field model stays `DataContract(DataType.Record(...))` — no parallel `ColumnType` model.
+   field model stays `DataContract(DataType.Record(...))` — no parallel `ColumnType` model. `RecordSchema` is
+   purely semantic: per-field decode overrides live in the reader config keyed by field path (§4.6, FR18), never
+   in the schema.
 2. Repoint dependents at the capability, not the wrapper: configured formats, sources that declare a result,
    and shape inspection consume `RecordSchema`; a Custom document can contain an `AuthoredRecordSchema`
    directly.
@@ -26,12 +28,18 @@ concrete-name checks or duplicated implementation metadata.
    supplies only author-facing defaults. Creating an instance copies configuration, never `class`, definer,
    creator or editor metadata.
 5. Group/filter the "Add" catalogue by contributed capability while keeping one generic creation mechanism — a
-   new capability is one metadata declaration at its owning archetype, not a branch in `CustomCreate`.
+   new capability is one metadata declaration at its owning archetype, not a branch in `CustomCreate`. Generic
+   catalogue code must not import or enumerate `RecordSchema`/`ConfiguredRecordFormat`/`DataSource` as a closed
+   set: it discovers a contributed creation descriptor/category (label, implementation/editor metadata, creation
+   defaults) from inherited graph metadata (§6.2).
 
 ## Proof and exit
 
 - A test-only third-party `RecordSchema` subtype appears in the catalogue and creates a working instance
   without any edit to `CustomConventions` (pins the anti-regression from analysis §12: no direct-name checks).
+- A completely new test-only capability/category (not a `RecordSchema` subtype) appears with its own grouping,
+  metadata and creation defaults without any edit to `CustomConventions` or `CustomCreate` — proving open-ended
+  category discovery, not just subtype inheritance.
 - The existing dedicated schema document still resolves and serves `shape()` through delegation; existing
   notation is migrated in place (design stage — no compatibility shim).
 - Instances created from prototypes carry copied configuration only; inherited metadata verified by inspection
