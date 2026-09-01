@@ -1,6 +1,6 @@
 # DR6 — Job, UI and expression cutover
 
-> **Status: not started. Executed as three green sub-boundaries (review-1 §4.6), each independently landable:**
+> **Status: not started. Executed as three green sub-boundaries (analysis §11 step 6), each independently landable:**
 > **DR6a** server/client contract propagation (step 1), **DR6b** typed expressions and exact Decimal (step 3),
 > **DR6c** shared contract rendering and authoring UI (steps 2, 4, 5). The master ledger keeps one parent row;
 > this file records each sub-boundary's landing so a UI-sized tail never holds completed server type-flow work

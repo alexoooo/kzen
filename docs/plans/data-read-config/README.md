@@ -2,10 +2,10 @@
 
 > **Status: not started.** Design authority:
 > [`docs/analysis/2026-08-29_data-reading.md`](../../analysis/2026-08-29_data-reading.md)
-> as amended per [review 1](../../analysis/2026-08-29_data-reading_review-1.md)
-> (which extends the data-source model, Job data sources, project data, and unified data model analyses). This
-> README owns sequencing, tracking, and arc-wide as-built coordination; each numbered file owns exactly one
-> implementation session and its detailed proof.
+> including its incorporated review amendments and the 2026-09-01 `MapExecutionValue` usage audit. That authority
+> extends the data-source model, Job data sources, project data, and unified data model analyses. This README owns
+> sequencing, tracking, and arc-wide as-built coordination; each numbered file owns exactly one implementation
+> session and its detailed proof.
 
 ## Goal and lifecycle
 
@@ -26,13 +26,13 @@ Session files persist as the execution record for this multi-session arc. When a
 
 | ID | Session file | Outcome | Status |
 |---|---|---|---|
-| DR1 | `01-resolved-read-identity.md` | `ResolvedReadSpec`/`ReaderConfig` snapshot, reader capability runtime/registry, canonical `ExecutionValue` wire, fingerprint handshake, digests and cache/migration identity | ☐ |
+| DR1 | `01-resolved-read-identity.md` | `ResolvedReadSpec`/`ReaderConfig` snapshot, reader capability runtime/registry, canonical `ExecutionValue` wire with explicit map/list ordering, fingerprint handshake, digests and cache/migration identity | ☐ |
 | DR2 | `02-schema-capability-and-custom-discovery.md` | `RecordSchema` capability extraction and open-ended capability-based Custom prototype discovery | ☐ |
-| DR3 | `03-sequential-content-stack.md` | Provider-neutral sequential content, gzip/identity coding, character decoding, lifetime/cancellation, minimal in-memory provider-bound proof | ☐ |
-| DR4 | `04-configured-delimited-reader.md` | Configured delimited reader with typed emission; atomic CSV/TSV cutover (may split at the green parser/cutover boundary) | ☐ |
+| DR3 | `03-sequential-content-stack.md` | Provider-neutral sequential content, gzip/identity coding, expanded-byte/inspection budgets, character decoding, lifetime/cancellation, minimal in-memory provider-bound proof | ☐ |
+| DR4 | `04-configured-delimited-reader.md` | Configured delimited reader with typed emission and record/field/field-count budgets; atomic CSV/TSV cutover (may split at the green parser/cutover boundary) | ☐ |
 | DR5 | `05-fake-provider-proof.md` | Fake object-store provider runs the full reader/provider conformance suite; neutrality pinned | ☐ |
 | DR6 | `06-job-ui-expression-cutover.md` | Full `DataContract` through Job validation, cards/connectors, expressions; schema-draft authoring — executed as three green sub-boundaries (server type flow / typed expressions incl. exact Decimal / UI) | ☐ |
-| DR7 | `07-acceptance-and-performance-gate.md` | Fixture matrix incl. stale-fingerprint, syntax, budget and Decimal-precision cases; full sibling builds; opt-in 100k-row canary with split parsing/end-to-end baseline | ☐ |
+| DR7 | `07-acceptance-and-performance-gate.md` | Fixture matrix incl. stale-fingerprint, syntax, complete budget/policy-identity and Decimal-precision cases; full sibling builds; opt-in 100k-row canary with split parsing/end-to-end baseline | ☐ |
 
 ## Authoritative execution order
 
@@ -64,12 +64,18 @@ if it lands in `kzen-auto-plugin` (where third-party readers compile against it)
 Decimal path (FR19) is a named kzen-lib + kzen-auto change and triggers the full kzen-lib publish chain in
 whichever session lands it (DR4 reader side, DR6 accessor/binding side).
 
+The canonical config wire relies on kzen-lib's explicit collection contract: `MapExecutionValue` equality/digest
+is order-agnostic, while `ListExecutionValue` order is semantic. Ordered key/value config uses a list of entry maps;
+no `OrderedMapExecutionValue` is introduced until a named consumer requires keyed lookup plus semantic order.
+
 ## Arc-wide stop rules
 
 - A session ends green; no half-cutover is handed to the next session.
 - DR4's CSV/TSV replacement is atomic — there is no long-lived "legacy reader versus configured format" mode
   (analysis §3), and built-in configured instances must keep the one-selection immediate tier working (§1.1).
 - No pooling, leases, or eager materialization before DR7's measurement (analysis §12).
+- No code may treat `MapExecutionValue` iteration order as functional. Use `ListExecutionValue` for ordered
+  configuration and add an ordered-map subtype only with a concrete consumer and separate equality/digest tests.
 - The external measurements file stays an opt-in canary; no production symbol, default, or fixture may reference
   it or its domain (analysis header note, §10.7).
 - Every explicit rejection in analysis §12 is a review gate for every session.

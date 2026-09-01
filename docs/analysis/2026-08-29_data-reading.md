@@ -1,8 +1,9 @@
 # Configurable, provider-neutral flat-data reading
 
-> **Status: proposed; amended per [review 1](2026-08-29_data-reading_review-1.md)** (reader capability runtime,
-> canonical config wire, fingerprint handshake, exact Decimal, decode-override ownership, header/syntax
-> semantics, operational budgets, no unused range/rows APIs).
+> **Status: proposed; review amendments incorporated** (reader capability runtime, canonical config wire,
+> fingerprint handshake, exact Decimal, decode-override ownership, header/syntax semantics, operational budgets,
+> no unused range/rows APIs), plus the 2026-09-01 `MapExecutionValue` usage audit (unordered map identity versus
+> ordered list identity).
 > This analysis selects configurable typed delimited text as the first consumer of the
 > project-data analysis's configured-format and provider-content seams. It is an immediate typed-flat extension,
 > not DM12's first structural reader. The external 100,000-row measurements file is an acceptance and performance
@@ -451,7 +452,8 @@ Two safe representations are acceptable:
 2. carry a reference plus a resolved definition digest/version and retain the resolved snapshot in run state.
 
 The opener must never resolve the mutable reference a second time midway through a run. The resolved spec's
-canonical digest includes every member and is independent of map insertion order where order is not semantic.
+canonical digest includes every member. Collection order is represented deliberately rather than inferred from
+whichever concrete collection happens to retain insertion order.
 Reader capability identity includes a compatibility/version token supplied by the capability, not an unstable
 runtime class name alone.
 
@@ -461,14 +463,30 @@ the boundary is:
 
 - **generic envelope**: reader identity, content-coding specifications, canonical reader-config data
   (`ExecutionValue` tree) and its digest — understood without loading the reader implementation;
-- **capability boundary**: the reader capability (§4.7) decodes and validates that data into its runtime
-  configuration type;
+- **capability boundary**: the reader capability (§4.7) decodes, validates and canonicalizes that data into its
+  runtime configuration type;
 - **common/client wire**: carries only the canonical envelope; and
 - **run state**: the validated immutable runtime snapshot, resolved once.
 
-`ExecutionValue` is chosen because kzen-lib's digest machinery over it is common-code (cross-process/platform
-digest stability comes for free) and its canonical form already settles ordering, scalar spelling and
-absent-versus-null semantics — no bespoke JSON canonicalization rules are invented.
+`ExecutionValue` is chosen because kzen-lib's digest machinery is common-code and its typed scalar/null variants
+avoid bespoke JSON canonicalization. Its collection contract is explicit:
+
+- `MapExecutionValue` is an **unordered** string-keyed association. Map equality and digest ignore entry iteration
+  order. A supplied insertion-preserving map may retain order for serialization or display, but that order is not
+  functional and cannot affect cache, migration or config identity.
+- `ListExecutionValue` is ordered. Reordering elements changes equality/digest and therefore semantic identity.
+- ordered key/value entries are represented as a `ListExecutionValue` of entry maps. A distinct
+  `OrderedMapExecutionValue` is introduced only when a named consumer requires both keyed lookup and semantic
+  entry order.
+- an absent map member and an explicitly present `NullExecutionValue` remain different configurations.
+
+The 2026-09-01 usage audit covered all direct `MapExecutionValue` producers and consumers in kzen-lib and
+kzen-auto (with no uses in kzen-project, kzen-launcher or kzen-shell). They are named-field envelopes,
+dictionaries, or record/mapping payloads whose semantic ordering already lives in a `ListExecutionValue` or the
+ordered `DataType` definition. Ranked matches and ordered manifest units likewise use lists. No current use needs
+ordered associative identity, so adding an ordered-map subtype now would be speculative. DR1 runs fixed digest
+vectors on JVM and JS to establish cross-platform stability; this is a tested contract, not an incidental property
+of a map implementation.
 
 **Transition rule**: replacing `DataPart` identity is not done as additive shadow state alongside an unmodified
 opener — two simultaneous sources of truth is exactly the dual mode this arc's stop rules prohibit. The identity
@@ -506,12 +524,16 @@ cursor construction, and the same race exists for an unversioned object-store re
 For local files, the first implementation opens the file handle and validates its attributes against the resolved
 fingerprint. The acceptance matrix mutates a file between resolve and open and proves stale identity is rejected.
 
-The resolved-read digest answers “would the same bytes be interpreted the same way?” They combine for manifest,
-migration and schema-cache identity:
+The resolved-read digest answers “would the same bytes be interpreted the same way?” They combine into the
+semantic part identity used by manifests and as the base for caches/migration:
 
 ```text
 part identity = role + canonical ref + content fingerprint + resolved-read digest
 ```
+
+Operational policy is intentionally layered onto that base rather than folded into it (§9.1): live-cursor
+compatibility also requires equal effective run-policy identity, and an inspection-cache key also includes the
+effective inspection-policy identity.
 
 Changing any of the following invalidates inspection and migration compatibility:
 
@@ -529,10 +551,11 @@ resolved values. They are selection inputs, not semantic identity once resolutio
 
 ### 5.3 Migration compatibility
 
-A live cursor may transfer across an edit only when both the selected part identity and resolved-read digest are
-equal. A delimiter, schema, gzip or charset edit restarts rather than adopting the existing parser position. This
-is stricter than comparing a format coordinate and prevents a cursor parsed under one dialect from continuing
-under another object that happens to share the same reference.
+A live cursor may transfer across an edit only when the selected part identity (which includes the resolved-read
+digest) and effective run-policy identity are equal. A delimiter, schema, gzip, charset or safety-limit edit
+restarts rather than adopting the existing parser position. This is stricter than comparing a format coordinate
+and prevents a cursor parsed under one dialect or operational limit from continuing under another object that
+happens to share the same reference.
 
 ## 6. Schema and Custom authoring
 
@@ -764,21 +787,34 @@ collector is never part of correctness.
 
 ### 9.1 Operational budgets
 
-A streaming parser is not automatically memory-bounded: one unterminated quoted record can grow without limit, and
-a small gzip input can expand into a very large decoded stream. The first implementation carries the budgets with
-a real failure mode:
+A streaming parser is not automatically memory-bounded: one unterminated quoted record can grow without limit, a
+record can contain unboundedly many tiny fields, and a small gzip input can expand into a very large decoded
+stream. The first implementation therefore carries every budget with a real failure mode:
 
-- maximum record size and maximum field size, failing with the record index and configured limit;
+- maximum expanded bytes emitted by the content-coding layer before character decoding, protecting both full
+  reads and inspection from decompression expansion;
+- maximum decoded characters per record and per field, failing with the record index and configured limit;
+- maximum fields per record, applied before an undeclared/ad-hoc record can grow an unbounded field collection;
 - cancellation checks inside long records and inside decompression, not only at record boundaries; and
-- bounded inspection (records/bytes) for the sampling path.
+- bounded inspection by records, expanded bytes and maximum elapsed duration, with cancellation/timeout checks
+  inside acquisition, decompression and parsing. Record/byte exhaustion returns the deliberately bounded sample;
+  elapsed timeout aborts inspection rather than returning a scheduling-dependent partial success.
 
 Gzip integrity and trailing-data behaviour are deterministic and tested: a truncated or corrupt stream fails with
 a content-coding diagnostic, and trailing bytes after the gzip stream are an error, not silently ignored.
 
-Budgets are **execution policy, not semantic configuration**: they are excluded from the resolved-spec digest, and
-a limit-induced failure is never cached as an inspection result — so raising a limit cannot be defeated by a stale
-cache, and two runs differing only in limits share migration identity. A decoded-bytes budget and a field-count
-budget are deferred until a consumer needs them; they follow the same execution-policy rule when added.
+Budgets are **execution policy, not semantic configuration**: they are excluded from the resolved-read digest
+because they do not change values below the limit. They still have explicit operational identity:
+
+- the effective policy digest participates in live-cursor adoption, so a cursor constructed under different
+  limits is never transferred into the new run;
+- the inspection-policy digest participates in the inspection-cache key because record/byte bounds can change the
+  successful observed sample and inferred shape; the configured timeout duration participates too, but the
+  derived wall-clock deadline instant never does; and
+- a limit/timeout failure is never cached, so relaxing the policy cannot be defeated by a stale failure.
+
+This distinction keeps semantic read identity stable without silently reusing an execution built under different
+safety limits.
 
 ## 10. Acceptance matrix
 
@@ -831,6 +867,8 @@ Small fixtures cover each behaviour independently and in combinations:
 | Bare CR / mixed record separators | Behaviour follows configured separator policy; deviation is a record-syntax diagnostic |
 | Trimming | Applies to unquoted values only unless quoted-trim explicitly configured |
 | Oversized record/field | Budget failure (§9.1) names record index and configured limit; never cached |
+| Too many fields | Field-count budget fails before retaining an unbounded record |
+| Gzip expansion limit | Expanded-byte budget fails inside content decoding and closes the stack |
 | Header reordered vs declaration | Name-based mapping resolves ordinals; values land under declared fields |
 | Header missing/extra/duplicate label | Mapping failure naming the labels |
 | Decimal precision | Values that a `Double` round-trip would corrupt survive exactly (§4.6) |
@@ -859,8 +897,13 @@ Start with a cached successful inspection, then change exactly one dimension per
 - content coding; and
 - charset/BOM/malformed-character policy.
 
-Each change must miss the old schema cache entry and reject live-cursor adoption. Re-resolving an unchanged graph
-to the same canonical snapshot must retain the key even if irrelevant notation map order changed.
+Each semantic change must miss the old schema cache entry and reject live-cursor adoption. Re-resolving an
+unchanged graph to the same canonical snapshot must retain the key even if irrelevant notation or
+`MapExecutionValue` insertion order changed; reversing an ordered config list must change it.
+
+Operational-policy tests change one run/inspection limit at a time. The resolved-read digest remains equal, but
+live-cursor adoption is rejected. An inspection records/bytes/configured-timeout change misses the
+inspection-cache entry, and a prior budget/timeout failure is never reused after the policy is relaxed.
 
 ### 10.5 Resource lifetime
 
@@ -912,20 +955,21 @@ labelled canary; it cannot turn ordinary reader tests green by skipping them.
 This is a multi-concern design and should land through green vertical boundaries:
 
 1. **Identity, reader capability and wire.** Add the resolved-read snapshot/digest, the reader capability/registry
-   contract (§4.7), the canonical `ExecutionValue` config wire and fingerprint-handshake semantics (§5), plus
-   cache-key tests over canonical data — including the minimum opener integration that makes the resolved snapshot
-   canonical (no shadow identity). Only content capabilities with an implemented consumer ship.
+   contract (§4.7), the canonical `ExecutionValue` config wire with unordered-map/ordered-list vectors, operational
+   policy identity and fingerprint-handshake semantics (§5/§9.1), plus cache-key tests over canonical data —
+   including the minimum opener integration that makes the resolved snapshot canonical (no shadow identity). Only
+   content capabilities with an implemented consumer ship.
 2. **Schema composition and Custom discovery.** Extract `RecordSchema` (purely semantic), delegate from the
    document, make source references capability-based, and change prototype listing to inheritance/capability
    discovery — tested with both a third-party schema subtype and a novel creation category.
 3. **Sequential content stack plus minimal provider-bound proof.** Adapt local refs to provider-neutral sequential
-   handles; add identity and gzip wrappers, character decoding and close/cancellation tests; include a minimal
-   opaque in-memory provider and sourced ref proving provider lookup, fingerprint verification and acquisition
-   cancellation before the configured reader depends on the stack.
-4. **Configured delimited reader.** Parameterize framing/dialect/header/schema, emit typed flat `DataValue`s, and
-   atomically migrate built-in CSV/TSV configured instances and fixtures. If one session is unsafe, split at the
-   green boundary: an inactive but fully tested parser/typed-value implementation first, then archetypes,
-   built-in instances and the atomic product cutover.
+   handles; add identity and gzip wrappers, expanded-byte/inspection limits, character decoding and
+   close/cancellation tests; include a minimal opaque in-memory provider and sourced ref proving provider lookup,
+   fingerprint verification and acquisition cancellation before the configured reader depends on the stack.
+4. **Configured delimited reader.** Parameterize framing/dialect/header/schema, enforce record/field/field-count
+   and inspection-record limits, emit typed flat `DataValue`s, and atomically migrate built-in CSV/TSV configured
+   instances and fixtures. If one session is unsafe, split at the green boundary: an inactive but fully tested
+   parser/typed-value implementation first, then archetypes, built-in instances and the atomic product cutover.
 5. **Fake-provider conformance.** Run the same reader suite over opaque fake-S3 refs, including gzip, capability
    mismatch and cancellation — a full reader/provider conformance suite, not the first proof a sourced ref opens.
 6. **Job/UI/expression cutover** — three independently landable green boundaries: (a) canonical
@@ -933,8 +977,8 @@ This is a multi-concern design and should land through green vertical boundaries
    access and calculated-field contract retention (including the exact Decimal path); (c) shared contract
    rendering plus source/format/schema-draft authoring UI.
 7. **Acceptance/performance gate.** Run focused fixtures (including stale-fingerprint rejection, syntax failures,
-   budget cases and Decimal precision), full relevant sibling builds and the opt-in external canary; record
-   parsing and end-to-end measurements separately before adding pools or leases.
+   every budget/policy-identity case and Decimal precision), full relevant sibling builds and the opt-in external
+   canary; record parsing and end-to-end measurements separately before adding pools or leases.
 
 The exact session split may change with dependency direction. Each step ends with one active canonical contract;
 there is no long-lived “legacy CSV versus configured format” mode.
@@ -959,8 +1003,11 @@ The following designs violate the composition boundary:
 - a `when` over reader names in place of the capability registry, or reader identity derived from a runtime class
   name;
 - routing `ScalarKind.Decimal` through `Double` anywhere between reader and expression;
+- treating `MapExecutionValue` iteration order as semantic identity, or encoding an ordered sequence as a map;
 - generic Custom catalogue code importing or enumerating a closed set of creatable capabilities;
-- parsing or caching content whose observed fingerprint does not match the resolved expectation; and
+- parsing or caching content whose observed fingerprint does not match the resolved expectation;
+- omitting the expanded-byte/record/field/field-count/inspection bounds, caching a limit/timeout failure, or
+  adopting a cursor built under different effective safety limits; and
 - adding leases, eager materialization or pooling without the specified lifetime/performance measurement.
 
 ## 13. Decisions and remaining implementation questions
@@ -973,7 +1020,7 @@ The following designs violate the composition boundary:
 | FR4 | Compression | Explicit content-coding layer; gzip wrapper now, ZIP as future container/parts |
 | FR5 | Encoding | Separate character-decoding spec with deterministic BOM and malformed-input policy |
 | FR6 | Format identity | Immutable canonical `ResolvedReadSpec`: reader identity + content codings + capability-owned reader config (for delimited text: framing, dialect, header, characters, schema, typed policy) |
-| FR7 | Cache/migration identity | Content fingerprint plus complete resolved-read digest |
+| FR7 | Cache/migration identity | Semantic part identity is content fingerprint + complete resolved-read digest; inspection cache and live migration additionally require their effective operational-policy identity |
 | FR8 | Schema ownership | Generic `RecordSchema` capability; document is an optional wrapper |
 | FR9 | Custom discovery | Inheritance/capability-based `CustomCreatable`, never direct concrete-name equality |
 | FR10 | Runtime values | Existing flat `ValueAccess`/`DataValue`; no structural tape |
@@ -986,8 +1033,9 @@ The following designs violate the composition boundary:
 | FR17 | Open-time verification | `DataPart` carries the expected fingerprint; acquisition binds an observed one; mismatch fails before parser work; size+mtime is a weak freshness token, not a digest |
 | FR18 | Decode-override ownership | `RecordSchema` purely semantic; reader config owns all decode overrides keyed by field path; v1 kinds Text/Integer/Floating/Decimal/Boolean, unsupported kinds rejected at resolution |
 | FR19 | Exact Decimal | Canonical decimal text in the backing; `BigDecimal` accessors and native binding; no `Double` on the path; `JobDataValues` Decimal routing corrected |
-| FR20 | Operational budgets | Max record/field size, in-record and in-decompression cancellation, deterministic gzip integrity; budgets are execution policy — outside the digest, failures never cached |
+| FR20 | Operational budgets | Expanded-byte, record-character, field-character and field-count limits; bounded inspection records/bytes/timeout; budgets stay outside semantic digest but policy identity gates cursor adoption/inspection cache; failures never cached |
 | FR21 | API restraint | Only `SequentialBytes` ships; range/row APIs wait for their first named consumer; mismatch path proven via a test-only unknown capability |
+| FR22 | Execution-value ordering | `MapExecutionValue` is unordered in equality/digest; `ListExecutionValue` carries semantic order; ordered entry lists cover current uses, so an ordered-map subtype waits for a named consumer |
 
 The implementation still needs to settle a few narrow details before its first code session:
 

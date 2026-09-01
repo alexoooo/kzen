@@ -1,6 +1,6 @@
 # DR4 — configured delimited reader and atomic CSV/TSV cutover
 
-> **Status: not started. One session — or two at the green boundary below (review-1 §4.4).** Authority:
+> **Status: not started. One session — or two at the green boundary below (analysis §11 step 4).** Authority:
 > configurable flat-data reading §§4.5–4.7, 6.3, 9.1, 10.3. Requires DR1 (identity/capability), DR2
 > (`RecordSchema`, prototypes), DR3 (content stack).
 >
@@ -29,9 +29,12 @@ TSV become built-in configured instances so the immediate tier (§1.1) stays one
    (§4.5): unterminated quote at end of input, quote inside an unquoted field, characters after a closing
    quote, bare CR/mixed separators; empty input is zero records; trimming applies to unquoted values only
    unless configured.
-4. Budgets (§9.1): maximum record size and maximum field size fail with record index and configured limit;
-   cancellation is checked inside long records. Budgets are execution policy — outside the digest, failures
-   never cached.
+4. Budgets (§9.1): maximum decoded characters per record and per field plus maximum fields per record fail with
+   record index and configured limit; field-count enforcement happens while tokenizing, before retaining an
+   unbounded undeclared/ad-hoc record. Cancellation is checked inside long records. Budgets are execution policy
+   — outside the semantic digest, but their effective policy identity gates cursor adoption and inspection-cache
+   reuse per DR1; failures are never cached. Reader inspection also obeys its record bound and the DR3
+   expanded-byte/timeout bounds.
 5. Header policies per the §4.5 table: header row consumed as metadata; a declared read uses name-based mapping
    with exact set equality (reordering permitted, ordinals resolved at open; missing/extra/duplicate labels
    fail naming the labels; tolerant variants are named policy values, all digested); headerless typed input
@@ -56,7 +59,8 @@ TSV become built-in configured instances so the immediate tier (§1.1) stays one
 - §10.3 framing/tokenization matrix, including the checked-in generic headerless fixture (quoted delimiter,
   quoted newline, escaped quote, empty field, final-no-newline, CRLF/LF, wrong width, malformed typed value)
   plus the record-syntax failures, header-mapping cases (reordered / missing / extra / duplicate labels),
-  oversized record/field budget cases, and Decimal values a `Double` round-trip would corrupt.
+  oversized record/field, too-many-fields and inspection-record-bound cases, and Decimal values a `Double`
+  round-trip would corrupt.
   Gzip fixtures generated deterministically from the checked-in plain bytes.
 - End-to-end: local plain and local gzip through source → content → coding → characters → configured reader
   yield identical typed values and contract.

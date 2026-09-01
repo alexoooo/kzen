@@ -13,8 +13,9 @@ Run the complete acceptance surface — fixture matrices, full sibling builds, a
 
 1. Sweep the checked-in fixture matrices from all prior sessions in one run: composition/neutrality including
    stale-fingerprint rejection and gzip integrity (§10.1), character decoding (§10.2), framing/tokenization
-   including record-syntax failures, budget cases (pathological records, decompression) and Decimal precision
-   (§10.3, §9.1), identity/migration (§10.4), lifetime (§10.5), Job/UI/expression propagation (§10.6).
+   including record-syntax failures, complete budget cases (expanded bytes, record/field characters, field count,
+   inspection records/bytes/timeout) and Decimal precision (§10.3, §9.1), semantic and operational
+   identity/migration/cache behaviour (§10.4), lifetime (§10.5), Job/UI/expression propagation (§10.6).
 2. Build the generic canary harness (§10.7): path/ref, configured format, expected row count and optional
    performance threshold arrive as test arguments; production dependencies see only an ordinary local source,
    resolved format and record schema. Absence of the external file skips only the labelled canary — it must not
@@ -33,6 +34,9 @@ Run the complete acceptance surface — fixture matrices, full sibling builds, a
 ## Proof and exit
 
 - All fixture matrices green in CI without the external file present.
+- Canonical-wire vectors are green on JVM and JS: unordered map insertion changes no digest, ordered list changes
+  do; operational-policy changes preserve semantic read identity but reject cursor adoption or inspection-cache
+  reuse as applicable.
 - Canary invocation green with the file present; measurements and the agreed threshold appended to this file
   as the as-built record.
 - Master ledger and this arc's tracker updated; arc closes per the README lifecycle.
