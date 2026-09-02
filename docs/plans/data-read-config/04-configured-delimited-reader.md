@@ -1,6 +1,6 @@
 # DR4 — configured delimited reader and atomic CSV/TSV cutover
 
-> **Status: not started. One session — or two at the green boundary below (analysis §11 step 4).** Authority:
+> **Status: complete — landed 2026-09-01.** Authority:
 > configurable flat-data reading §§4.5–4.7, 6.3, 9.1, 10.3. Requires DR1 (identity/capability), DR2
 > (`RecordSchema`, prototypes), DR3 (content stack).
 >
@@ -69,3 +69,22 @@ TSV become built-in configured instances so the immediate tier (§1.1) stays one
   (`Dynamic` only where structure is genuinely unknown).
 - §12 rejection sweep on the diff (no provider branches, no `Path` in reader APIs, no domain-named symbols).
 - Full builds of every touched sibling, all pre-existing reader consumers green on the configured instances.
+
+## As-built — 2026-09-01
+
+`ConfiguredDelimitedFormat` resolves a complete `DelimitedReadConfig` and executes through the generic reader
+registry/opener. One parser state machine handles framing and tokenization, including quoted newlines, escaped
+quotes and a final record without newline. It enforces strict syntax, record/field/field-count budgets, header
+policies, exact declared-name mapping and positional inferred labels. Declared fields emit typed values for the
+v1 scalar matrix; Decimal is validated and retained as bounded canonical exact text without a `Double`
+round-trip.
+
+CSV and TSV are built-in configured format instances. The old `CsvReaderWorker`, `MultiFileReaderWorker` and
+`CsvRecordReader` implementations and tests were removed, and maintained fixtures migrated to
+`FileSourceWorker` plus configured formats.
+
+One deliberate transition deviation remains: existing user notation still references two former worker
+coordinates. Narrow, untitled compatibility definitions preserve those coordinates but delegate exclusively to
+`FileDataSource` and the configured reader. They contain no parser or alternate identity and are absent from the
+catalogue. Headerless compatibility reads use inferred positional labels, pinned by integration coverage. The
+parser, local plain/gzip integration and final full build are green; closing evidence is in DR7.

@@ -1,6 +1,6 @@
 # DR5 — fake object-store provider proof
 
-> **Status: not started. One session.** Authority: configurable flat-data reading §§4.2, 10.1. Requires DR4.
+> **Status: complete — landed 2026-09-01.** Authority: configurable flat-data reading §§4.2, 10.1. Requires DR4.
 > Production S3 (credentials, retries, pagination, browser) stays deferred.
 
 ## Scope and outcome
@@ -37,3 +37,15 @@ handshake and acquisition cancellation (analysis §11 step 5).
 - The dependency pin test fails when a filesystem/SDK import is introduced into parsing code (verified by a
   deliberate temporary violation during the session, then reverted).
 - Full build of every touched sibling.
+
+## As-built — 2026-09-01
+
+The test fake object store exposes opaque object identifiers, fingerprints and sequential bytes without
+materializing a temporary filesystem path. The unchanged configured reader runs over local and fake-provider
+plain/gzip content. Provider code contains no compression branch; coding and policy enforcement remain above
+provider dispatch.
+
+Conformance coverage includes fingerprint mutation, capability mismatch before parser construction,
+expanded-byte and inspection limits, acquisition/pull cancellation and exact close counts. A production-source
+neutrality test searches for forbidden filesystem and provider-SDK dependencies. Production S3 remains
+intentionally deferred. The fake-provider matrix and final full build are green; closing evidence is in DR7.

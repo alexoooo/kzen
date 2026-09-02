@@ -1,6 +1,6 @@
 # Configurable data reading — constituent implementation plan
 
-> **Status: not started.** Design authority:
+> **Status: complete — DR1–DR7 landed 2026-09-01.** Design authority:
 > [`docs/analysis/2026-08-29_data-reading.md`](../../analysis/2026-08-29_data-reading.md)
 > including its incorporated review amendments and the 2026-09-01 `MapExecutionValue` usage audit. That authority
 > extends the data-source model, Job data sources, project data, and unified data model analyses. This README owns
@@ -26,13 +26,13 @@ Session files persist as the execution record for this multi-session arc. When a
 
 | ID | Session file | Outcome | Status |
 |---|---|---|---|
-| DR1 | `01-resolved-read-identity.md` | `ResolvedReadSpec`/`ReaderConfig` snapshot, reader capability runtime/registry, canonical `ExecutionValue` wire with explicit map/list ordering, fingerprint handshake, digests and cache/migration identity | ☐ |
-| DR2 | `02-schema-capability-and-custom-discovery.md` | `RecordSchema` capability extraction and open-ended capability-based Custom prototype discovery | ☐ |
-| DR3 | `03-sequential-content-stack.md` | Provider-neutral sequential content, gzip/identity coding, expanded-byte/inspection budgets, character decoding, lifetime/cancellation, minimal in-memory provider-bound proof | ☐ |
-| DR4 | `04-configured-delimited-reader.md` | Configured delimited reader with typed emission and record/field/field-count budgets; atomic CSV/TSV cutover (may split at the green parser/cutover boundary) | ☐ |
-| DR5 | `05-fake-provider-proof.md` | Fake object-store provider runs the full reader/provider conformance suite; neutrality pinned | ☐ |
-| DR6 | `06-job-ui-expression-cutover.md` | Full `DataContract` through Job validation, cards/connectors, expressions; schema-draft authoring — executed as three green sub-boundaries (server type flow / typed expressions incl. exact Decimal / UI) | ☐ |
-| DR7 | `07-acceptance-and-performance-gate.md` | Fixture matrix incl. stale-fingerprint, syntax, complete budget/policy-identity and Decimal-precision cases; full sibling builds; opt-in 100k-row canary with split parsing/end-to-end baseline | ☐ |
+| DR1 | `01-resolved-read-identity.md` | `ResolvedReadSpec`/`ReaderConfig` snapshot, reader capability runtime/registry, canonical `ExecutionValue` wire with explicit map/list ordering, fingerprint handshake, digests and cache/migration identity | ☑ 2026-09-01 |
+| DR2 | `02-schema-capability-and-custom-discovery.md` | `RecordSchema` capability extraction and open-ended capability-based Custom prototype discovery | ☑ 2026-09-01 |
+| DR3 | `03-sequential-content-stack.md` | Provider-neutral sequential content, gzip/identity coding, expanded-byte/inspection budgets, character decoding, lifetime/cancellation, minimal in-memory provider-bound proof | ☑ 2026-09-01 |
+| DR4 | `04-configured-delimited-reader.md` | Configured delimited reader with typed emission and record/field/field-count budgets; atomic CSV/TSV cutover (may split at the green parser/cutover boundary) | ☑ 2026-09-01 |
+| DR5 | `05-fake-provider-proof.md` | Fake object-store provider runs the full reader/provider conformance suite; neutrality pinned | ☑ 2026-09-01 |
+| DR6 | `06-job-ui-expression-cutover.md` | Full `DataContract` through Job validation, cards/connectors, expressions; schema-draft authoring — executed as three green sub-boundaries (server type flow / typed expressions incl. exact Decimal / UI) | ☑ 2026-09-01 |
+| DR7 | `07-acceptance-and-performance-gate.md` | Fixture matrix incl. stale-fingerprint, syntax, complete budget/policy-identity and Decimal-precision cases; full sibling builds; opt-in 100k-row canary with split parsing/end-to-end baseline | ☑ 2026-09-01 |
 
 ## Authoritative execution order
 
@@ -79,3 +79,22 @@ no `OrderedMapExecutionValue` is introduced until a named consumer requires keye
 - The external measurements file stays an opt-in canary; no production symbol, default, or fixture may reference
   it or its domain (analysis header note, §10.7).
 - Every explicit rejection in analysis §12 is a review gate for every session.
+
+## As-built — 2026-09-01
+
+DR1–DR7 were implemented as one coordinated multi-agent arc while preserving the planned dependency order and
+green intermediate boundaries. The resulting path is:
+
+source selection → provider-neutral sequential bytes → explicit content coding → capability-owned character and
+record decoding → typed `DataCursor` + `DataContract`.
+
+The executable `ReaderCapability` SPI lives in `kzen-auto-plugin`; the host retains provider, fingerprint,
+coding, policy, cache and lifetime orchestration. Configured formats and authored schemas are shared,
+Custom-creatable notation objects discovered through inherited capabilities. CSV and TSV are configured
+instances rather than special reader implementations. The sole transition exception is a hidden
+notation-coordinate compatibility adapter for existing user documents; it delegates to the configured stack and
+does not contain a second parser or product reader mode.
+
+No release-train version changed. No implementation-added production symbol, default or test fixture names the
+external canary domain. Full builds and the measured canary are green. DR7 closed after the user agreed to a 20%
+maximum throughput regression and the harness passed with that threshold enforced.

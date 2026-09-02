@@ -1,6 +1,6 @@
 # DR3 — sequential content stack
 
-> **Status: not started. One session.** Authority: configurable flat-data reading §§4.2–4.4, 9, 10.2, 10.5.
+> **Status: complete — landed 2026-09-01.** Authority: configurable flat-data reading §§4.2–4.4, 9, 10.2, 10.5.
 > Requires DR1's capability vocabulary.
 
 ## Scope and outcome
@@ -68,3 +68,21 @@ enforced when the reader arrives in DR4. The full fake-object-store conformance 
   inspection. DR4 adds the record-bound proof.
 - Full build of every touched sibling; existing reader behaviour unchanged (the configured reader arrives in
   DR4).
+
+## As-built — 2026-09-01
+
+Provider and stream implementations live in `kzen-auto-jvm`, where channel, charset and gzip machinery belongs.
+The plugin-facing byte stream is the small provider-neutral `ReaderByteInput`; no filesystem type crosses into
+the reader SPI.
+
+The stack resolves local or sourced opaque references through `DataContentProviderLookup`, acquires sequential
+bytes, verifies the observed fingerprint before reader construction, applies explicit identity or gzip coding,
+enforces expanded-byte and lifetime policies, and transfers ownership to the reader boundary. Charset and BOM
+policy validate before acquisition. Generic UTF-16 without a BOM is rejected; malformed replacement is
+observable only when explicitly configured. Gzip checksum, truncation and trailing-data failures are
+deterministic.
+
+Construction and pull failures close exactly once, cancellation during acquisition/decompression/pull does not
+leak a handle, and secondary close failure is suppressed onto the primary failure. Inspection records observed
+bytes and completeness under its own policy identity; limit and fingerprint failures are not cached. The final
+conformance tests and full build are recorded in DR7.

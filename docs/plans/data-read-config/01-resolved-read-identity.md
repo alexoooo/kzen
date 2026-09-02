@@ -1,6 +1,6 @@
 # DR1 — resolved-read identity, reader capability and wire
 
-> **Status: not started. One session.** Authority: configurable flat-data reading §§1, 4.2 (vocabulary only),
+> **Status: complete — landed 2026-09-01.** Authority: configurable flat-data reading §§1, 4.2 (vocabulary only),
 > 4.7, 5, 9.1, 10.4; project-data analysis ST16.
 
 ## Scope and outcome
@@ -75,3 +75,24 @@ their digest are replaced, not shadowed. No additive dual identity survives the 
 - Opener integration green: existing reader behaviour unchanged through the replaced identity; no shadow
   `format`/`encoding` path remains.
 - Full build of every touched sibling.
+
+## As-built — 2026-09-01
+
+The canonical read identity replaced the former coordinate-string reader state rather than shadowing it.
+`DataPart` now carries its role, opaque `DataRef`, expected content fingerprint and immutable
+`ResolvedReadSpec`; its digest combines all four. `ResolvedReadSpec` contains the logical
+`ReaderCapabilityIdentity`, ordered content-coding specifications, canonical `ExecutionValue` config and its
+verified digest. Semantic identity remains separate from operational-policy identity: cursor adoption requires
+both identities to be present and equal, while inspection policy participates in the schema-cache key.
+
+The reader SPI was placed in `kzen-auto-plugin`, with shared identities and config values in
+`kzen-auto-common`. `ReaderCapability` is executable rather than registration metadata: plugins decode,
+validate, canonicalize and encode their config, declare their required content capability, and implement bounded
+`open`/`inspect` over the provider-neutral `ReaderByteInput`. JVM discovery uses `ServiceLoader` with the thread
+context classloader; duplicate identities fail at registry construction and unknown identities fail before
+content acquisition. `ConfiguredDataOpener` owns orchestration and the resource boundary, so plugins cannot
+select providers or content codings.
+
+No legacy `format`/`encoding` identity, old `DataPart` constructor or alternate digest path remains. Canonical
+map-order, ordered-list, absent-versus-null, identity-dimension, policy/adoption, registry and plugin-shaped wire
+cases are covered. The final common JVM/JS and full sibling builds are recorded in DR7.

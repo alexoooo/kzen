@@ -1,6 +1,6 @@
 # DR6 — Job, UI and expression cutover
 
-> **Status: not started. Executed as three green sub-boundaries (analysis §11 step 6), each independently landable:**
+> **Status: complete — landed 2026-09-01 through three green sub-boundaries (analysis §11 step 6):**
 > **DR6a** server/client contract propagation (step 1), **DR6b** typed expressions and exact Decimal (step 3),
 > **DR6c** shared contract rendering and authoring UI (steps 2, 4, 5). The master ledger keeps one parent row;
 > this file records each sub-boundary's landing so a UI-sized tail never holds completed server type-flow work
@@ -53,3 +53,25 @@ selection UI composes browsing, format selection, inspection and schema-draft au
 - Schema-draft flow produces an editable `AuthoredRecordSchema` document/object whose declared read then runs
   deterministically.
 - Full builds including `:kzen-auto-js:compileKotlinJs` and the JVM test suites of touched siblings.
+
+## As-built — 2026-09-01
+
+The three boundaries landed together in the integrated arc:
+
+- **DR6a — contract flow:** Job source resolution, validation, lane descriptors and client inspection retain
+  `DataContract`/`DataShape`. Strict and superset combination preserve declared child contracts and report
+  conflicts rather than widening record fields to Text. Legacy header projections remain only at Report/UI
+  compatibility boundaries, not as canonical Job-walk input.
+- **DR6b — typed expressions:** `JobExpressionCompiler` carries stream and element contracts and resolves record
+  ordinals at compile time. Filter, Formula source and Run use contract-native access. Dynamic static lanes get
+  syntax validation and compile against the actual element contract at runtime. Decimal access and JVM native
+  materialization use exact `BigDecimal`, with bounded canonicalization at text boundaries.
+- **DR6c — UI and authoring:** one contract presentation serves source inspection, worker cards and connectors,
+  with distinct Loading, Unavailable, Error, Dynamic and Contract states plus ordered fields, native metadata,
+  provenance, stability/coverage and diagnostics. Format selection discovers shared configured-format objects
+  generically and persists source and format separately. Inspection can materialize an editable
+  `AuthoredRecordSchema` draft.
+
+The chosen ownership is shared notation objects for configured formats and authored schemas; no inline reader
+configuration was added to file-source notation. Exact Decimal tests, forced JS coverage, the FormulaStep
+compiler canary and all final builds are green; totals are recorded in DR7.

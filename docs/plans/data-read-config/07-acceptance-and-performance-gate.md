@@ -1,6 +1,6 @@
 # DR7 — acceptance and performance gate
 
-> **Status: not started. One session.** Authority: configurable flat-data reading §§10, 11 step 7. Requires
+> **Status: complete — landed 2026-09-01.** Authority: configurable flat-data reading §§10, 11 step 7. Requires
 > DR1–DR6. The arc's closing gate: no optimization (pools, leases, buffering changes) may be introduced before
 > this session's measurements exist.
 
@@ -40,3 +40,54 @@ Run the complete acceptance surface — fixture matrices, full sibling builds, a
 - Canary invocation green with the file present; measurements and the agreed threshold appended to this file
   as the as-built record.
 - Master ledger and this arc's tracker updated; arc closes per the README lifecycle.
+
+## As-built — 2026-09-01
+
+A generic opt-in `dataReadCanary` JavaExec harness was added. Its input path, delimiter/dialect, header policy,
+declared fields, expected row count, final record, checksum, warmups/runs, heap ceiling and optional performance
+thresholds are supplied externally. Absence of the file produces a labelled skip without skipping ordinary
+tests.
+
+Independent preflight and the configured harness established for
+`C:\~\data\measurements-100000.txt`:
+
+- size: 1,379,295 bytes;
+- exactly 100,000 headerless semicolon-delimited records;
+- declared fields: `city: Text`, `measurement: Decimal`;
+- final record: `["Karachi", "25.4"]`;
+- exact Decimal aggregate: `1783037.8`;
+- raw-text FNV-1a-64: `0f26b70a5bda4cd3d`;
+- typed canonical FNV-1a-64: `5c873a88ffc9ecbb`.
+
+The distinction between the two checksums is intentional: Java `BigDecimal.stripTrailingZeros().toString()`
+canonicalizes values such as `30.0` as `3E+1`. The harness verifies the typed canonical stream; an independent
+Java calculation reproduced its checksum before the measured rerun.
+
+With one warmup and three measured runs under the default 1 GiB heap ceiling:
+
+| Scope | Median | Spread | Throughput | Median heap delta | Median peak heap growth | Median GC |
+|---|---:|---:|---:|---:|---:|---:|
+| Configured reader | 81.5 ms | 79.9–111.3 ms | 1,226,257 rows/s | 22,546,936 bytes | 82,837,504 bytes | 1 collection / 2 ms |
+| Job end-to-end | 178.2 ms | 169.3–268.7 ms | 561,093 rows/s | -99,175,808 bytes | 60,207,744 bytes | 2 collections / 3 ms |
+
+The negative Job heap delta reflects collection between the before/after observations; peak growth is the
+useful bounded-memory observation. No pooling, leasing or optimization was introduced before measurement.
+
+### Closing evidence
+
+- `kzen-lib` full build: 918 tests, zero failures; `publishToMavenLocal` green.
+- `kzen-auto` full build after the final adversarial fix: 1,721 tests, zero failures, one intentional skip; all common/JVM/JS/plugin/test modules
+  included.
+- Dynamic-expression adversarial regression gate: 45 tests, zero failures, covering real Filter/Formula workers
+  under a declared Dynamic lane and concrete Record `key`/`key("amount")` coexistence.
+- Explicit `:kzen-auto-jvm:test --tests "*FormulaStepTest"`: 10 tests, zero failures.
+- Current `kzen-auto` `publishToMavenLocal`: green.
+- Standalone dependent `kzen-project` build: seven tests, zero failures, one intentional skip.
+- External canary: green with 100,000 typed records, final record, checksum and exact aggregate verified.
+- Adversarial review findings remediated; legacy/provider-neutrality/domain rejection sweeps and staged/unstaged
+  `git diff --check` are clean. Protected user notation files were not modified.
+- User-agreed maximum acceptable throughput regression: **20%**. Against the captured baselines this enforces
+  floors of 981,005.6 rows/s for the configured reader and 448,874.4 rows/s for Job end-to-end (operationally,
+  981,006 and 448,875 whole rows/s).
+- Threshold-enforced confirmation run: configured reader 1,091,721 rows/s; Job end-to-end 628,485 rows/s;
+  canary passed with the 100,000-row count, final record, typed checksum and exact aggregate unchanged.

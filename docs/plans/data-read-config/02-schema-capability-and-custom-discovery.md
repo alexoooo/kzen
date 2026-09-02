@@ -1,6 +1,6 @@
 # DR2 — schema capability and Custom discovery
 
-> **Status: not started. One session.** Authority: configurable flat-data reading §6; unified data model
+> **Status: complete — landed 2026-09-01.** Authority: configurable flat-data reading §6; unified data model
 > (DataContract as the only field model). Independent of DR1/DR3; must land before DR4. Coordinate with the E4
 > master-ledger row if it lands first — both touch Custom prototype machinery.
 
@@ -45,3 +45,18 @@ concrete-name checks or duplicated implementation metadata.
 - Instances created from prototypes carry copied configuration only; inherited metadata verified by inspection
   of the created notation.
 - Full build of every touched sibling.
+
+## As-built — 2026-09-01
+
+`RecordSchema` is now the reusable semantic capability and `AuthoredRecordSchema` its editable implementation;
+`DataSchemaDocument` remains a delegating document wrapper. Contracts use the existing ordered `DataContract`
+record model, while reader-specific decode overrides remain in `DelimitedReadConfig`.
+
+Custom creation moved to inherited creation descriptors and defaults. Catalogue grouping and instance creation
+no longer enumerate concrete schema, source or format names; instances copy author-facing configuration while
+implementation, definer, creator and editor metadata remain inherited. Tests cover both a third-party schema
+subtype and an unrelated test-only capability/category without changes to generic creation code.
+
+`ConfiguredRecordFormat` is the generic capability marker used by file-source discovery and consumption, so
+those paths do not depend on `ConfiguredDelimitedFormat`. Focused schema/Custom tests and the final sibling build
+are green; closing totals are recorded in DR7.
