@@ -6,7 +6,8 @@
 > bounded inspection, typed `DataContract` / `DataValue` boundary and strict configured formats. It supersedes
 > only the blanket exclusion of automatic format and header detection: inference is permitted inside the explicit
 > `Automatic` authoring mode under the conservative rules below. A user-selected concrete format is never guessed,
-> repaired or silently reinterpreted.
+> repaired or silently reinterpreted. This revision incorporates the accepted findings and resolves the disputed
+> points from [`2026-09-02_data-format-detection_review-1.md`](2026-09-02_data-format-detection_review-1.md).
 
 ## 1. Problem definition
 
@@ -16,7 +17,7 @@ The File worker currently gives every selection the inherited `ConfiguredCsv` fo
 Advanced and chooses something else. The file browser accepts arbitrary files, but neither the selection row nor
 the collapsed card communicates that CSV has been chosen.
 
-A representative failure is a Markdown file whose first byte is a newline. The configured CSV reader uses
+A representative regression is a Markdown file whose first byte is a newline. The configured CSV reader uses
 `header: present`, so the first physical record becomes the header. That record contains one empty field;
 `ConfiguredDelimitedReader` passes the empty label into `FieldId`, and the Worker fails with:
 
@@ -27,7 +28,12 @@ Data: Field name must not be empty
 The exception is internally accurate, but the user did not choose CSV, did not say the file had a header, and is
 not told which assumption produced the error. Removing the first blank line only postpones the mismatch: later
 Markdown lines may contain commas or quotes and fail CSV width or syntax rules. Improving this one exception would
-therefore leave the product defect intact.
+therefore leave the product defect intact. The same defect reaches more ordinary office inputs in less obvious
+forms: an Excel-exported CSV may use a regional semicolon delimiter or a legacy Windows encoding, a tabular
+`.txt` export may be TSV, and a log may be either line-oriented text or consistently delimited records. These are
+the priority cases; Microsoft documents both the [regional CSV separator](https://support.microsoft.com/en-US/Excel/get-started/import-or-export-text-txt-or-csv-files)
+and [tab-delimited `.txt` export](https://support.microsoft.com/en-us/excel/save-a-workbook-to-text-format-txt-or-csv).
+The Markdown incident remains the smallest fixture that proves the invisible default is gone.
 
 ### 1.2 The product mismatch
 
@@ -57,17 +63,21 @@ This creates four related problems:
 It does not mean every byte sequence must be forced through the parser with the highest score. That would turn
 convenience into silent data corruption. It means:
 
-- a normal CSV or TSV opens as a table with no extra authoring;
+- a normal CSV or TSV opens as a table with no extra authoring, including a regional semicolon `.csv`;
+- a tab-delimited `.txt` export is recognized while ordinary `.txt` remains lines;
+- a likely Windows-1252 office export can open with an explicit warning instead of mojibake or replacement;
 - common semicolon- and pipe-delimited data is recognized from a bounded sample;
-- Markdown, logs and ordinary text open as a one-column line stream;
+- Markdown, ordinary text and non-tabular logs open as a one-column line stream;
 - a mixed selection resolves each file independently;
 - the UI exposes each choice and its evidence before a run;
 - an unusual case can be corrected per file without changing the other files; and
-- binary, undecodable or genuinely ambiguous input stops with a useful next action.
+- binary, undecodable or structurally claimed ambiguous input stops with a useful next action.
 
-The safe fallback is therefore **plain text lines**, not an arbitrary structured parser. Falling back preserves
+The safe record-format fallback is therefore **plain text lines**, not an arbitrary structured parser. Falling back preserves
 the source text and makes no field-boundary claim beyond line framing. It is safe only after the bytes have been
-classified as decodable text.
+classified as decodable text under a known or deliberately selected character encoding. Choosing a legacy
+encoding is a separate, potentially lossy inference and is never justified merely by the fact that some decoder
+can map the bytes.
 
 ### 1.4 Why narrow fixes are insufficient
 
@@ -89,14 +99,26 @@ Add `Automatic` as the default File-source format. It resolves each file indepen
 using content fingerprints, provider hints and a bounded decoded sample. The outcome is a concrete immutable
 `ResolvedReadSpec`; execution uses that concrete reader directly and performs no detection.
 
-Resolution follows this precedence:
+Resolution first applies a per-file override, then an explicitly selected source-level concrete format. Both are
+strict. `Automatic` then classifies filename/media hints as structured-family, generic-text, semantic-text or
+absent and combines that evidence with the installed probes:
 
-1. a per-file format or encoding override;
-2. an explicitly selected source-level concrete format;
-3. a validated exact-extension candidate in `Automatic` mode;
-4. a unique strong content match among installed detectable formats;
-5. a plain-text-lines result for valid text; or
-6. an actionable failure for binary, undecodable, timed-out or otherwise unsafe input.
+| Evidence in `Automatic` | Outcome |
+|---|---|
+| Semantic text hint such as `.md` | Plain text without structured probing |
+| Structured-family hint and one compatible structured candidate | That candidate, with any dialect deviation explained |
+| Structured-family hint and a contained syntax/schema/width failure, with no compatible structured candidate | Actionable failure; never lines |
+| Structured-family hint and an unresolved strongest tie | Actionable ambiguity; never registration-order choice or lines |
+| Generic text hint and one unique strong structured match | That structured candidate |
+| Generic text hint and no strong structured match | Plain text without warning |
+| No format hint and one unique strong structured match | That structured candidate |
+| No format hint and no strong structured match | Plain text with fallback provenance when the bytes are valid text |
+| Binary, undecodable, timed-out or budget-exhausted input | Actionable failure |
+
+A `.csv` hint identifies a delimited-data family rather than proving comma specifically: a validated semicolon
+dialect may win with a warning because regional spreadsheet exports legitimately use it. A generic `.txt` or
+`.log` hint does not suppress structured probing. A semantic `.md` hint is authoritative because probing a
+Markdown table as pipe-delimited data would discard the surrounding document meaning.
 
 `Automatic` remains the authored value after detection. Detection never sends a notation command. The UI shows
 the concrete result, basis and warning per file, and permits an explicit per-file override.
@@ -107,18 +129,19 @@ the concrete result, basis and warning per file, and permits an explicit per-fil
    header, schema and decode failures remain failures.
 2. **Automatic means explainable.** Every successful automatic resolution identifies the concrete format and
    whether extension, content or fallback selected it.
-3. **Fallback is loss-minimizing.** Valid unrecognized text becomes lines; binary-looking or undecodable content
+3. **Fallback is loss-minimizing.** Valid unrecognized text becomes lines. A structured-family hint that proves
+   malformed or ambiguous does not silently change contract to lines, and binary-looking or undecodable content
    does not become guessed text.
 4. **Resolution is per part.** A source may contain CSV, TSV and text parts; existing `strict` / `superset` schema
    policy decides whether their resulting contracts can share a lane.
-5. **Detection is bounded.** Probe cost is independent of total file size and observes the same cancellation,
-   fingerprint and expanded-byte controls as inspection.
+5. **Detection is bounded.** Per-part and aggregate source probe cost are independent of total file size/count and
+   observe the same cancellation, fingerprint and expanded-byte controls as inspection.
 6. **Execution is deterministic.** The manifest carries the concrete reader config and coding chain; the opener
    never reruns detection.
 7. **Detection is open-ended.** A new format opts into a probe capability. Generic code never compares a reader,
    format or extension against a closed concrete-type list.
-8. **No background edits.** Selecting or inspecting a file updates transient resolution state only. Manual
-   overrides are the only persisted changes.
+8. **No background edits.** Selecting or inspecting a file updates transient resolution state only. Applying a
+   correction, making a result explicit or locking its columns is an intentional notation command.
 
 ## 4. User-facing behaviour
 
@@ -133,30 +156,38 @@ The initial catalogue contains:
 | TSV | Tab-delimited records | Extension-validated and content-detectable |
 | Semicolon-delimited | Common regional/export format | Content-detectable; extensions may be authored |
 | Pipe-delimited | Common interchange/log format | Content-detectable; extensions may be authored |
-| Plain text | One `line: Text` field per physical line | Known text extensions and universal text fallback |
+| Plain text | One `line: Text` field per physical line | Semantic text extensions, generic-text no-match and universal text fallback |
 
 Authored configured-delimited formats participate when their reader exposes probing. A schema-bearing authored
 format may win only when its declared header/schema and sampled values validate; detection never weakens or
 rewrites that declaration.
 
-Plain text recognizes `.txt`, `.md` and `.log` as direct extension matches. Other valid text reaches the same
-reader only after no structured candidate wins. A rejected structured hint produces a warning; an ordinary known
-text extension does not.
+Filename hints have different strength. `.md` is initially a semantic-text hint and resolves directly to Plain
+text; this avoids mistaking a Markdown table for a pipe-delimited dataset. `.txt` and `.log` are generic-text
+hints: structured candidates still probe them, and a no-match resolves to Plain text without a warning. `.csv`
+and `.tsv` are structured-family hints: they must resolve to a compatible structured reader or fail. A `.csv`
+may validate as comma- or semicolon-delimited; the latter result explains the regional-dialect deviation.
+
+This classification belongs to contributed format metadata, not a filename `when` inside `Automatic`. A plugin
+may contribute another semantic-text, generic-text or structured-family extension without editing the resolver.
 
 ### 4.2 Examples
 
 | Input | Automatic result | User-visible explanation |
 |---|---|---|
 | `orders.csv` with a valid first-row header | CSV | `Automatic → CSV · .csv and sample validated` |
-| `orders.csv` with inconsistent widths | Plain text | Warning that the CSV hint failed and lines were preserved |
-| Extensionless `a;b\n1;2` | Semicolon-delimited | Content match; first row treated as a header under §7.4 |
+| Regional `orders.csv` containing `a;b\n1;2` | Semicolon-delimited | `.csv` identified delimited data; the sample validated `;` rather than `,` |
+| `orders.csv` with inconsistent widths | Failure | Names the first sampled row whose width conflicts and offers the row controls |
+| Extensionless `a;b\n1;2` | Semicolon-delimited | Content match; first row treated as a header under §7.5 |
 | Extensionless `Alice;Toronto\nBob;Ottawa` | Semicolon-delimited with `c0`, `c1` | Header evidence was insufficient, so row one was retained |
+| Tab-delimited `export.txt` | TSV | Strong content match despite the generic-text extension |
 | `README.md` beginning with a blank line | Plain text | `Automatic → Plain text · .md`; blank first line is emitted |
 | UTF-16LE text with a BOM | Matching text/structured reader | Encoding shown as UTF-16LE |
-| Invalid UTF-8 without a supported BOM | Failure | Choose an encoding or a binary-capable reader |
+| Windows office `.csv` with invalid UTF-8 and valid Windows-1252 text | Matching structured reader | Warning and resolved Windows-1252 encoding shown |
+| Extensionless invalid UTF-8 without a supported BOM | Failure | Choose an encoding or a binary-capable reader |
 | Content containing NUL/binary evidence | Failure | No compatible text reader; choose/install a format |
 
-### 4.3 Overrides
+### 4.3 Overrides and quick correction
 
 The File selection's existing `format` and `encoding` keys become effective per-file overrides. Their serialized
 shape remains compatible with saved notation. The row editor offers only formats and encodings served by the
@@ -166,6 +197,47 @@ being discarded.
 An override applies to one selected file and bypasses only the corresponding automatic choice. A source-level
 concrete format still applies to every entry without an override. Clearing an override returns that file to the
 source-level policy.
+
+The row's correction UI exposes the common immediate controls directly: format, delimiter, first-row-header and
+encoding, plus skip-leading-lines and comment-prefix for configured delimited text. The generic file editor does
+not own delimited fields. A format may contribute an override editor through a declared component marker; that
+editor uses a companion authoring/materialization capability to return notation commands which the shared row host
+applies. A third-party reader can therefore contribute different controls without adding a branch to
+`FileSelectionEditor`.
+
+`FileSelectionEntry` continues to persist a format coordinate and optional encoding, not reader-specific keys.
+When the user applies delimiter/header/cleanup controls, the contributed editor explicitly materializes a
+file-specific authored `ConfiguredRecordFormat` object and stores its coordinate in the entry. This preserves the
+existing entry shape and canonical format object model. The command must not mutate a shared format used by other
+entries; it creates or reuses a value-identical file-specific format. Clearing the override removes the reference
+but does not silently delete an authored object.
+
+The first configured-delimited correction surface includes:
+
+| Control | Semantics |
+|---|---|
+| Delimiter | One explicit character; comma, tab, semicolon and pipe are convenient choices |
+| First row is header | Toggles `present` versus positional labels; the preview shows whether row one is consumed |
+| Encoding | Explicit served charset; selecting it disables automatic encoding fallback |
+| Skip leading lines | Non-negative count of physical lines removed before record parsing; header selection follows the skip |
+| Comment prefix | Exact prefix recognized only at the start of a new logical record outside quotes; skipped count is reported |
+
+Width remains strict in this feature. Padding missing fields, truncating extra fields, dropping footer rows and
+recovering/skipping malformed syntax all alter or discard data and require a separate configured-delimited cleanup
+design with explicit diagnostics. In particular, an unterminated quoted field does not provide a reliable next
+record boundary merely because a `skip` option exists.
+
+### 4.4 Make explicit and lock columns
+
+An automatically resolved row offers **Make explicit**. The action materializes the resolved reader, coding,
+dialect, header and character-decoding choices as an authored format and assigns its coordinate/encoding as the
+per-file override. Future runs no longer redetect the format, but a schema-free explicit format may still observe
+different columns when the file is replaced.
+
+**Lock columns** is the repeatability action. It performs or reuses bounded inspection, materializes the observed
+record contract as a `RecordSchema`, attaches that schema to the explicit format and uses the reader's strict
+header/width mapping. A later header, width or type drift then fails against an authored contract. The UI must not
+claim that Make explicit alone protects the schema.
 
 ## 5. Resolution architecture
 
@@ -199,14 +271,26 @@ the runtime reader contract or introducing a `when` over known readers. A detect
 fixed candidate `ResolvedReadSpec`; the detection service resolves its reader and invokes the probe capability
 over the bounded sample.
 
+The autowired candidate metadata declares its configured-format reference/digest, exact extensions and compatible
+structured hint families. Hint metadata classifies an extension/media value as structured-family, generic-text or
+semantic-text. More than one candidate may declare compatibility with one structured family: both comma and
+semicolon candidates accept the `.csv` family, while the resolver remains unaware of their concrete identities.
+These declarations, rather than registration order or reader names, determine which probes a hint admits.
+
 The probe request contains:
 
 - the canonical candidate config;
 - normalized filename extension and available media/provider hints;
-- decoded sample bytes or characters;
+- bounded raw bytes after content coding and the character views permitted by the automatic character policy;
 - whether the sample reached end of input;
-- the count of complete records available to judge; and
 - the detection policy limits.
+
+One bounded byte acquisition supplies every candidate; trying a policy-authorized UTF-8/Windows-1252 character
+view never reopens the source. The request does not claim a generic complete-record count. Logical record
+boundaries depend on the candidate:
+a newline inside a quoted CSV field is data while the same newline is a complete Plain-text record. Each probe
+parses its independent in-memory view, ignores a boundary-truncated final logical record and considers at most the
+policy's record limit. The service enforces acquisition bytes/time; the capability enforces logical-record count.
 
 The result contains:
 
@@ -216,12 +300,20 @@ The result contains:
 - a rejection explanation when an extension candidate fails validation.
 
 Probe strength is an ordering rule, not an uncalibrated percentage displayed as certainty. If two different
-specifications tie at the strongest available level, the service does not pick by registration order. Valid text
-falls back to lines with an ambiguity warning; non-text fails.
+specifications tie at the strongest available level, the service does not pick by registration order. With no
+structured-family hint, valid text falls back to lines with an ambiguity warning. With a structured-family hint,
+the tie is an actionable ambiguity failure because changing the contract to lines would contradict the hint.
 
 Configured formats opt into an autowired detection-candidate capability. `Automatic` itself is not a candidate,
 so the candidate graph cannot recurse. A third-party format becomes detectable by contributing its configured
 format marker and a reader that implements `ReaderProbeCapability`; source, Job and client code remain unchanged.
+
+Quick correction and pinning are a second optional capability, not part of probing. A
+`FormatAuthoringCapability` converts a capability-owned canonical reader config and optional observed schema into
+authored format/schema notation. Its client editor is selected through the format's declared override-editor
+marker. Built-in delimited and Plain-text formats implement it; a detectable third-party format without one still
+supports Automatic and the ordinary format picker, while its Make explicit/Lock columns actions are unavailable
+with an explanation.
 
 ### 5.3 Resolution result and provenance
 
@@ -241,6 +333,11 @@ optional warning
 not semantic input, so they do not enter `DataPart.digest()`. The concrete `ResolvedReadSpec` already provides the
 semantic identity used by execution, schema caching and migration.
 
+The resolution detail may offer the candidate's concrete format reference and enough canonical materialization
+input for its contributed editor. It is not itself notation and cannot be written into the existing per-file
+`format` string. Make explicit and Lock columns create authored format/schema objects, then persist their
+coordinates through ordinary notation commands.
+
 The new collection defaults to empty when decoding an older response so existing custom `DataSource`
 implementations remain source-compatible while they are rebuilt. Built-in sources populate one result per part.
 
@@ -259,7 +356,8 @@ canonical ref hint identity
 
 The cache value is the concrete spec plus its resolution detail. Candidate order is non-semantic; the candidate
 set is canonicalized before hashing. A content change, configured-format edit, installed detector change or policy
-change therefore forces detection again.
+change therefore forces detection again. The policy digest includes the extension-hint classification and the
+ordered automatic character-encoding fallbacks; changing either may change the result.
 
 Timeout, cancellation, read-limit, fingerprint mismatch and provider-acquisition failures are never cached.
 Deterministic successful fallback may be cached because its key contains both content identity and the complete
@@ -270,7 +368,7 @@ candidate set.
 The default detection policy is:
 
 - at most 256 KiB of decoded content;
-- at most 100 complete records; and
+- at most 100 complete logical records per candidate; and
 - at most two seconds, including acquisition and decoding.
 
 These are named policy values with a digest, not literals scattered through readers. Detection reads one bounded
@@ -287,6 +385,27 @@ Cold detection adds bounded setup work. A warm resolution performs no content ac
 opened cursor uses the existing streaming path and retains its current memory, backpressure, cancellation and
 migration behaviour, which is the property required by large-file and CEP workloads.
 
+### 6.1 Aggregate source budget
+
+A per-file bound is not a source bound. Resolving a cold directory scan of thousands of files must not perform
+thousands of serial two-second probes. The default aggregate policy permits:
+
+- at most four cold acquisitions in parallel;
+- at most 256 cold parts;
+- at most 64 MiB of decoded samples; and
+- at most 15 seconds of source-resolution wall time.
+
+Cache hits do not consume cold-part or sample-byte allowance. Concurrency is bounded independently of the totals
+so a provider cannot be flooded. These are named operational policy values, measured before implementation is
+declared complete and adjustable without changing semantic `DataPart` identity; their policy identity still gates
+cache/adoption where the existing operational-budget rules require it.
+
+Budget exhaustion fails the source resolution rather than returning a partial manifest. The diagnostic reports
+how many files were resolved and offers three corrective actions: narrow the directory filter, choose a concrete
+source-level format so probing is unnecessary, or raise the detection policy. Automatic never probes a sample of
+the directory and applies a majority result to the rest: that would violate per-part evidence and could silently
+misread a heterogeneous minority.
+
 ## 7. Detection rules
 
 ### 7.1 Content coding
@@ -302,15 +421,43 @@ ZIP remains deferred because selecting an entry is a source/part decision, not r
 
 ### 7.2 Character encoding and text safety
 
-A supported BOM selects UTF-8, UTF-16BE or UTF-16LE and must agree with an explicit override. Without a BOM,
-Automatic uses strict UTF-8. It does not guess legacy code pages from byte frequency. A user may choose another
-served encoding per file.
+A supported BOM selects UTF-8, UTF-16BE or UTF-16LE and must agree with an explicit override. An explicit encoding
+always decodes strictly and never falls through to another charset. Without a BOM or override, Automatic first
+uses strict UTF-8.
+
+The default Windows-office compatibility policy permits one deterministic second attempt with Windows-1252 only
+for a structured-family or generic-text filename/media hint. The attempt must decode without replacement, pass
+the text-safety check below and, for structured input, validate through the winning reader probe. Its result always
+shows `Windows-1252` and a warning that the encoding was inferred. Extensionless invalid UTF-8 still fails and
+asks the user to choose an encoding.
+
+This is a pragmatic compatibility rule, not proof of encoding and not a universal lossless fallback. Different
+legacy code pages assign different characters to the same upper bytes, and the published Windows-1252 mapping has
+[undefined byte positions](https://unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP1252.TXT). Automatic does
+not try ISO-8859 variants, system-default encoding or byte-frequency charset detection. The ordered fallback list
+is detection policy so a deployment can remove or replace the Windows-specific rule without reader branches.
 
 Decoded content is binary-looking when it contains NUL or disallowed control characters beyond ordinary tab,
 form-feed and line separators. Binary-looking or undecodable input cannot use the line fallback. The error names
 the evidence and offers format/encoding selection; it does not expose implementation class names.
 
-### 7.3 Delimited structure
+### 7.3 Filename and media hints
+
+Hint classification is capability metadata and participates in the detection-policy/cache digest:
+
+- **structured family** says the producer claims structured data but may leave dialect choice open (`.csv`) or
+  narrow it (`.tsv`);
+- **generic text** says a text reader is credible but permits stronger structured content evidence (`.txt`,
+  `.log`);
+- **semantic text** names a document whose delimiters may be syntax rather than fields (`.md`); and
+- **absent/unknown** contributes no format preference.
+
+An exact structured candidate rejection does not prevent another candidate in the same credible family from
+winning. This is how a semicolon-delimited `.csv` succeeds. If none wins, a contained syntax/schema/width defect is
+a failure rather than a lines fallback. Semantic-text content is not structurally probed in v1; the user can
+explicitly choose a structured format when a Markdown-named file is intentionally tabular.
+
+### 7.4 Delimited structure
 
 A content-only delimited candidate is strong only when:
 
@@ -324,7 +471,7 @@ One-column parsing is never evidence of a delimiter because nearly every text fi
 may validate a header-only or one-record file, but a contained syntax/schema error rejects it. Comma, tab,
 semicolon and pipe are ordinary configured candidates, not special cases in the detection service.
 
-### 7.4 Header decision
+### 7.5 Header decision
 
 An extension-selected CSV, TSV or authored format keeps its configured header policy. This preserves the familiar
 first-row-header behaviour for ordinary `.csv` / `.tsv` selection and keeps authored declarations authoritative.
@@ -343,7 +490,7 @@ concrete header-bearing format.
 A schema-bearing content-only candidate must validate its own declared mapping; it is rejected rather than
 converted to a positional schema.
 
-### 7.5 Plain-text-lines reader
+### 7.6 Plain-text-lines reader
 
 The plain-text reader emits a stable `Record(line: Text)` contract. It recognizes LF, CRLF and lone-CR framing,
 removes the record separator, preserves empty lines and emits a final unterminated line. Empty input emits zero
@@ -371,19 +518,29 @@ The selected-file row shows a compact result:
 ```text
 README.md    Automatic → Plain text    .md
 orders.csv   Automatic → CSV           extension + sample
-legacy.dat   Automatic → Plain text    warning
+regional.csv Automatic → Semicolon     warning: regional delimiter inferred
+legacy.csv   Automatic → CSV           warning: Windows-1252 inferred
 ```
 
-Details exposes the full path, resolved encoding, evidence/rejection text and per-file Format/Encoding controls.
-Warnings use product language and state the consequence, for example:
+Details exposes the full path, resolved encoding, evidence/rejection text, the format-contributed correction
+controls and Make explicit / Lock columns actions. Warnings use product language and state the consequence, for
+example:
 
 ```text
-The .csv hint did not form consistent records, so the file will be read as plain text lines.
-Choose CSV to require CSV validation, or select another format.
+The .csv file uses semicolons, so it will be read as semicolon-delimited data.
+Make this explicit to keep that choice for future files.
 ```
 
-A binary/encoding failure remains inline on the affected row and at Worker execution. It identifies the file and
-offers the same controls. The user never has to infer that `FieldId` or a reader capability caused the failure.
+A malformed structured hint is a failure rather than a warning/fallback:
+
+```text
+Row 14 has 5 fields; earlier rows have 4.
+Adjust the delimiter or header settings, or explicitly choose Plain text.
+```
+
+A binary/encoding/ambiguity failure likewise remains inline on the affected row and at Worker execution. It
+identifies the file and offers the same controls. The user never has to infer that `FieldId` or a reader capability
+caused the failure.
 
 ### 8.3 Runtime authority
 
@@ -405,8 +562,13 @@ Duplicate, missing and extra labels retain their dedicated header-mapping catego
 Automatic probing converts a candidate's expected validation failure into rejection evidence; unexpected runtime
 exceptions still fail fast and are not reclassified as “no match.”
 
-Fallback warnings are carried as resolution provenance, not logged-only server warnings. Operational failures
-(acquisition, fingerprint, timeout, budget and cancellation) remain failures and never become a text fallback.
+Fallback and inferred-encoding/dialect warnings are carried as resolution provenance, not logged-only server
+warnings. A structured-family rejection or tie, and operational failures (acquisition, fingerprint, timeout,
+per-source budget and cancellation), remain failures and never become a text fallback.
+
+Skip-leading-lines and comment-prefix are explicit reader configuration. Their skipped counts are surfaced in
+trace/UI. They never activate as automatic recovery after a probe failure. Width and malformed-syntax policies
+remain strict in this feature.
 
 ## 10. Mixed files, schemas and downstream processing
 
@@ -429,9 +591,12 @@ set overrides when strict homogeneity is required.
 - per-file resolution and overrides;
 - CSV, TSV, semicolon, pipe and authored configured-delimited probing;
 - plain-text-lines reader and fallback;
-- gzip/BOM/strict-UTF-8 detection;
+- structured-family, generic-text and semantic-text hint classification;
+- gzip/BOM/strict-UTF-8 detection plus the constrained, warned Windows-1252 office fallback;
 - open reader-probe capability;
-- selection-time UX and runtime cache;
+- format-contributed per-file correction for delimiter, header, encoding, leading-line skip and comment prefix;
+- Make explicit and Lock columns actions through authored format/schema objects;
+- selection-time UX, runtime cache and aggregate source budget;
 - actionable header and detection errors; and
 - performance/resource/migration proof.
 
@@ -441,24 +606,35 @@ set overrides when strict homogeneity is required.
 - Parquet/range access;
 - JDBC/native rows;
 - ZIP entry browsing;
+- spreadsheet workbook readers and sheet selection (`.xlsx` first; legacy `.xls` and `.ods` later);
 - probabilistic legacy-charset detection;
 - inference of semantic field types without an authored schema;
 - whole-dataset validation before a streaming run; and
-- a universal quarantine or malformed-record recovery system.
+- padding/truncating ragged rows, footer removal, malformed-syntax skipping and a universal quarantine system.
 
 Those features should become additional reader/content capabilities. They must not accumulate as branches inside
 Automatic or the delimited parser.
+
+Although `.xlsx` is ZIP-based, its workbook relationships, shared strings and sheet selection make it a workbook
+container capability rather than an implicit generic ZIP decoder. A future workbook source/browser resolves each
+selected sheet as a part; Automatic does not choose a sheet or feed workbook entries to the delimited reader.
 
 ## 12. Acceptance matrix
 
 ### 12.1 Selection and fallback
 
 - A leading-blank-line Markdown fixture resolves to Plain text and emits the blank line plus all following lines.
-- Known `.txt`, `.md` and `.log` inputs resolve without a fallback warning.
-- A malformed `.csv` falls back to lines with a visible rejected-hint warning in Automatic mode.
+- A Markdown table remains Plain text rather than becoming pipe-delimited.
+- Ordinary `.txt` and `.log` inputs resolve to Plain text without a fallback warning, while a tab-delimited `.txt`
+  resolves to TSV from content evidence.
+- A semicolon-delimited `.csv` resolves structurally with a regional-dialect warning.
+- A malformed `.csv` fails with the sampled row and expected/observed width instead of falling back to lines.
 - The same malformed input under explicit CSV fails with a header/syntax/width diagnostic and never falls back.
 - Empty text resolves to Plain text and yields zero records.
-- Binary-looking and invalid-UTF-8 inputs fail with format/encoding guidance.
+- A hinted Windows-1252 office fixture resolves with a visible inferred-encoding warning; an explicit encoding is
+  strict and does not fall through.
+- Extensionless invalid UTF-8, undefined Windows-1252 bytes and binary-looking input fail with format/encoding
+  guidance.
 
 ### 12.2 Structured detection
 
@@ -466,15 +642,18 @@ Automatic or the delimited parser.
 - Extensionless comma, tab, semicolon and pipe data require consistent multi-column records.
 - Strong type contrast permits a content-only header; all-text ambiguity retains row one under positional labels.
 - Header-only structured input requires an extension/configured hint.
-- Equal-strength structured candidates do not use registration order; valid text falls back with an ambiguity
-  warning.
+- Equal-strength structured candidates never use registration order: unhinted valid text falls back with an
+  ambiguity warning, while a structured-family hint fails as ambiguous.
 - A test-only detectable format and reader probe are contributed without editing generic detection/source/UI code.
+- A test-only format-contributed override editor mounts without editing the shared file-selection UI.
 
 ### 12.3 Coding, limits and lifetime
 
 - Plain and gzip forms resolve to equivalent record specs apart from the coding chain.
-- Gzip magic, misleading `.gz`, UTF BOM agreement/conflict and explicit encoding override are covered.
+- Gzip magic, misleading `.gz`, UTF BOM agreement/conflict, strict explicit encoding and constrained legacy
+  fallback are covered.
 - Partial final sampled records are ignored as evidence; contained syntax errors reject a candidate.
+- Each probe computes its own logical-record boundaries; a generic physical-line count is not supplied as truth.
 - Byte, record and time bounds, cancellation during acquisition/decode/probe, and close-on-every-failure are pinned.
 - Warm cache hits perform no content read; all key members invalidate; operational failures are not cached.
 
@@ -484,6 +663,10 @@ Automatic or the delimited parser.
 - A per-file format/encoding override affects only that file and survives notation round-trip.
 - Selection starts detection, stale responses are ignored, and Automatic remains authored after success.
 - Rows distinguish loading, resolved, warning and failure states and expose the corrective controls.
+- Applying delimiter/header/skip/comment controls materializes a file-specific authored format and never mutates
+  another entry's shared format.
+- Make explicit freezes reader choices but does not claim schema stability; Lock columns authors a schema and
+  rejects later drift.
 - Worker migration retains its captured manifest; a fingerprint change in a fresh run detects again.
 
 ### 12.5 Performance and builds
@@ -491,22 +674,28 @@ Automatic or the delimited parser.
 - Record cold detection time/bytes separately from execution throughput.
 - Re-run the 100,000-row data-read canary; warm end-to-end throughput stays within the existing 20% regression
   gate, and cold detection stays within its hard 256 KiB / 100-record / two-second bounds.
+- A cold directory scan proves four-acquisition concurrency and the 256-part / 64-MiB / 15-second aggregate
+  limits; exhaustion returns no partial manifest and no majority-derived specs.
 - Run the focused common, JVM and JS tests, then the full kzen-auto build from `../kzen-auto`.
 - Because the probe interface is in `kzen-auto-plugin`, publish kzen-auto locally and rebuild
   `kzen-sample-plugin` plus standalone kzen-project, including `SampleExtensionTest`.
 
 ## 13. Implementation sequence
 
-1. **Reader and detection foundation.** Add resolution/provenance models, the optional probe SPI, detection policy
-   and cache, delimited probe mode, built-in candidate formats, the line reader, header validation and focused JVM
-   tests. End with explicit formats unchanged and the automatic resolver green in isolation.
+1. **Reader and detection foundation.** Add resolution/provenance models, hint metadata, the optional probe SPI,
+   character/detection policy and cache, candidate-owned logical-record counting, delimited probe mode, built-in
+   candidate formats, the line reader, header validation and focused JVM tests. Extend configured-delimited
+   identity with skip-leading-lines and comment-prefix while leaving width/syntax recovery strict. End with
+   existing explicit formats behaviourally unchanged and the automatic resolver green in isolation.
 2. **Source integration.** Make contextual format resolution canonical, add Automatic, resolve each selected or
-   scanned file before `DataPart` construction, activate per-file format/encoding overrides, and pin manifest,
-   digest, cache and migration behaviour. Change the File-source inherited default only after this boundary is
-   green so existing implicit `.csv` fixtures continue to resolve as CSV.
-3. **Client integration and gate.** Add the selection-time action/store, row presentation and override controls;
-   cover stale requests and error states; run the canary and full downstream build chain. Update the data-reading
-   authority and plan tracker as DR8 when the implementation lands.
+   scanned file before `DataPart` construction under the aggregate source budget, activate per-file
+   format/encoding overrides, and pin manifest, digest, cache and migration behaviour. Change the File-source
+   inherited default only after this boundary is green so existing implicit `.csv` fixtures continue to resolve
+   as CSV.
+3. **Client customization and gate.** Add the selection-time action/store, row presentation, contributed override
+   editor, authored-format materialization, Make explicit and Lock columns. Cover stale requests, shared-format
+   isolation and error states; run the canary and full downstream build chain. Update the data-reading authority
+   and plan tracker as DR8 when the implementation lands.
 
 Each boundary ends with one canonical runtime path. There is no long-lived alternate Auto opener and no second
 parser.
@@ -516,14 +705,19 @@ parser.
 | # | Decision | Answer |
 |---|---|---|
 | FD1 | Default | `Automatic` for File sources |
-| FD2 | Fallback | Valid unrecognized text becomes `Record(line: Text)`; binary/undecodable input fails |
+| FD2 | Record-format fallback | Valid unrecognized text becomes `Record(line: Text)`; structured-family conflicts, binary and undecodable input fail |
 | FD3 | Multi-file policy | Detect each file independently; reconcile through existing schema mode |
 | FD4 | Initial formats | Flat text only: CSV/TSV/semicolon/pipe/custom delimited plus lines |
 | FD5 | Header policy | Extension formats keep policy; content-only headers require strong type-contrast evidence |
 | FD6 | Persistence | Keep Automatic authored; concrete results remain fingerprint-keyed runtime/design state |
-| FD7 | Low-confidence UX | Continue as lines with a visible warning |
-| FD8 | Overrides | Format and encoding may be set per file |
+| FD7 | Low-confidence UX | Unhinted/generic valid text may continue as lines; a structured-family conflict or tie fails |
+| FD8 | Overrides | Format and encoding remain per-file fields; reader controls materialize an authored format through a contributed editor |
 | FD9 | Detection timing | Probe on selection and again authoritatively at resolution, sharing one cache |
 | FD10 | Extensibility | Optional reader probe plus detectable-format capability; no concrete-name dispatch |
 | FD11 | Hot path | Detection completes before `DataPart`; execution opens only the concrete reader |
 | FD12 | Versioning | No coordinated release-train version bump as part of implementation |
+| FD13 | Hint classes | Structured-family, generic-text and semantic-text hints have different fallback rules; metadata is contributed |
+| FD14 | Legacy encoding | Strict UTF-8 first; hinted office/text input may use a strict, warned, policy-owned Windows-1252 fallback |
+| FD15 | Directory scale | Bounded concurrency plus aggregate part/byte/time budgets; never extrapolate a majority result |
+| FD16 | Repeatability | Make explicit freezes reader choices; Lock columns additionally authors the observed schema |
+| FD17 | Delimited cleanup | Leading-line skip and record-boundary comment prefix ship; ragged/footer/syntax recovery remains deferred |

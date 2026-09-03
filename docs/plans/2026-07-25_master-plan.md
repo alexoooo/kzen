@@ -21,6 +21,7 @@
 | **J** | `2026-07-25_job-improvements.md` | Job flavour + Report subsumption; its pre-DM `JobMessage` contract is superseded by DM7c before the remaining carrier-sensitive phases execute | J4–J9 |
 | **DM** | `data-model/README.md` | Unified data model — type/value/binding foundation and per-flavour cutovers | DM1–DM11 (DM12/DM13 gated) |
 | **DR** | `data-read-config/README.md` | Configurable, provider-neutral data reading — layered content/coding/character/reader composition, configured formats, typed contracts through Job/UI | DR1–DR7 |
+| **DR8** | `data-format-detection/README.md` | Automatic per-file format detection, safe text fallback, explicit correction/pinning and bounded source resolution | DR8a–DR8f |
 | **E** | `2026-07-25_extensibility-improvements.md` | Plugin registration, plugin UX, Custom power; absorbs reflection R5/R6 | E1–E6 |
 | **DA/SH** | `2026-07-25_desktop-and-hosting.md` | Desktop app distribution + the hosting trio's hygiene tail | SH5, DA1–DA5 (DA6 parked) |
 | **FL** | `2026-07-25_flow-improvements.md` | Flow flavour | FL5, FL6 |
@@ -78,6 +79,12 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 | DR5 | **DR5** — fake-provider proof — **☑ LANDED 2026-09-01** | Fake object-store provider runs the full reader suite; architectural neutrality pin | DR · DR5 | `data-read-config/05-fake-provider-proof.md` | ☑ 2026-09-01 |
 | DR6 | **DR6** — Job/UI/expression cutover — **☑ LANDED 2026-09-01** | Full `DataContract` through validation, cards/connectors, typed expressions; selection UI with schema drafts | DR · DR6 | `data-read-config/06-job-ui-expression-cutover.md` | ☑ 2026-09-01 |
 | DR7 | **DR7** — acceptance/performance gate — **☑ LANDED 2026-09-01** | Fixture matrices, full sibling builds, opt-in 100k canary baseline and threshold | DR · DR7 | `data-read-config/07-acceptance-and-performance-gate.md` | ☑ 2026-09-01 |
+| DR8a | **DR8a** — detection contracts + optional SPIs | Common resolution/provenance/policy models, contextual format resolution, probe/authoring capabilities, graph-backed registry and cache identity | DR8 · DR8a | `data-format-detection/01-resolution-contracts-and-probe-spi.md` | ☐ |
+| DR8b | **DR8b** — built-in probes + Plain text | Bounded shared detector, delimited candidates/header inference, strict skip/comment config and Plain-text reader | DR8 · DR8b | `data-format-detection/02-built-in-probes-and-text-reader.md` | ☐ |
+| DR8c | **DR8c** — Automatic source cutover | Per-file overrides, concrete manifests/provenance, aggregate budgets and File-source default switch | DR8 · DR8c | `data-format-detection/03-automatic-source-integration.md` | ☐ |
+| DR8d | **DR8d** — selection preview + correction UI | Row resolution/epochs/presentation, contributed editor host and source-local corrected formats | DR8 · DR8d | `data-format-detection/04-selection-resolution-and-correction-ui.md` | ☐ |
+| DR8e | **DR8e** — explicit format + locked columns | Make explicit, Lock columns, authored schema/format materialization and drift proof | DR8 · DR8e | `data-format-detection/05-explicit-format-and-column-locking.md` | ☐ |
+| DR8f | **DR8f** — acceptance/performance/downstream gate | Full matrix, aggregate/performance measurements, SPI publication, sample plugin and standalone project builds | DR8 · DR8f | `data-format-detection/06-acceptance-performance-and-downstream-gate.md` | ☐ |
 | 9 | **E1** — extensibility ratification | Verdicts on D1–D6 + gate R5-G — **needs the user**; unblocks rows 10–14 | E · E1 | — | ☐ |
 | 10 | **E2** — plugin module registration | Plugin-shipped `ModuleReflection` + pure-Java path via the R1 mirror (**was R5**) | E · E2 | — | ☐ |
 | 11 | **E3** — plugin UX | Per-document classloader isolation, JAR upload, cached listing, per-definer diagnostics | E · E3 | — | ☐ |
