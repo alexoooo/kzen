@@ -3,9 +3,8 @@
 > **Status: proposal for review, revised after five rounds of design review; not an implementation contract.**
 > This document holds the complete current argument for a data model shared by every Logic flavour. It does not
 > authorize code changes or alter the implementation status of any plan. Every 2026-08-27 design review has been
-> folded in and its file removed — corrections are applied in place, and the
-> [review history](2026-08-27_data-model_history.md) records the disposition of every finding so no review is a
-> second source of truth. This document carries the current contract, its rationale, rejected alternatives, the
+> folded in and its file removed, with corrections applied in place so no review remains a second source of
+> truth. This document carries the current contract, its rationale, rejected alternatives, the
 > adoption gate and the open questions; it does not carry chronology. If the proposal is accepted, this document owns
 > the generic type/value/binding contract: the [data-source model](2026-08-20_data-source-model.md) keeps
 > source selection (refs, parts, units, manifests, resolve/open), the [Job adapter](2026-08-20_job-data-source.md)
@@ -2194,7 +2193,7 @@ Flow with step 6 — not by the first prototype.
 ## 16. Decision index
 
 One line per decision, pointing at the section that owns it; the section is authoritative and this index carries
-no content of its own. Rationale and the review trail are in the [history](2026-08-27_data-model_history.md).
+no content of its own. Rationale lives in the owning sections above.
 
 - **Scope.** One model for every Logic flavour, execution mechanics flavour-specific (§1, §2.3); v1 is the
   vertical proof of §1.2, extensions wait for a named consumer; owner is `kzen-lib-common` with JVM backings in
