@@ -1,6 +1,6 @@
 # DR8d — selection-time resolution and format-owned correction UI
 
-> **Status: open.** Authority: automatic data-format detection §§4.3, 5.2–5.3, 8.1–8.2, 9 and 12.4. Requires
+> **Status: complete — landed 2026-09-03.** Authority: automatic data-format detection §§4.3, 5.2–5.3, 8.1–8.2, 9 and 12.4. Requires
 > DR8c. This session owns preview, presentation and the explicit quick-correction command; it does not implement
 > Make explicit or Lock columns.
 
@@ -77,3 +77,24 @@ changes without adding delimited branches to shared UI code.
 
 The row host can request server-validated materialization and atomically add source-local notation. DR8e reuses
 that seam for pinning and schema authoring; it does not create a second command path.
+
+## As-built
+
+- Added detached `resolveFile` and `materializeFormat` actions behind a neutral file-resolution capability. Both use
+  File source's authoritative contextual resolver/cache path; one-row preview stats only the requested entry.
+- Added a document-owned row-resolution store keyed by source, location, row overrides and source/per-row referenced
+  format-body digests. Per-row epochs suppress stale success/failure responses and preserve unaffected rows through
+  reorder. The store retains the exact one-part manifest for later shape inspection.
+- File rows now show loading, resolved, warning and failure states with concrete format, basis, resolved encoding and
+  product-facing diagnostics. Source and row selectors retain unavailable persisted values; catalog metadata keeps
+  Automatic in the source selector while excluding it from strict per-file choices.
+- Added a generic contributed `FormatOverrideEditorHost` and registered the built-in delimited editor. Its delimiter,
+  header, encoding, skip and comment controls produce canonical overrides and issue no notation command for preview.
+- Apply revalidates row identity, fingerprint, resolved spec and provenance on the server, then returns detached
+  source-local bodies. One `SetDocumentObjectsCommand` reuses value-identical objects or installs collision-safe
+  descendants and changes only the selected row. Clearing an override leaves authored objects intact.
+
+Focused JVM action/materialization tests passed in 2m25s. Focused browser tests passed in 2m30s and the combined
+DR8d/DR8e browser gate passed in 2m21s. The isolated packaged-client boot returned HTTP 200, produced a populated
+React DOM with no JavaScript console errors, and resolved the contributed editor notation to
+`DelimitedFormatOverrideEditor$Wrapper`; only the verified isolated PID on port 18197 was stopped.

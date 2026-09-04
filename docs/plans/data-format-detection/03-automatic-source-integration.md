@@ -1,6 +1,6 @@
 # DR8c — Automatic source resolution, overrides and aggregate budgets
 
-> **Status: open.** Authority: automatic data-format detection §§2–3, 5.1, 5.3–5.4, 6.1, 8.3, 10 and
+> **Status: complete — landed 2026-09-03.** Authority: automatic data-format detection §§2–3, 5.1, 5.3–5.4, 6.1, 8.3, 10 and
 > 12.4–12.5. Requires DR8b. This is the runtime cutover session.
 
 ## Outcome
@@ -84,3 +84,24 @@ coordinate that cannot resolve is an actionable failure and remains visible to t
 Runtime source resolution and `DataSourceActions.resolve` now return authoritative per-part detail. DR8d may add a
 single-file preview action but must delegate to this exact contextual path and cache.
 
+## As-built
+
+- Made `Automatic` the shipped File-source default. Resolution precedence is per-file format, per-file encoding,
+  source format and then Automatic. Explicit choices remain strict; Automatic always stores a concrete reader,
+  coding and config in each `DataPart` plus ordered provenance details.
+- `FileDataSource` resolves files concurrently while preserving authored order and returning no partial manifest.
+  Source-owned aggregate policy enforces 15 seconds, four concurrent cold acquisitions, 256 cold parts and 64 MiB
+  decoded bytes. Reservations roll back on cancellation, and successful permits complete atomically before slots
+  are released.
+- Added source/registry lookup and preflight services. Source-level explicit formats retain stable coordinates;
+  Automatic retains the detector-selected concrete coordinate. Schema reconciliation still applies `superset` or
+  `strict` to the resulting concrete parts.
+- Detection success is cached before cold admission under the full identity. Warm parts therefore bypass cold
+  concurrency, part, byte and deadline limits. Fingerprint, hints, policy, candidates and probe compatibility all
+  invalidate correctly; operational failures never populate the cache.
+- Added a neutral budget factory so integration tests can exercise each aggregate limit independently while the
+  production context retains the documented defaults.
+
+The initial File/source/worker integration gate passed 38 tests in 1m08s. The closing acceptance slice added
+whole-result/no-majority, handle-lifetime, independent-limit, warm-cache and heterogeneous-spec proofs; its combined
+JVM suite passed 70 tests before the final full build.

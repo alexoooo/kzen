@@ -1,6 +1,6 @@
 # DR8f — acceptance, performance and downstream gate
 
-> **Status: open.** Authority: automatic data-format detection §§3, 6, 9–12 and the settled decisions in §14.
+> **Status: complete — landed 2026-09-03.** Authority: automatic data-format detection §§3, 6, 9–12 and the settled decisions in §14.
 > Requires DR8a–DR8e. This is the closing session and the only session that owns arc-wide measurement/publication.
 
 ## Outcome
@@ -84,3 +84,55 @@ an unrelated pre-existing failure is recorded with evidence and surfaced rather 
 - The arc is complete only when `Automatic` is the shipped File default, every manifest is concrete, all requested
   corrective actions are intentional, and every deferred format/recovery feature remains deferred.
 
+## As-built
+
+The acceptance matrix is implemented across focused common, plugin, JVM and JS suites. The final additions cover
+selection/fallback and encoding safety, structured ranking, gzip/BOM disagreement, sample truncation, cancellation
+and close behavior, all cache dimensions, heterogeneous strict/superset sources, per-file overrides, provenance,
+migration, contributed probing/editor/non-authoring cases, authoring isolation and explicit/locked drift.
+
+Cold detection has an optional no-op observer; normal runtime produces no logging. A contributed probe reports
+complete logical records synchronously, and the built-in probe shares one hard allowance across all framing and
+character-view attempts. Observer failures cannot change resolution behavior.
+
+| Scenario | Phase | Decoded bytes | Acquisition codings | Complete records by candidate | Elapsed | Cache state |
+|---|---:|---:|---|---|---:|---|
+| Comma CSV | cold | 25 | identity | CSV 3; semicolon 3 | 198.030 ms | Cold |
+| Comma CSV | warm | 0 | none | none | 17.436 ms | WarmBeforeAcquisition |
+| Regional semicolon CSV | cold | 25 | identity + gzip | CSV 3; semicolon 3 | 30.346 ms | Cold |
+| Regional semicolon CSV | warm | 0 | none | none | 13.236 ms | WarmBeforeAcquisition |
+| Plain text | cold | 27 | identity | CSV 2; pipe 2; semicolon 2; TSV 2 | 25.140 ms | Cold |
+| Plain text | warm | 0 | none | none | 11.470 ms | WarmBeforeAcquisition |
+
+Synthetic source tests independently exercised four concurrent acquisitions, 256 cold parts, 64 MiB decoded bytes
+and the 15-second deadline through injected smaller policies. Every exhaustion failed the whole resolution, closed
+started handles and produced neither partial manifests nor majority-derived specs. Per-part tests pin 256 KiB,
+100 complete logical records across all attempts and two seconds including acquisition/decode.
+
+The unchanged DR7 external 100,000-row protocol passed with these final measurements:
+
+| Path | Median | Range | Throughput | Required floor | Heap delta | Peak growth | GC |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Configured reader | 96.9 ms | 81.4–98.7 ms | 1,032,270 rows/s | 981,006 rows/s | 25,729,608 B | 92,274,688 B | 1 / 2 ms |
+| Job end to end | 194.6 ms | 192.8–247.5 ms | 513,918 rows/s | 448,875 rows/s | 92,552,088 B | 136,592,280 B | 1 / 1 ms |
+
+The canary read 100,000 rows with checksum `5c873a88ffc9ecbb` and aggregate `decimal:1783037.8`. Its configured
+reader path is intentionally pre-resolved, so the separate observer table above owns cold-detection measurement.
+No threshold or protocol changed.
+
+Final gates:
+
+- focused observer/probe/cache tests: 13/13; focused common/plugin gate: green;
+- full `../kzen-auto` build: 1,849 tests, zero failures/errors, one existing skip, 8m20s;
+- FormulaStep canary: 10/10;
+- `publishToMavenLocal`: green after the final plugin SPI change;
+- sample plugin `clean verify`: green, eight Java sources, dependency convergence green, no test sources;
+- standalone `SampleExtensionTest`: 3/3; full `../kzen-project` build: green; both consumer trees stayed clean;
+- isolated packaged-client graph/DOM/console/editor-registration check: green on port 18197; and
+- `git diff --check` and the final concrete-name/cache/fallback/cursor-write/canary-path audit: clean.
+
+The first integration build exposed three compatibility assumptions that were fixed before the final gate: cached
+scripts needed the old six-argument delimited-config constructor, a RunWorker-only fixture needed an explicit CSV
+selection, and programmatic strict formats needed a zero-graph-match preflight path. No release version changed, and
+JSON/NDJSON, columnar/workbook formats, probabilistic charset detection and repair/quarantine behavior remain
+deferred.

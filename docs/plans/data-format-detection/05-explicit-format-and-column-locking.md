@@ -1,6 +1,6 @@
 # DR8e — Make explicit, Lock columns and repeatability
 
-> **Status: open.** Authority: automatic data-format detection §§4.4, 5.2–5.3, 8.3, 10 and 12.4. Requires DR8d.
+> **Status: complete — landed 2026-09-03.** Authority: automatic data-format detection §§4.4, 5.2–5.3, 8.3, 10 and 12.4. Requires DR8d.
 
 ## Outcome
 
@@ -71,3 +71,28 @@ the DR8d source-local authoring path and keep future runs deterministic under th
 
 All product behaviour is present. DR8f performs the adversarial matrix, performance/resource measurements,
 external extensibility proof and downstream compatibility gate without adding opportunistic features.
+
+## As-built
+
+- Extended the single materialization contract with `Override`, `MakeExplicit` and `LockColumns` intents. The server
+  revalidates the exact source, row, fingerprint, current part/spec and automatic provenance before authoring.
+- Make explicit materializes the authoritative full `ResolvedReadSpec`, including reader, ordered content-coding
+  chain, canonical configuration, charset/BOM policy and cleanup controls. Future resolution is strict and performs
+  zero detection reads, while the schema-free contract honestly permits compatible column changes.
+- Lock columns reuses the exact-part shape cache or inspects through `ConfiguredDataOpener` under existing bounds.
+  Dynamic, scalar and unrepresentable results are rejected. `AuthoredRecordSchemaNotation` converts the observed
+  record contract without strengthening inferred types.
+- The source-local materializer allocates/reuses the schema first, binds its final coordinate into the explicit
+  format body, and returns schema, format and row change for one atomic document command. Header formats use exact
+  names; headerless formats use stable positions and strict width.
+- Delimited formats support both intents; Plain text supports Make explicit and reports Lock columns unavailable.
+  Authored children set `catalogVisible: false`, remain directly coordinate-resolvable and never become global
+  catalog/detection candidates. Coding chains remain stable even when later filenames change.
+- Generic UI actions are driven by catalog/provenance/shape state. Copy distinguishes `Explicit format` from
+  `Columns locked`, disables stale/loading/failure/unrepresentable states and offers bounded Inspect columns when a
+  shape is not already cached.
+
+Common DR8e tests passed 9/9; the focused JVM suite passed 50/50; JS compile and the eight-class browser gate passed
+in 2m21s. Acceptance tests then proved delimiter/header drift strictness, schema-free compatible variation,
+missing/extra/renamed column rejection, exact-name reorder behavior, unchanged replacement, captured-manifest
+continuity and fresh locked-contract adoption.

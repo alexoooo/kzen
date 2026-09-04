@@ -1,6 +1,6 @@
 # DR8b — bounded detector, delimited probes and Plain text
 
-> **Status: open.** Authority: automatic data-format detection §§4.1–4.2, 5.2, 6, 7.1–7.6, 9 and 12.1–12.3.
+> **Status: complete — landed 2026-09-03.** Authority: automatic data-format detection §§4.1–4.2, 5.2, 6, 7.1–7.6, 9 and 12.1–12.3.
 > Requires DR8a. This session makes detection executable in isolation but does not yet change `FileDataSource`.
 
 ## Outcome
@@ -87,3 +87,22 @@ diagnostics.
 The detector is callable with an explicit ref, fingerprint, source-level format and optional overrides, and returns
 only concrete execution state plus common provenance. DR8c integrates that operation before `DataPart` creation.
 
+## As-built
+
+- Implemented `AutomaticFormatResolver` with one bounded sample-acquisition flow, strict decoding, contributed candidate
+  probing, deterministic strongest-result selection, structured-hint failures and safe Plain-text fallback.
+- Added CSV, TSV, semicolon and pipe configured instances. `DelimitedProbe` reuses the production parser, preserves
+  all-text row one, applies conservative type-contrast header inference, distinguishes exact extensions from family
+  hints and enforces one shared 100-complete-record allowance across every framing/character-view attempt.
+- Added strict UTF-8/BOM handling, constrained Windows-1252 fallback, binary-control rejection, gzip magic
+  authority, `.gz` disagreement failure, mixed-case suffix handling and ZIP rejection. Cancellation and every
+  acquisition/decode/probe failure close their handles and remain uncached.
+- Extended delimited configuration and parsing with explicit nonnegative `skipLeadingLines` and optional exact
+  comment prefix. Width, header and malformed-record diagnostics retain logical record/column context. The legacy
+  six-argument `DelimitedReadConfig` constructor remains binary compatible for cached compiled scripts.
+- Added the Plain-text reader and format with stable `Record(line: Text)` output, LF/CRLF/lone-CR support, blank-line
+  preservation and correct final-line behavior. Semantic text hints select it directly; unhinted valid text reaches
+  it only after structured candidates fail or tie.
+
+The initial focused detector/reader suite passed in 46 seconds, with a separate cancellation gate in 13 seconds.
+The final ceiling, decoder, acquisition, cache and measurement suites passed again before the full build.

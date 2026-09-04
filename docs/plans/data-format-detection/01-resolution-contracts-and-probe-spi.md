@@ -1,6 +1,6 @@
 # DR8a — resolution contracts, discovery and optional capabilities
 
-> **Status: open.** Authority: automatic data-format detection §§2–3, 5.1–5.4, 6, 7.3 and 14. Requires the
+> **Status: complete — landed 2026-09-03.** Authority: automatic data-format detection §§2–3, 5.1–5.4, 6, 7.3 and 14. Requires the
 > completed DR1–DR7 configurable-reading arc. This session changes contracts and registry behaviour but does not
 > change the File-source default or perform content detection.
 
@@ -90,3 +90,27 @@ Record any anchor movement in the As-built section rather than preserving stale 
 
 DR8b receives stable request/result types, discovery, candidate enumeration, optional capability lookup and cache
 identity. It must not revise these to smuggle parser-specific fields into generic models.
+
+## As-built
+
+- Added immutable resolution request/result, provenance, normalized hint, detection policy, budget, candidate
+  identity and cache-key models. `DataResolveResult` now carries ordered resolution details in both wire forms while
+  keeping them outside `DataPart` execution identity; legacy payloads decode with an empty collection.
+- Made contextual `ConfiguredRecordFormat.resolve` the canonical suspendable API and retained the fixed call as a
+  deprecated compatibility seam. Encoding overrides are accepted only by formats that can rebuild and validate
+  their own typed configuration.
+- Added optional `ReaderProbeCapability` and `FormatAuthoringCapability` plugin SPIs. Reader registration indexes
+  the optional capabilities independently and rejects duplicate compatibility identities.
+- Replaced literal format scans with `ConfiguredRecordFormatRegistry`. It discovers graph-backed catalog entries,
+  candidates, hints, editor metadata and authoring availability; exact and unique semantic coordinates are stable,
+  while ambiguous matches fail. Strict programmatic formats may resolve only when there is no graph match and never
+  enter discovery.
+- Cache identity includes canonical ref/fingerprint, normalized hints, explicit encoding, policy, probe identities
+  and the complete candidate metadata digest. The final audit corrected an early implementation that hashed only
+  the format body.
+- Later sessions extended these contracts without format-name branches: per-file eligibility, materialization
+  intent, locked-column provenance, full `ResolvedReadSpec` authoring input and passive detection observation.
+
+Validation included common serialization/digest tests, plugin tests, reader-registry tests, configured-format
+resolution tests and detached action tests. The closing full build exercised the final contracts as part of 1,849
+tests with zero failures.

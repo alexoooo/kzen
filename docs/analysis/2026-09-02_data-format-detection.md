@@ -7,7 +7,7 @@
 > only the blanket exclusion of automatic format and header detection: inference is permitted inside the explicit
 > `Automatic` authoring mode under the conservative rules below. A user-selected concrete format is never guessed,
 > repaired or silently reinterpreted. This revision incorporates the accepted findings and resolves the disputed
-> points from [`2026-09-02_data-format-detection_review-1.md`](2026-09-02_data-format-detection_review-1.md).
+> points from the completed review pass.
 
 ## 1. Problem definition
 

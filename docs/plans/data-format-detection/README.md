@@ -1,6 +1,6 @@
 # Automatic data-format detection — constituent implementation plan
 
-> **Status: planned — DR8a–DR8f open.** Design authority:
+> **Status: complete — DR8a–DR8f landed 2026-09-03.** Design authority:
 > [`docs/analysis/2026-09-02_data-format-detection.md`](../../analysis/2026-09-02_data-format-detection.md),
 > including its incorporated review amendments. The completed configurable-reading arc at
 > [`docs/plans/data-read-config/README.md`](../data-read-config/README.md) is the implementation baseline.
@@ -31,12 +31,12 @@ When a session lands:
 
 | ID | Session file | Outcome | Status |
 |---|---|---|---|
-| DR8a | [`01-resolution-contracts-and-probe-spi.md`](01-resolution-contracts-and-probe-spi.md) | Common resolution/provenance/policy models, contextual format resolution, optional probe and authoring SPIs, graph-backed format registry, cache identity | ☐ |
-| DR8b | [`02-built-in-probes-and-text-reader.md`](02-built-in-probes-and-text-reader.md) | Shared bounded detector, CSV/TSV/semicolon/pipe probing, safe header inference, strict delimited cleanup controls, Plain-text reader | ☐ |
-| DR8c | [`03-automatic-source-integration.md`](03-automatic-source-integration.md) | `Automatic`, per-file override precedence, concrete manifests, aggregate source budgets, File-source default cutover | ☐ |
-| DR8d | [`04-selection-resolution-and-correction-ui.md`](04-selection-resolution-and-correction-ui.md) | Selection-time preview, stale-response protection, per-row provenance/errors, contributed correction editor and file-local authored formats | ☐ |
-| DR8e | [`05-explicit-format-and-column-locking.md`](05-explicit-format-and-column-locking.md) | Make explicit, Lock columns, schema materialization and replacement/drift repeatability proof | ☐ |
-| DR8f | [`06-acceptance-performance-and-downstream-gate.md`](06-acceptance-performance-and-downstream-gate.md) | Full acceptance matrix, resource/performance measurements, plugin extensibility proof, publication and downstream builds | ☐ |
+| DR8a | [`01-resolution-contracts-and-probe-spi.md`](01-resolution-contracts-and-probe-spi.md) | Common resolution/provenance/policy models, contextual format resolution, optional probe and authoring SPIs, graph-backed format registry, cache identity | ☑ 2026-09-03 |
+| DR8b | [`02-built-in-probes-and-text-reader.md`](02-built-in-probes-and-text-reader.md) | Shared bounded detector, CSV/TSV/semicolon/pipe probing, safe header inference, strict delimited cleanup controls, Plain-text reader | ☑ 2026-09-03 |
+| DR8c | [`03-automatic-source-integration.md`](03-automatic-source-integration.md) | `Automatic`, per-file override precedence, concrete manifests, aggregate source budgets, File-source default cutover | ☑ 2026-09-03 |
+| DR8d | [`04-selection-resolution-and-correction-ui.md`](04-selection-resolution-and-correction-ui.md) | Selection-time preview, stale-response protection, per-row provenance/errors, contributed correction editor and file-local authored formats | ☑ 2026-09-03 |
+| DR8e | [`05-explicit-format-and-column-locking.md`](05-explicit-format-and-column-locking.md) | Make explicit, Lock columns, schema materialization and replacement/drift repeatability proof | ☑ 2026-09-03 |
+| DR8f | [`06-acceptance-performance-and-downstream-gate.md`](06-acceptance-performance-and-downstream-gate.md) | Full acceptance matrix, resource/performance measurements, plugin extensibility proof, publication and downstream builds | ☑ 2026-09-03 |
 
 ## Authoritative execution order
 
@@ -90,4 +90,3 @@ before continuing.
 JSON/NDJSON, Parquet, JDBC/native rows, ZIP browsing, `.xlsx`/`.xls`/`.ods` workbook and sheet selection,
 probabilistic charset detection, semantic type inference without an authored schema, whole-dataset prevalidation,
 ragged-row repair, footer removal, syntax skipping and quarantine remain separate capabilities or designs.
-
