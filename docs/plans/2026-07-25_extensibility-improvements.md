@@ -1,7 +1,8 @@
 # Third-party extensibility — plugin registration, plugin UX, Custom power, plain-object data (E1–E9)
 
-> **Status: E1 ratified 2026-09-04; E2/E3 re-elaborated; E7/E8/E9 added; review 1 of the hosting
-> analysis folded in the same day (`docs/analysis/2026-09-03_in-process-hosting_review-1.md`).** Promotes
+> **Status: E1 ratified 2026-09-04; E2/E3 re-elaborated; E7/E8/E9 added; reviews 1 and 2 of the hosting
+> analysis folded in the same day (`docs/analysis/2026-09-03_in-process-hosting_review-1.md`,
+> `…_review-2.md`).** Promotes
 > `sprint-2/2026-07-06_custom-plugin-extensibility-analysis.md` from analysis to plan format, and
 > **merges in the open tail of `sprint-2/2026-07-18_reflection-improvements.md`** — R5 *is* the
 > reflection half of D1, so they are one arc, not two plans. Executor: **Opus-class, one phase per
@@ -15,17 +16,25 @@
 > as typed data — no annotations, no wrappers), **E8** (object-graph paths in a Job) and **E9**
 > (closeable streams and items — the user's memory-arena requirement). Review 1 corrected E2's first
 > re-elaboration on one point that matters: the plugin universe is **process-global**, not per context.
+> Review 2 corrected three more and settled the contracts an implementer needs: closeable-item
+> ownership is an **explicit lease ledger**, not an iterator hook (the framework's Worker loops consume
+> batches — E9); the expression classpath is an **aggregate delegating loader plus an explicit jar
+> union** for the compiler, and a `@Reflect` name in two scopes is a **resolution-time ambiguity**, not a
+> boot error (E2); a plugin's generated `@Service` needs are validated **per context** and never block a
+> workspace that does not use them (E2). Smaller contracts written into their phases: a `Class<?>`-keyed
+> Java host builder and process-wide work-root claims (E2), a fixed bean property order (E7), null /
+> empty-list path semantics (E8).
 >
 > **Progress tracker** (update as phases land):
 > - [x] E1 — ratification: D1–D7 + gate R5-G — **ratified 2026-09-04 (user); verdicts below**
-> - [ ] E2 — plugin = classloader: one process-global `KzenAutoRuntime` (loaders, mirrors, discovery, expression classpath) initialized once before any context; directory discovery; `ServiceLoader` + mirror + notation per loader; Java-friendly SPI adapters (**was R5 + D1 + D2**)
+> - [ ] E2 — plugin = classloader: one process-global `KzenAutoRuntime` (loaders, aggregate loader + compilation classpath, one mirror, discovery, work-root claims) initialized once before any context; directory discovery; `ServiceLoader` + notation per loader; per-context plugin service availability; Java-friendly SPI adapters and a `Class<?>`-keyed host builder (**was R5 + D1 + D2**)
 > - [ ] E3 — plugin UX: `PluginDocument` as the *discovery-based* diagnostics view, `--plugin.root=`, listing from cache, plugin compatibility test kit (**D3 = not now, do not preclude**)
 > - [ ] E4 — Custom power: prototype metadata (C4), per-tag affordance registry (C6), run-result persistence (D6), the C7 document-rename gap
 > - [x] E5 — ObjectRegistry disposition (D4) — **moot; `ObjectRegistryScan` left the tree during the Job data-source work. Closes with a doc grep**
 > - [x] E6 — DataSchema gate (D5) — **absorbed by DS6 on 2026-08-24; real consumer landed**
 > - [ ] E7 — plain-object data shape (D9): ordinary classes by convention, enums, `Set`, design-time shape through the adapter registry, per-class token cache, recursive type references
 > - [ ] E8 — object-graph paths: path-projection / unnest Worker + design-time path picker
-> - [ ] E9 — closeable streams and items: `AutoCloseable` honoured on every stream type (incl. `java.util.stream.Stream`) and on individual elements, with defined close timing across channels, migration, cancel and failure
+> - [ ] E9 — closeable streams and items: `AutoCloseable` honoured on every stream type (incl. `java.util.stream.Stream`) and on individual elements through an explicit lease ledger (framework loops lease per callback, accumulators lease explicitly), with defined close timing across channels, migration, cancel and failure
 > - [x] **R6 — client-plugin verdict: CLOSED, no session required.** A separately-compiled Kotlin/JS
 >   bundle does not share class identity with the host bundle (two copies of kzen-lib-common ⇒
 >   `instanceof`, sealed hierarchies and registry-typed lookups all fail), so "load another bundle
@@ -107,7 +116,7 @@ is built for the Report paradigm.
 
 **Risk: medium.** The lifecycle risk the first draft carried (classloader pinning vs the Windows
 jar-lock) is gone with R5-G; what remains is the runtime / context split and the discovery rules — the
-expression-classpath threading turned out to be one function (below).
+expression classpath is one aggregate loader plus an explicit jar union handed to the compiler (below).
 
 **Goal:** a plugin — a directory of jars, or the application classpath itself — contributes readers,
 `@Reflect` objects (Job Workers, Script steps, Flow vertices, Custom prototypes) and notation, with zero
@@ -124,9 +133,11 @@ loader included (D10):
    `provider.type().classLoader === loader`), since a child loader's `ServiceLoader` also yields every
    parent provider. `ReportDefiner` is **not** discovered from plugins any more (Job replaces Report);
    the built-in definer repository is untouched.
-2. **A `ReflectiveClassMirror(loader)` registered on `GlobalMirror`** per plugin loader — the class's own
-   KDoc already says *"one instance per ClassLoader: a host with plugin loaders registers one mirror per
-   loader"*. `@Reflect` classes (Java with `javac -parameters`, or Kotlin) become constructible;
+2. **One `ReflectiveClassMirror` over the runtime's aggregate loader** (below), appended once to
+   `GlobalMirror` after `ReflectiveClassMirror.global` [review 2 — replaces "one mirror per plugin
+   loader": the class's KDoc allows either, and one mirror over the aggregate is where a name defined by
+   two scopes is *detected*, so `GlobalMirror`'s first-match chain never arbitrates between plugin
+   scopes]. `@Reflect` classes (Java with `javac -parameters`, or Kotlin) become constructible;
    `@Service` parameters resolve from the `GraphEnvironment`. **The mirror is lazy**, so R4's boot
    validation (`ServiceEnvironmentValidation` iterates `ReflectionRegistry.global` — the generated
    registry only) does *not* cover plugin classes; a malformed class or a missing `@Service` surfaces when
@@ -134,6 +145,18 @@ loader included (D10):
    plugin *may* ship a KSP `ModuleReflection`, but a folder plugin cannot "call `register()`" on its own:
    the rule is a `ServiceLoader` provider for `ModuleReflection`, registered before the mirror so the
    generated path wins for the same class name. It gains nothing a Java plugin cannot do.
+
+   **Plugin `@Service` needs are validated per context, never at boot for everyone [review 2].**
+   `ServiceEnvironmentValidation` throws at *every* context creation for any unsatisfied `@Service` in
+   the global registry, so a plugin Worker generated with `@Service TradeRepository` would stop a
+   workspace that never references it — while the same Worker served by the mirror would fail lazily.
+   KSP must not silently change admission semantics, so plugin contributions keep their **contribution
+   origin** (scope) instead of flattening into `ReflectionRegistry.global`: kzen's own generated
+   registrations keep boot validation; a scope's generated contributions are checked against *each*
+   context's environment when that context is created, and a reflective one when first resolved; an
+   unsatisfied contribution is recorded on the scope as **"unavailable in this workspace: needs
+   `TradeRepository`"** — a named E3 diagnostic — and a reference to it fails with that reason, not with
+   a deep "Missing service". The context starts regardless.
 3. **Bundled notation.** `ClasspathNotationMedia` scans `notation/**` on the *context* classloader; make
    the loader set explicit (one scan per plugin loader, merged) so a folder plugin's
    `notation/auto-jvm/<plugin>/…` archetypes, ribbon tools and ready-made documents are discovered
@@ -150,27 +173,43 @@ JVM): plugin loaders, mirrors, reader discovery, notation loader set, expression
 *conflicting* configuration fails fast (CC-08), an identical one is a no-op so `forTest()` and the
 many-contexts-per-JVM test suite keep working. Each subdirectory is one `URLClassLoader` over its
 `*.jar`s in **deterministic order** (directories sorted by name, jars sorted by name), parent
-kzen-auto-jvm's loader; never closed; restart to upgrade. Duplicate plugin ids, reader identities,
-`@Reflect` class names across loaders and notation paths are **boot errors**; a broken plugin fails *its*
+kzen-auto-jvm's loader; never closed; restart to upgrade. Duplicate plugin ids, reader identities and
+notation paths are **boot errors** — discovery enumerates them; a `@Reflect` class name defined by two
+scopes is **not** knowable at boot without the class scan review 1 removed, so it is a **resolution-time
+ambiguity error** raised by the aggregate loader (below) and recorded on both scopes as a named E3
+failure [review 2]. A broken plugin fails *its*
 scope with a named diagnostic and does not hide the others. The runtime owns the list (`PluginScopes`:
 the app loader + one per directory, each with id / version / path / status) that E3 renders. An optional
 `META-INF/kzen/plugin.yaml` carries `id`, `version` and a **kzen plugin-SPI compatibility version or
 range** (a boot-time compatibility error beats a later linkage failure) — metadata, never a class
 allow-list; nothing in it is required. `META-INF/kzen/plugins.yaml` (the `ReportDefiner` class list) is
 retired. A context is created *against* the runtime and owns only graph, host services, work roots,
-controller and server.
+controller and server. **The runtime also claims each live context's work root** [review 2]: the
+normalized root (`toRealPath()` where it exists — symlinks and case differences on Windows defeat string
+normalization) is registered at context creation and released at close; a second live context on the
+same root fails fast, because `JobWorkPool`'s boot sweep and run-settle cleanup would otherwise inspect
+the other context's files. The per-context signature is the root claim plus a UUID — `WorkUtils`'s
+`LocalDateTime.now()` alone lets two contexts created in one instant collide.
 
-**Expression-compiler classpath (the D8 enabler) — simpler than threading.** `FormulaSourceWorker`,
-`FormulaWorker`, `FilterWorker`, `RunWorker`, `CsvWriterWorker`, `ExportWriterWorker`, `JobValidator`,
-`ReportDocument` / `ReportRun` and `PluginDocument` all take `ClassLoaderUtils.dynamicParentClassLoader()`
-directly. Because the loader set is process-global, that function can simply return the runtime's
-**composite loader** (kzen-auto-jvm's loader as parent, then each plugin loader in order —
-`ScriptKotlinCompiler` derives its classpath from the loader it is handed via `classpathFromClassloader`,
-so a `URLClassLoader` chain works unchanged); **zero call-site changes**. Class identity is preserved — a
-compiled script's loader delegates to the *same* plugin loader that served the mirror, never a second
-copy; a name present in two plugins is a boot error above, so first-wins never silently applies. The
-Spring Boot `LaunchedURLClassLoader` comment stays as the reason the in-process host uses plain jars.
-After this, `ItchReader(Path.of(file))` from a folder plugin compiles in an expression.
+**Expression-compiler classpath (the D8 enabler) — one aggregate loader plus an explicit jar union
+(review 2 corrects "simpler than threading").** `FormulaSourceWorker`, `FormulaWorker`, `FilterWorker`,
+`RunWorker`, `CsvWriterWorker`, `ExportWriterWorker`, `JobValidator`, `ReportDocument` / `ReportRun` and
+`PluginDocument` all take `ClassLoaderUtils.dynamicParentClassLoader()` directly. Because the loader set
+is process-global, that function returns the runtime's **aggregate delegating loader**: parent
+kzen-auto-jvm's loader, consulted first as usual; on a miss, each plugin scope's `URLClassLoader` is asked
+whether it *defines* the name and the aggregate returns that loader's `Class` — it never defines a copy
+itself. (A flat `URLClassLoader` over every plugin jar would, and would break identity between a value
+the plugin's mirror constructed and the type a compiled expression names. A workspace expression has no
+owning plugin and may name types from two plugins at once, so "hand the compiler *the* plugin loader" was
+never well-defined.) A name defined by two scopes is the ambiguity error above, raised lazily by this
+loader. **Zero call-site changes for *loading*. Compilation needs one more thing:** `ScriptKotlinCompiler`
+derives its classpath from `classpathFromClassloader`, which walks `URLClassLoader` chains and sees
+nothing through a delegating loader — so the runtime also owns the **explicit union of plugin jar paths**,
+and the compiler's `classpathLocations` receives it (one call site, inside `ScriptKotlinCompiler`, not
+the Workers). Class identity is preserved — a compiled script's loader delegates to the aggregate, which
+delegates to the *same* plugin loader that served the mirror, never a second copy. The Spring Boot
+`LaunchedURLClassLoader` comment stays as the reason the in-process host uses plain jars. After this,
+`ItchReader(Path.of(file))` from a folder plugin compiles in an expression.
 
 **Java-friendly SPI (shape per review 1).** `kzen-auto-plugin` gains `BlockingReaderCapability`
 (abstract; non-suspend `openBlocking` / `inspectBlocking`, the `suspend` pair implemented once on top)
@@ -181,6 +220,13 @@ detection), batching, checkpoints, cancellation and close. Checked: `Emitter.sen
 `JobControl.checkpoint` are `suspend` with no non-suspend forms, so the earlier "blocking
 `produce(emit, control)`" cannot be written from Java. Close semantics for the cursor and its items are
 E9's; this phase only wires the hook.
+
+**Java host facade [review 2].** `KzenAutoHost` keeps `Map<ClassName, Any>` as its representation
+(common code), and gains a JVM builder keyed by `Class<?>` — `KzenAutoHost.builder().service(
+TradeRepository.class, repo).build()`, `Class` converted to `ClassName` internally — so a Java host never
+spells a kzen name, and a Spring proxy is registered under the interface the Worker's `@Service`
+declares rather than its runtime class. Kotlin gets `inline fun <reified T : Any> service(instance: T)`.
+Supplier / scoped bindings stay a later addition.
 
 **Build discipline:** `:kzen-auto-plugin:publishToMavenLocal` before any non-composite consumer —
 `../kzen-sample-plugin` above all. Any Kotlin *test* plugin lives in a **separate module** (the KSP2
@@ -202,7 +248,16 @@ test-source-set gotcha in Landed context).
 - **Determinism and isolation:** two plugin directories, one with an unopenable jar — the other still
   contributes and the runtime lists the failure by name; a duplicate reader identity across two
   directories is a boot error; a parent-loader provider is counted once; a second runtime
-  initialization with a different root fails fast, an identical one is a no-op.
+  initialization with a different root fails fast, an identical one is a no-op; a second live context
+  on a work root another context holds fails fast, and closing the first releases the claim.
+- **Aggregate loader and compilation classpath (review 2):** one expression referencing types from two
+  plugin directories compiles; an instance created by a plugin's mirror passes into it and an
+  identity-sensitive cast / method call succeeds; the same class name in two scopes is reported as an
+  ambiguity, never first-wins; a compiled expression keeps working after a second context is created
+  (the aggregate is process-global and is never rebuilt per context).
+- **Plugin service availability (review 2):** a KSP test plugin whose Worker requires a service one of
+  two contexts lacks — the lacking context still starts, lists the Worker as unavailable with the
+  missing service named, and fails a reference to it with that reason; the other context runs it.
 - **Plugin compatibility test kit (review 1):** a reusable entry point in `kzen-auto-plugin`'s test
   fixtures that takes a plugin directory and verifies loader creation, reader discovery, notation
   discovery, reflective construction, expression visibility, duplicate detection and expected
@@ -224,8 +279,10 @@ log. Installation itself stays a filesystem / dependency act (D3).
    authoring faces, notation documents merged — plus the `@Reflect` classes the mirror has *actually
    been asked to resolve*, and every **failure**, named: a jar that would not open, a `ServiceLoader`
    provider whose constructor threw, a `@Reflect` class the mirror reported `Malformed` (no
-   `-parameters`, ambiguous constructors), a `@Service` type missing from the environment, a notation
-   document rejected by the `serverAllowed` filter, an SPI-version mismatch. **The promise is
+   `-parameters`, ambiguous constructors), a contribution **unavailable in this workspace** with the
+   missing `@Service` type named (review 2), a `@Reflect` name defined by two scopes (resolution-time
+   ambiguity, review 2), a notation document rejected by the `serverAllowed` filter, an SPI-version
+   mismatch. **The promise is
    deliberately smaller than "everything in the jar" (review 1):** the mirror is lazy, so an
    unreferenced class does not appear, and a malformed one appears after notation references it. No
    class index or classpath scan exists solely for this screen. The `jarPath` attribute is retired with
@@ -306,11 +363,18 @@ anything else.
 **Items (kzen-lib-jvm unless noted):**
 1. **Ordinary classes by convention.** Extend the resolver's `isRecord` / `isData` branch and
    `NativePropertyPlans.create` (today: *"limited to Kotlin data classes and Java records"*) with the
-   JavaBeans shape: public no-arg `getX()` / `isX()` and public fields are fields; order = declaration
-   order then alphabetical (reflection guarantees neither — state the rule); nullability from
-   `@Nullable` / `@NonNull` (JSpecify and JetBrains) when present, otherwise every reference-typed field
-   is optional; `getClass` excluded; superclass properties included; a getter that throws is a
-   `DataAccessException` naming the field, not a run crash. **S.**
+   JavaBeans shape: public no-arg `getX()` / `isX()` and public fields are fields. **The convention,
+   fixed [review 2]** so nothing is decided in code: property **order is lexical by final property
+   name** (reflection guarantees no declaration order; records and data classes keep their declared
+   component order — this rule is for the bean shape only); names by JavaBeans decapitalization
+   (`getURL()` → `URL`, `getId()` → `id`); precedence: a getter over a public field of the same name,
+   `getX()` over `isX()`, `isX()` only for primitive `boolean`; the most-derived declaration wins across
+   the hierarchy, and a getter and a field of the same name with different types is a resolver error
+   naming the class; static, synthetic and bridge members excluded; `getClass` excluded; nullability
+   from `@Nullable` / `@NonNull` (JSpecify and JetBrains) on the getter, then the field, then a
+   JSpecify `@NullMarked` package or class, otherwise every reference-typed field is optional; a getter
+   that throws is a `DataAccessException` naming the field, not a run crash. These are data-shape rules,
+   not a security boundary. **S.**
 2. **Enums → `ScalarKind.Text`** (the constant name), in both describe and lift. **XS.**
 3. **`Set` accepted as an unordered Listing** (iteration order, documented as unstable) in describe,
    lift and `isRefusedAutomaticType`; `Sequence` / `Iterator` stay refused as *values*. A *top-level*
@@ -347,7 +411,12 @@ works today), but aggregate and the CSV / export writers need **flat columns**. 
    (`instrument.symbol`, `executions[*].price`, `executions[*].trade.venue`); the output contract is a
    flat Record of those leaves; a `[*]` segment **unnests** — one output row per element, the other
    columns repeated; several `[*]` on the same list share one iteration, on different lists produce
-   the cross product (state the rule; reject ambiguous mixes at validation). Reads through
+   the cross product (state the rule; reject ambiguous mixes at validation). **The remaining rules,
+   fixed [review 2]:** a `null` intermediate yields `null` for every leaf through it and *keeps* the row
+   (never drops, never errors — dropping is a Filter's job); an empty unnested list yields **zero** rows
+   for that path (one row per element, and there are none), and a `null` list is treated as empty; two
+   `[*]` on the same list share the element, never a self-product; a recursive reference (E7 item 5) is
+   a collapsed node in the picker, expanded on demand, never pre-expanded. Reads through
    `ValueAccess.field` / `element` / `entry`, so it is lazy and allocation-light. **M.**
 2. A **design-time path picker**: the attribute editor walks the upstream contract (E7's recursive
    references make that finite) and offers leaves and `[*]` lists; generic-editor vocabulary per
@@ -373,7 +442,11 @@ defined timing; without this phase it would hold the arena until the run ends.
 (`DetachedCursor`, adoption identity). `FormulaSourceWorker` closes nothing, and resumes a live edit by
 re-evaluating the expression and skipping the delivered prefix (review 1). Channels move `DataValue`s in
 batches (`JobChannel`, `batchSize`), and `drainBuffered` / `preload` carry in-flight elements across a
-migration. No `DataValue` has a lifecycle today.
+migration. **The framework's Worker loops consume physical batches** — `TransformWorker`, `SinkWorker`
+and `ExpandingTransformWorker` call `receiveBatch()` and dispatch each element to `onElement`; only a
+raw Worker reads through `receive()` / `iterator()` (review 2). `SortWorker` keeps each `DataValue` in
+an ordinary collection until end-of-stream, which nothing can observe from outside. No `DataValue` has a
+lifecycle today.
 
 **Items (kzen-auto-jvm unless noted):**
 1. **Streams.** Add `java.util.stream.Stream` as a fourth stream type in `ExpressionReturnTypeInference`
@@ -383,39 +456,59 @@ migration. No `DataValue` has a lifecycle today.
    migration** exactly like `DataReadCore`'s cursor — never re-evaluated-and-skipped (that would open the
    resource twice); a non-closeable stream keeps skip-resume; a top-level `Set` is **not resumable**
    (restart on edit — its order is not stable). **S–M.**
-2. **Closeable elements — the ledger.** One `CloseableLedger` per run, keyed by the *native object's
-   identity* (`IdentityHashMap`; wrappers can be recreated, the resource cannot). An entry is created
-   when `JobDataValues.lift` sees an `AutoCloseable` native, and every `DataValue` lifted from it carries
-   an **owner handle**. Ownership is a **reference count over channel hand-offs**:
-   - `ChannelOutput.send` of an owned value: **+1 per channel** (a Worker with two outputs counts twice;
-     fan-in producers each count their own send);
-   - the consumer **moves past the element**: **−1**. Not when the element *leaves* the channel
-     (`receive` — the Worker has not read it yet) but when the Worker is **done with it**, which the
-     framework observes as the Worker pulling the *next* element, or `hasNext` returning false at
-     end-of-stream. Implemented inside the channel's consumer endpoint (`ChannelInput`'s iterator
-     decrements the element it returned previously on each `next()`), so no Worker cooperation is
-     needed; per element, not per batch, so the close follows the consumer's cursor;
-   - zero → `close()`, entry removed; a later read through `NativeObjectValueAccess` (kzen-lib-jvm) is a
-     named `DataAccessException`, never a silent read;
+2. **Closeable elements — the ledger, with explicit leases (review 2 corrects the first draft, which
+   put the decrement in `ChannelInput`'s iterator and claimed no Worker cooperation — the framework
+   loops do not read through that iterator, and an accumulator's retained reference is invisible to
+   the runtime).** One `CloseableLedger` per run, keyed by the *native object's identity*
+   (`IdentityHashMap`; wrappers can be recreated, the resource cannot). **Emitting an `AutoCloseable`
+   native transfers its ownership to the run:** the entry is created when `JobDataValues.lift` sees one,
+   and every `DataValue` lifted from it carries an **owner handle**. A host object kzen must *not* close
+   (a shared connection, a service handle) is wrapped in a non-owning adapter from `kzen-auto-plugin`
+   (`Borrowed.of(x)`) or kept off this route. Ownership is a **count of leases, each with a named
+   holder**:
+   - `ChannelOutput.send` of an owned value: **+1 per channel**, the channel being the holder (a Worker
+     with two outputs counts twice; fan-in producers each count their own send), taken *before* the
+     sender's own lease is released, so the count never touches zero mid-hop;
+   - the framework's drive loops (`TransformWorker`, `SinkWorker`, `ExpandingTransformWorker`, the
+     cursor-driven `SourceWorker`) receive physical batches through `receiveBatch()` and convert the
+     channel's lease into an **implicit per-callback lease** held by the Worker for the duration of
+     `onElement`, released when the callback returns: **−1 then, per element, not per batch**. Not when
+     the element leaves the channel (`receive`), not when the batch is drained, but when the Worker is
+     **done with it**. A raw Worker reading through `receive()` / `iterator()` gets the same rule from
+     the consumer endpoint: `ChannelInput` releases the element it returned previously on each further
+     pull, or at end-of-stream. Ordinary Worker authors do nothing;
+   - a Worker that keeps the value **beyond the callback** — Sort, Pivot and Summary buffering to
+     end-of-stream, or a plugin Worker with a window — takes an **explicit lease**
+     (`control.retain(value): Lease`, closed when it is done), which names *that Worker* as the holder.
+     This is the only cooperation E9 asks of an author, and only for retention; the built-in
+     accumulators either lease or materialize the fields they need into unowned scalars before
+     buffering (Sort on a scalar key does the latter and holds nothing);
+   - a lease's holder is the **Worker location**, not the instance: `ExpandingTransformWorker` carries
+     its active batch across a checkpoint, and an accumulator's buffer survives a live-edit migration,
+     so re-adoption by the replacement instance is a ledger no-op;
+   - zero → `close()` exactly once, entry removed; a later read through `NativeObjectValueAccess`
+     (kzen-lib-jvm) is a named `DataAccessException`, never a silent read; the same native identity
+     lifted *again* after its close is a fresh entry (the ledger cannot tell a reopen from a bug — the
+     post-close guard on the old wrappers is what catches the bug);
    - `drainBuffered` / `preload`: **unchanged** — the ledger is per run, not per graph instance, and a
-     carried element is still "in a channel";
-   - run teardown, cancel, failure: every outstanding entry closed, best-effort (every close attempted,
-     first exception rethrown after all).
+     carried element is still held by its channel;
+   - run teardown, cancel, failure: every outstanding lease released and every entry closed,
+     best-effort — every close attempted, a `close()` that throws does not stop the remaining closes,
+     the first exception rethrown after all.
 
-   One hop, spelled out — source → channel A → Worker X → channel B → writer:
+   One hop, spelled out — source → channel A → Worker X (a `TransformWorker`) → channel B → writer:
 
-   | Step | Count |
+   | Step | Leases |
    |---|---|
-   | source sends the item to A | 1 |
-   | X receives it from A | 1 (no change) |
-   | X sends it, or a non-scalar derivative, to B | 2 |
-   | X pulls its next element from A | 1 |
-   | writer receives it from B and writes it | 1 (no change) |
-   | writer pulls its next element from B, or hits end-of-stream | 0 → `close()` |
+   | source sends the item to A | A: 1 |
+   | X's loop receives the batch and calls `onElement` | A released; X (callback): 1 |
+   | `onElement` sends it, or a non-scalar derivative, to B | X: 1 + B: 1 = 2 |
+   | `onElement` returns | B: 1 |
+   | writer's loop calls `onElement`, which writes it | B released; writer (callback): 1 |
+   | writer's `onElement` returns | 0 → `close()` |
 
-   Had X emitted only a scalar, step 3 would not count and the close would fire at step 4, right after X
-   moved on. The single assumption is item 7's contract: a Worker does not hold the element after pulling
-   the next one. **M.**
+   Had X emitted only a scalar, step 3 would not count and the close would fire at step 4. Had X been a
+   Sort, step 4 would leave X's explicit lease in place and the ledger would name X as the holder. **M.**
 3. **Aliasing — owner propagation (the real design question).** A count on the top-level element is not
    enough: a Formula returning `it.orders` hands downstream a `List` that *lives inside* the owned object,
    and a fresh lift would give it no owner, so the parent would close while a child is in flight. Two
@@ -437,16 +530,18 @@ migration. No `DataValue` has a lifecycle today.
    open until the source finishes, and a day larger than the arena then blocks the source on a permit
    only the accumulator's completion would release. That is inherent to native resources in a pipeline,
    not incidental complexity, so no validation rule: the ledger instead **surfaces its state** — open-item
-   count and the Worker(s) currently holding each item in the run's progress publication, and a stall
+   count and the exact holder of each lease (a channel, a callback in flight, or an accumulator's
+   explicit lease — item 2 is what makes the holder a name, not a guess) in the run's progress publication, and a stall
    diagnostic (source parked in `runBlockingIo` while owned items are held by an accumulating Worker)
    naming the holder in the log and the run status. **S.**
 6. **Route independence.** The same ledger serves `DataCursor` items (`ReadWorker`), the cursor-driven
    Java `SourceWorker` (E2), host-object `@Service` sources and expression streams — one test fixture,
    four entry points. **S.**
-7. **Worker contract, documented:** a Worker must not retain a closeable native beyond the element it
-   is currently processing; anything it needs later it copies (a scalar carries no owner, so copying
-   *is* projecting to scalars). Stated in `SourceWorker` / `TransformWorker` KDoc and in
-   `architecture.md` §8.
+7. **Worker contract, documented:** a Worker holds an owned element only for the duration of
+   `onElement` unless it takes an explicit lease (item 2); anything else it needs later it copies (a
+   scalar carries no owner, so copying *is* projecting to scalars); an `AutoCloseable` it emits becomes
+   the run's to close, and one it does not own it wraps as borrowed. Stated in `SourceWorker` /
+   `TransformWorker` / `JobControl.retain` KDoc and in `architecture.md` §8.
 
 **Self-regulation (why no admission logic is needed).** With flush-on-send, the host's `next()` blocks on
 its own semaphore inside `runBlockingIo`, downstream stages keep draining and closing, and permits come
@@ -462,8 +557,15 @@ its `BaseStream`; a Filter → CSV lane closes each element exactly once after t
 a Formula returning `it.orders` (non-scalar) keeps the parent open until the consumer of *that* value
 moves past it, while a Formula returning `it.symbol` (scalar) does not; a post-close field read names
 the field; a fixture with a 2-permit arena and a Sort downstream stalls with the diagnostic naming the
-Sort, and the same lane with a projection to scalars before the Sort completes. Sample plugin: the
-`SymbolDay` route holds at most one item in flight per hop, measured (P1 in the analysis).
+Sort, and the same lane with a projection to scalars before the Sort completes. Ownership edge cases
+(review 2): the same native object sent to two output channels closes once, after both consumers are
+done; the same native identity lifted again after its close is a fresh entry while the old wrappers
+still fail by name; a `close()` that throws does not prevent the other outstanding closes and is the
+error the run reports; an owned derivative returned from a Formula keeps the parent open (already
+above); an accumulator's explicit lease survives a live-edit migration of *that* Worker and the item
+closes after the replacement instance completes; a borrowed host object passes through a lane and is
+never closed. Sample plugin: the `SymbolDay` route holds at most one item in flight per hop, measured
+(P1 in the analysis).
 
 ---
 
@@ -489,7 +591,7 @@ remains. D7 stays parked under the existing R6 verdict.
 | E6 — DataSchema gate | absorbed by DS6 | complete | none | DS6 |
 | E7 — plain-object data shape | kzen-lib-jvm (+ one `DataType` change in common) + kzen-auto | M | medium (item 5 touches the shared sealed type) | — (item 6 needs nothing from E2) |
 | E8 — object-graph paths | kzen-auto (jvm + js) | M | medium | E7 |
-| E9 — closeable streams and items | kzen-auto-jvm (channel ledger, `FormulaSourceWorker`, inference) + kzen-lib-jvm (post-close guard) | M–L | medium (touches `JobChannel` migration carryover) | — (E2's cursor hook is its second client, not a prerequisite) |
+| E9 — closeable streams and items | kzen-auto-jvm (lease ledger via `JobControl.retain`, the Worker drive loops, `JobChannel`, `FormulaSourceWorker`, inference) + kzen-auto-plugin (`Borrowed`) + kzen-lib-jvm (post-close guard) | M–L | medium (touches `JobChannel` migration carryover and every framework drive loop) | — (E2's cursor hook is its second client, not a prerequisite) |
 
 **E2 → E3** and **E7 → E8** are two independent spines, and **E9** is a third (it shares files with
 neither — it is channel and source lifecycle). E2, E7 and E9 can run in parallel. The `kzen-sample-plugin`
