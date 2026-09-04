@@ -112,5 +112,5 @@ identity. It must not revise these to smuggle parser-specific fields into generi
   intent, locked-column provenance, full `ResolvedReadSpec` authoring input and passive detection observation.
 
 Validation included common serialization/digest tests, plugin tests, reader-registry tests, configured-format
-resolution tests and detached action tests. The closing full build exercised the final contracts as part of 1,849
+resolution tests and detached action tests. The closing full build exercised the final contracts as part of 1,851
 tests with zero failures.

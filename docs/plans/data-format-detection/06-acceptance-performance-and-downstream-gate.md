@@ -123,7 +123,7 @@ No threshold or protocol changed.
 Final gates:
 
 - focused observer/probe/cache tests: 13/13; focused common/plugin gate: green;
-- full `../kzen-auto` build: 1,849 tests, zero failures/errors, one existing skip, 8m20s;
+- final post-preview-fix `../kzen-auto` build: 1,851 tests, zero failures/errors, one existing skip, 5m32s;
 - FormulaStep canary: 10/10;
 - `publishToMavenLocal`: green after the final plugin SPI change;
 - sample plugin `clean verify`: green, eight Java sources, dependency convergence green, no test sources;

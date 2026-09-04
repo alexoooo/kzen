@@ -93,8 +93,16 @@ that seam for pinning and schema authoring; it does not create a second command 
 - Apply revalidates row identity, fingerprint, resolved spec and provenance on the server, then returns detached
   source-local bodies. One `SetDocumentObjectsCommand` reuses value-identical objects or installs collision-safe
   descendants and changes only the selected row. Clearing an override leaves authored objects intact.
+- Inline Job source workers expose their contained source through the neutral `DataSourceHost` capability. Detached
+  actions synthesize only missing output channels in memory before retrying an incomplete editable Job, so preview
+  works before channel wiring without changing saved notation or branching on `FileSourceWorker`.
+- Failure rows show the server's actionable message inline and suppress the duplicate in expanded Details. The
+  exact blank-output worker plus `README.md` regression resolves as `Automatic → Plain text` with extension basis.
 
 Focused JVM action/materialization tests passed in 2m25s. Focused browser tests passed in 2m30s and the combined
 DR8d/DR8e browser gate passed in 2m21s. The isolated packaged-client boot returned HTTP 200, produced a populated
 React DOM with no JavaScript console errors, and resolved the contributed editor notation to
 `DelimitedFormatOverrideEditor$Wrapper`; only the verified isolated PID on port 18197 was stopped.
+
+The post-fix focused server gate passed 20/20, the focused presentation/table/store browser gate passed, and the
+final full build passed 1,851 tests with zero failures.
