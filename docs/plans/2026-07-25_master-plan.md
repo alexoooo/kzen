@@ -22,7 +22,7 @@
 | **DM** | `data-model/README.md` | Unified data model — type/value/binding foundation and per-flavour cutovers | DM1–DM11 (DM12/DM13 gated) |
 | **DR** | `data-read-config/README.md` | Configurable, provider-neutral data reading — layered content/coding/character/reader composition, configured formats, typed contracts through Job/UI | DR1–DR7 |
 | **DR8** | `data-format-detection/README.md` | Automatic per-file format detection, safe text fallback, explicit correction/pinning and bounded source resolution | DR8a–DR8f |
-| **E** | `2026-07-25_extensibility-improvements.md` | Plugin registration, plugin UX, Custom power; absorbs reflection R5/R6 | E1–E6 |
+| **E** | `2026-07-25_extensibility-improvements.md` | Plugin = classloader, plugin UX, Custom power, plain-object data shape, object-graph paths; absorbs reflection R5/R6. **E1 ratified 2026-09-04** | E2–E4, E7–E8 |
 | **DA/SH** | `2026-07-25_desktop-and-hosting.md` | Desktop app distribution + the hosting trio's hygiene tail | SH5, DA1–DA5 (DA6 parked) |
 | **FL** | `2026-07-25_flow-improvements.md` | Flow flavour | FL5, FL6 |
 | **C** | `2026-07-25_core-and-verification.md` | Graph perf tail + accumulated verification debt | C1–C4 |
@@ -85,11 +85,11 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 | DR8d | **DR8d** — selection preview + correction UI — **☑ LANDED 2026-09-03** | Row resolution/epochs/presentation, contributed editor host and source-local corrected formats | DR8 · DR8d | `data-format-detection/04-selection-resolution-and-correction-ui.md` | ☑ 2026-09-03 |
 | DR8e | **DR8e** — explicit format + locked columns — **☑ LANDED 2026-09-03** | Make explicit, Lock columns, authored schema/format materialization and drift proof | DR8 · DR8e | `data-format-detection/05-explicit-format-and-column-locking.md` | ☑ 2026-09-03 |
 | DR8f | **DR8f** — acceptance/performance/downstream gate — **☑ LANDED 2026-09-03** | Full matrix, aggregate/performance measurements, SPI publication, sample plugin and standalone project builds | DR8 · DR8f | `data-format-detection/06-acceptance-performance-and-downstream-gate.md` | ☑ 2026-09-03 |
-| 9 | **E1** — extensibility ratification | Verdicts on D1–D6 + gate R5-G — **needs the user**; unblocks rows 10–14 | E · E1 | — | ☐ |
-| 10 | **E2** — plugin module registration | Plugin-shipped `ModuleReflection` + pure-Java path via the R1 mirror (**was R5**) | E · E2 | — | ☐ |
-| 11 | **E3** — plugin UX | Per-document classloader isolation, JAR upload, cached listing, per-definer diagnostics | E · E3 | — | ☐ |
+| 9 | **E1** — extensibility ratification | **Ratified 2026-09-04 with the user**, driven by `docs/analysis/2026-09-03_in-process-hosting.md` §6a: D1 yes (no KSP required), R5-G boot-pinned, D2 per plugin directory, D3 not now (do not preclude), D4 moot, D7 out of scope, D8 dropped (expression Workers already do it), D9 yes without wrappers, plus Java-friendly SPI adapters. Verdict table is the E plan's Phase E1 as-built | E · E1 | — | ☑ |
+| 10 | **E2** — plugin = classloader | One `URLClassLoader` per `plugins/<name>/` jar set at boot (`--plugin.root=`), app loader as plugin zero; per loader: `ServiceLoader` readers, `ReflectiveClassMirror(loader)` on `GlobalMirror`, bundled notation; plugin loaders threaded into the expression compiler; `BlockingReaderCapability` + blocking `SourceWorker` in `kzen-auto-plugin`; `plugins.yaml` / plugin `ReportDefiner` discovery retired. Verified pure-Java from a folder (sample plugin, unshaded) **and** as a dependency **and** Kotlin+KSP. **L; needs the HS Java 25 baseline first** | E · E2 | — | ☐ |
+| 11 | **E3** — plugin UX | `PluginDocument` becomes the read-only diagnostics view of the loaded plugin set (contributions + named failures), listing from the context not re-scanned, `--plugin.root=` CLI, docs rewritten to plugin = loader; upload deliberately not precluded. **M** | E · E3 | — | ☐ |
 | 12 | **E4** — Custom power + C7 | The document-rename nested-exports gap (kzen-lib), prototype metadata, per-tag registry, result persistence | E · E4 | — | ☐ |
-| 13 | **E5** — registry disposition | Execute D4; migrate `FormulaStep` whitelist sourcing | E · E5 | — | ☐ |
+| 13 | **E5** — registry disposition | ~~Execute D4; migrate `FormulaStep` whitelist sourcing~~ **MOOT 2026-09-04** — `ObjectRegistryScan` left the tree during the Job data-source work; a doc grep is all that remains | E · E5 | — | ⊘ |
 | 14 | **E6** — DataSchema gate | ~~Execute D5 (park until a field/type-schema consumer exists)~~ **ABSORBED 2026-08-24 by DS6** (row 56): the shipped document is now `DataSchema`, consumed structurally by `FileDataSource.staticShape`, with declared types retained for future typed-lane work | E · E6 | — | ⊘ |
 | 15 | **DA1** — JCEF spike | jcefmaven on JDK 26 against the live shell — **closes engine gate D1**; gates rows 16–19 | DA · DA1 | `next/DA1` | ☐ |
 | 16 | **DA2** — tabbed shell window | `DesktopUi` v2: tab strip + per-project embedded browser views | DA · DA2 | — | ☐ |
@@ -137,6 +137,8 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 | 56 | **DS6** — design-time shape | `DataShape` (`Tabular` \| `Payload`); **`DataSource.staticShape(role)`** is notation-only and direct for the walk, while **`suspend DataOpener.inspectShape(context, part)`** is bounded runtime inspection. `DataSourceActions action=shape` tries them in that order, so a declaration wins without IO; a **`SchemaCache` service** keyed on the fingerprint row 52 stamps into the ref — **not** an SPI member and never consulted by the validation walk; the declared-schema route renames `DataFormat` to `DataSchema` (O18); **superset normalization** is selected by semantic `schemaMode: strict \| superset` on both readers (O19); `JobUpstreamSchema` provider list and `SortSpecEditor` dropdown. The corrected inline File/Logic Workers omit the removed detached Columns chrome; declared schema still feeds server validation and a live Summary feeds downstream editor suggestions. **No row preview** (§9). **Absorbs J3b. M–L** | — (analysis) | `next/DS6` | ☑ 2026-08-24 |
 | 57 | **DS7** — writer refs, named child arguments, per-unit paths | Adds generic `RunWorker.arguments`, evaluated in the existing formula scope and bound to named child parameters, plus the named `JobControl.host` overload. Extracts neutral `PathPatternSubstitution`; writers resolve job parameters such as `${date}`. On successful completion a writer finalizes exactly once **before** it stats and yields its plain `DataRef`, including buffered/compressed output; `onClose` is the failure/cancellation fallback. Also adds `keep: all` (O2), manifest tracing, and the §7.1 outer/inner fixture. **Same-run composition only** — no persisted registry. ⚠ `ExecutionValue.ofArbitrary` does not lower a `DataRef`; wire `asExecutionValue()` at arbitrary result boundaries. Same file as J4's `groupBy` — sequence, don't interleave. **M–L** | — (analysis) | `next/DS7` | ☑ 2026-08-24 |
 | 58 | **DS8** — `LogicDataSource` + dated-source example | (O16) Adds `DataContext.host` with its first caller and ships a **resolve-only** `LogicDataSource` whose `resolve` delegates to a user-authored **Script / Flow / Job** through row 57's named `JobControl.host` path, minting plain refs the shared `FileDataOpener` reads. Reuses row 57's argument binding and `PathPatternSubstitution`; it introduces no second binding or substitution mechanism. The dated case ships as a **one-step example Script**, and the arc acceptance fixture proves the outer/inner ETL round-trip with no expression I/O. Kotlin `DatedPathDataSource` stays in reserve if date iteration in a Script proves clumsy. **Closes the arc — flip the analysis doc's status to landed. S–M** | — (analysis) | `next/DS8` | ☑ 2026-08-24 |
+| 59 | **E7** — plain-object data shape | **Added 2026-09-04 from the E1 session.** Ordinary Java classes by JavaBeans convention (no annotations, no wrapper), enums as text, `Set` as unordered Listing, per-class native-token cache, **recursive type references in `DataType` (touches kzen-lib-common — coordinate with DM)**, and design-time shape in `JobExpressionCompiler` through the adapter registry so a record-typed stream shows its columns before the first run. Records / data classes / List / Map / scalars already lift typed and navigate lazily. **M; independent of E2** | E · E7 | — | ☐ |
+| 60 | **E8** — object-graph paths | Path-projection / unnest Worker (`instrument.symbol`, `executions[*].price` → flat columns, one row per element) + design-time path picker over the upstream contract. The one new Worker for reporting over an object graph without code. **M** | E · E8 | — | ☐ |
 
 **~40 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
@@ -198,9 +200,13 @@ addressing — is the only substantial one. Nothing in the CX arc blocks anythin
 ### What to run right now
 
 Re-elaborate and run **J5b** next against the landed `DataValue` carrier, then follow J4 and J9 in ledger order.
+The in-process hosting question (a Spring host embedding N kzen workspaces, and a substantive
+`kzen-sample-plugin` over real market data) is **back in analysis** — `docs/analysis/2026-09-03_in-process-hosting.md`;
+nothing from it is scheduled until its open questions are answered.
 If a change of pace is wanted, rows **20 (SH5)**, **23 (C1)**, **21 (FL5)** and **15 (DA1)** remain
-independent only when their files do not collide with the active session. Rows **9 (E1)** and **25 (C2)** need the
-user present — schedule them rather than waiting for a gap.
+independent only when their files do not collide with the active session. Row **25 (C2)** needs the user present — schedule it rather than waiting for a gap. Row 9 (E1) was
+ratified on 2026-09-04; **rows 10 (E2) and 59 (E7) are now open and independent of each other** — E2 waits
+on the Java 25 baseline the in-process-hosting analysis calls for, E7 does not.
 
 Rows **30–32 (XC-N)** are independent of everything above and are a **defect fix** — a shipped verb
 that does not do what its spec says. Row 30 must precede row 31 (kzen-lib → `publishToMavenLocal` →
@@ -229,7 +235,7 @@ disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
    (`JobChannel.drainBuffered`) transfers ownership of live values rather than recycling them.
 4. **J6 is demand-driven after DM7c** and blocks nothing; it consumes the explicit alias/copy rule rather than
    inventing an earlier fan-out ownership model.
-5. **E1 ratification before E2–E6.** E4's **C7 half is the exception** — the document-rename gap is a
+5. **E1 ratified 2026-09-04; E2 → E3 and E7 → E8 are independent spines.** E4's **C7 half is independent of both** — the document-rename gap is a
    settled finding with an `@Ignore`d test already committed, and can run any time.
 6. **E2 (was R5) needs `publishToMavenLocal` discipline** for `kzen-auto-plugin`, and any Kotlin test
    plugin must live in a **separate module** — KSP2 processes kzen-auto-jvm's test source set, which
@@ -268,7 +274,7 @@ flavour-agnostic validation indicator arrived late in the sprint and closed a re
   handshake, recovered from a deleted plan.
 - **G4's measurement gate**, still honest after two sprints → rows 23–24.
 - **The whole DA arc**, planned 2026-07-18 and never started → rows 15–19.
-- **EXT D1–D6**, awaiting ratification since 2026-07-06 → row 9.
+- **EXT D1–D6**, awaiting ratification since 2026-07-06 → row 9 — **ratified 2026-09-04**.
 
 **Full per-session record:** `sprint-2/README.md`. It also records four arcs that landed **without
 a surviving plan** — the validation indicator, the digest handshake, the document-digest fix and the
