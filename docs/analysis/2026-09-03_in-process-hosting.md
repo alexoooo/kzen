@@ -5,8 +5,20 @@
 > moved from "a Spring sample with a synthetic FIX domain" to "a substantive `kzen-sample-plugin` over
 > real market data, wrapped by a Spring host". An earlier draft of this document was written as a
 > phased plan (HS1–HS9) — that was premature. Nothing here is on the master ledger; the candidate
-> phase outline at the end is what a plan would start from once the open questions are answered.
-> Decisions are marked **[decided]** / **[open]**; per CC-20 no line numbers are cited.
+> phase outline at the end is what a plan would start from — every question is now decided and only
+> the gates in §9 remain. Decisions are marked **[decided]**; per CC-20 no line numbers are cited.
+>
+> **2026-09-04 (review 3, `…_review-3.md`):** folded. The user clarified the ITCH model: the "index" is
+> a **persistent symbol-partitioned derived store** built by one sequential decode, and one fully
+> materialized `SymbolDay` is the closeable analytical unit (§5.2, P1 widened). E9's last gaps closed:
+> adoption happens at the **run-scoped send**, not `lift`; a closed identity is **tombstoned weakly**,
+> never re-adopted; ownership is an **owner set**; teardown rides `JobRun`'s existing `coroutineScope`
+> join; diagnostics are proportional (counts by holder, detail on demand, a stall warning on the
+> deadlock monitor's clock). E2's last gaps closed: **application classpath wins, parent-first**,
+> ambiguity among folder scopes, shadowing a warning; availability is a **per-context view**;
+> reader capabilities are **per-context instances** from runtime-held descriptors. E8's output-name
+> convention fixed. Work-root claim ordered create → `toRealPath()` → claim, released after server and
+> run stop. Stale phrases cleaned (`logDir`, "`URLClassLoader` just works", Q2, §7 title, this header).
 >
 > **2026-09-04 (later), user:** NASDAQ ITCH 5.0 chosen (§4); a Java-friendly blocking reader adapter
 > is wanted in the SPI (§6 C); and the plugin mechanism itself is to become *general and simple* —
@@ -146,7 +158,7 @@ services … values that can't be expressed in notation."* Today the only host t
 | Blocker | Resolution | Generic? |
 |---|---|---|
 | All five siblings emit class-file 70 (Java 26); host runs 25 | retarget `jvmTargetVersion` / `javaVersion` to 25 in the five `Dependencies.kt`; keep building on the newest JDK (toolchain stays 26 unless Kotlin's consistency check objects) | yes — strictly widening |
-| `WorkUtils.sibling` is a static `../work` off CWD; `processSignature` is per-process; `JobWorkPool` boot-sweeps `job/`, so a second context deletes the first's live scratch | `KzenAutoConfig.workRoot` / `logDir` with CLI args; `WorkUtils` becomes a context-owned instance with a per-context signature (root claim + UUID); the runtime claims each live context's real-path root and a duplicate fails fast [review 2] | yes — a limitation of kzen-auto in its own right |
+| `WorkUtils.sibling` is a static `../work` off CWD; `processSignature` is per-process; `JobWorkPool` boot-sweeps `job/`, so a second context deletes the first's live scratch | `KzenAutoConfig.workRoot` with a CLI arg (no `logDir` — next row); `WorkUtils` becomes a context-owned instance with a per-context signature (root claim + UUID); the runtime claims each live context's root — created, then `toRealPath()`, then one atomic claim — and a duplicate fails fast; the claim is released after the context's server and run have stopped [reviews 2, 3] | yes — a limitation of kzen-auto in its own right |
 | `logs/` is CWD-relative in the context (a managed storage area) and in kzen-auto-jvm's bundled `logback.xml` | **[review 1]** kzen logs through SLF4J; the *host* owns the backend and its configuration. No per-context `logDir` — the `logs` managed-storage area becomes config-suppressible, and the bundled `logback.xml` stays a surfaced defect (§8) | yes |
 | `GraphEnvironment` is a hardcoded builder; no host can reach a `@Service` parameter with its own object | `KzenAutoHost` (`Map<ClassName, Any>` inside; a `Class<?>`-keyed builder for Java hosts, so a Spring proxy registers under the interface the Worker declares [review 2]) on `KzenAutoContext.create`, merged after kzen's entries, collision fails fast (CC-08) | yes — completes the KDoc's stated intent |
 | No admission seam around a run; every `ServerLogicController` entry point is `@Synchronized` and non-suspend, called from `LogicHandler` inside `runBlocking` | **not needed in kzen** — the host governs memory inside its own closeable objects (§5.3); kzen's only obligation is E9's close discipline | n/a |
@@ -249,11 +261,39 @@ and the adapter as plugin zero.
   `DataInputStream` loop over the ~20 fixed-width message types); `ItchMessage` is a sealed family of Java
   records per message kind, **not one wide nullable record** — replay and book reconstruction need the
   event distinctions [review 1]. A normalized flat row projection exists beside it for generic Jobs.
-- **Index and symbol-day batches [user, 2026-09-04].** The day file is indexed once (symbol → message
-  offsets; cheap; persisted beside the file), then processed **one symbol-day at a time**:
-  `SymbolDay implements AutoCloseable` loads that symbol's messages (and, on demand, its reconstructed
-  orders and book) into memory on open and releases them on close. This is the unit the host's memory
-  arena governs (§5.3) and the unit E9 keeps alive through a Job.
+- **Symbol-partitioned derived store and symbol-day batches [user, 2026-09-04; clarified in review
+  3].** The intended flow: locate the source file → read it **once, sequentially**, building a
+  **persistent symbol-partitioned store** (not an offset list: the Nasdaq samples are gzip, so
+  compressed offsets are not seekable, and a decompressed per-message offset list would be large and
+  turn symbol replay into scattered I/O) → load one **complete symbol-day** as a single batch →
+  materialize the **full symbol state graph** (orders, executions, trades, book history) for temporal
+  questions such as "the book depth one second before each trade". The symbol-day boundary is
+  therefore *analytical*, not merely operational, and `SymbolDay implements AutoCloseable` is the
+  matching resource boundary: open acquires the host's arena allocation, close releases the whole
+  graph. One `SymbolDay` is one closeable logical Job element (E9), however large inside — not to be
+  confused with `JobChannel`'s physical batching of several `DataValue`s.
+
+  Build rules: decode each frame once and route it to its symbol partition; **only Add messages carry
+  the stock** — Executed, Cancel, Delete and Replace carry an order reference alone, so the scan keeps a
+  live **order-reference → symbol map** (day-unique references; entries dropped on delete or full
+  fill — this map is the build's real memory cost, measured in P1); market-wide messages (system
+  events, circuit breakers) are stored **once in a day-wide partition merged on load** rather than
+  copied into every symbol; per-stock non-order messages (directory, trading action, Reg SHO) go to
+  their symbol; the original feed ordinal is retained as the tie-breaker for equal timestamps;
+  per-symbol counts and an **estimated materialization weight** (counts × per-message-type constants)
+  are persisted so the host can acquire its arena allocation *before* materializing; the store is
+  built in a temporary location and **published by atomic rename** only after a complete build; a
+  **source fingerprint plus parser / store format version** rejects a stale store; simultaneously open
+  partition writers are bounded (an LRU writer cache). A symbol-day larger than the whole arena stays
+  a host sizing / error-policy decision.
+
+  Event families stay distinct in the materialized graph: `E` / `C` are executions of *displayed*
+  orders and belong to an `Order` lifecycle; `P` is a non-displayed match and does not change the
+  displayed book; `Q` is a cross trade; `B` breaks a prior execution or trade by match number. A
+  unified time-ordered trade / print view may include all of them, but a `P` is never attached to a
+  displayed `Order` merely because both are trades. Reference:
+  [NASDAQ TotalView-ITCH 5.0](https://nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHSpecification.pdf);
+  samples: [emi.nasdaq.com/ITCH/Nasdaq ITCH](https://emi.nasdaq.com/ITCH/Nasdaq%20ITCH/).
 - **Reconstructed order lifecycle** (`Order` with the replace chain — ITCH `U` links old and new
   reference numbers — `Execution`, `Trade`) and **reconstructed book state** (`BookLevel` / `Book`, a fold
   over the message stream with snapshots at a cadence). Kept distinct from the wire messages and from
@@ -271,7 +311,8 @@ and the adapter as plugin zero.
 - **Bundled notation** under `notation/auto-jvm/kzen-sample-plugin/…`: archetypes for the Workers and
   ready-made Jobs — `ItchDay.yaml` (File worker over the day file → lifecycle Worker → aggregate by
   symbol and hour → CSV), and the **plain-library route** with no plugin code at all: an expression
-  source `ItchIndex.open(Path.of(file)).symbolDays()` streaming `SymbolDay` batches (E9 closes each).
+  source `ItchStore.open(Path.of(store)).symbolDays()` streaming `SymbolDay` batches from the derived
+  store (E9 closes each).
 - **The world-cities logic** stays as the *simple* case beside ITCH, re-cut as a
   `BlockingReaderCapability` — Job-only; the `ReportDefiner` is retired (§7 Q3, decided).
 - **Test tree**: the seeded synthetic ITCH writer, exact-assertion tests over it, and the three-path
@@ -293,9 +334,10 @@ the host adds is everything that is *embedding-specific*:
   with `BodyHandlers.ofInputStream()`, kzen-shell's header rules, `spring.mvc.async.request-timeout=-1`,
   flush per chunk (SSE).
 - **Memory governance lives in the host's own objects, not at the proxy [user, 2026-09-04].** The
-  host's arena is a semaphore weighted by batch size: a `SymbolDay` takes its permit when it loads (a
-  blocking acquire — kzen drives it through `JobControl.runBlockingIo`, so quiescence detection still
-  sees it) and releases it in `close()`. kzen needs no admission concept at all; it only has to **honour
+  host's arena is a semaphore weighted by batch size: a `SymbolDay` takes its permit — sized from the
+  store's persisted materialization weight (§5.2) — *before* it materializes (a blocking acquire —
+  kzen drives it through `JobControl.runBlockingIo`, so quiescence detection still sees it) and
+  releases it in `close()`. kzen needs no admission concept at all; it only has to **honour
   `AutoCloseable` on the streams and items it is handed, with defined close timing** — E9. The earlier
   proxy-level permit around `…/logic/startRun` / `status` is demoted to an optional whole-run backstop.
 - **The host's own domain services.** The host loads a day through the plain core into its own
@@ -448,8 +490,10 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
   as every existing expression. `FormulaWorker` / `FilterWorker` give the per-element step case
   (`library.enrich(it)`). Two gaps, both small: the expression compiler is handed
   `ClassLoaderUtils.dynamicParentClassLoader()` (kzen-auto-jvm's loader), so **plugin classes are not on
-  its classpath** — E2 must thread the plugin loader in (`ScriptKotlinCompiler` derives its classpath from
-  the loader, so a `URLClassLoader` just works); and the static record shape, next.
+  its classpath** — E2's answer [reviews 2, 3] is that this function returns the runtime's parent-first
+  **aggregate delegating loader** and `ScriptKotlinCompiler` receives the explicit plugin-jar union
+  (`classpathFromClassloader` cannot see through a delegating loader); and the static record shape,
+  next.
 - **Type- and shape-aware mapping of a class model (D9) — largely shipped in kzen-lib-jvm.**
   `DefaultDataAdapterRegistry` + `DefaultNativeTypeResolver` treat **Java records and Kotlin data classes
   as built-in**: a record becomes `DataType.Record` with one typed `DataField` per component, recursively
@@ -569,12 +613,18 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 | Duplicate `@Reflect` names (review 2) | **Resolution-time ambiguity**, not a boot error; plugin ids, reader identities and notation paths stay boot errors |
 | Plugin `@Service` validation (review 2) | **Per context**: an unsatisfied plugin contribution is *unavailable in this workspace*, named; kzen's own generated registry keeps boot validation |
 | Host facade, root uniqueness, bean order, path semantics (review 2) | `Class<?>`-keyed `KzenAutoHost` builder; the runtime claims live real-path work roots; lexical bean property order with stated precedence; null intermediate → null leaf and keep the row, empty list → zero rows |
+| ITCH storage model (user, review 3) | **Symbol-partitioned derived store** built by one sequential decode (order-ref → symbol map; market-wide messages once in a day-wide partition; feed ordinal tie-break; persisted weights; atomic publish; fingerprint + format version); one materialized `SymbolDay` is the closeable analytical unit |
+| E9 adoption, tombstones, owner set, teardown (review 3) | Adopt at the **run-scoped send** (`lift` is a process-wide singleton with no run); a closed identity is a **weak tombstone** and re-adoption is the named use-after-close error; the owner is an **immutable set**; force-close runs in `JobRun`'s `finally` after the existing `coroutineScope` join |
+| E9 diagnostics (review 3) | **Proportional**: counts by holder in progress, bounded per-item detail on demand, a stall *warning* on the deadlock monitor's no-progress clock at a lower non-failing threshold |
+| Aggregate loader precedence (review 3) | **Application classpath wins, parent-first** (each folder loader is parent-first already; a peer rule would break identity with the mirror); ambiguity checked among folder scopes only; a folder class shadowed by the app classpath is a named warning; tested with an app / folder collision |
+| Global discovery vs contextual availability; capability lifecycle (review 3) | Runtime state is immutable after init; "unavailable in this workspace" is a **per-context view** computed once at creation; the runtime holds `ServiceLoader` provider **descriptors** and each context instantiates its own capability instances (already the case today) — no SPI thread-safety demand |
+| E8 output-schema convention (review 3) | Default name = **full dotted path, wildcards dropped**; explicit `as` alias; duplicate names rejected; scalar leaves only; maps unnest via `[*]` with `key` / `value` in `ValueAccess.entries` order |
 
-## 7. Open questions for the user
+## 7. Questions put to the user — all closed (kept as the record)
 
 - ~~Q1 — dataset.~~ **Decided: NASDAQ ITCH 5.0.**
-- ~~Q2 — Java-only plugin or Kotlin?~~ **Decided: Java-only, with `BlockingReaderCapability` (and a
-  blocking `SourceWorker` variant) added to the SPI.**
+- ~~Q2 — Java-only plugin or Kotlin?~~ **Decided: Java-only, with `BlockingReaderCapability` (and the
+  cursor-driven `SourceWorker` — review 1's shape, since `Emitter` is `suspend`-only) added to the SPI.**
 - ~~Q3 — retire the world-cities `ReportDefiner`?~~ **Decided 2026-09-04: keep the logic as the *simple*
   case beside ITCH's complex one, but expose it Job-only** — re-cut as a `BlockingReaderCapability`;
   `ReportDefiner` support is not carried forward (Job is to replace Report entirely).
@@ -627,17 +677,18 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 | G7 | SSE survives `StreamingResponseBody` on Tomcat unbuffered | spike; fallback `SseEmitter` for that one path |
 | G8 | Does anything in the five siblings use a Java-26-only API? | the retarget itself |
 | ~~D1~~ / D2 | §6 — D1 moot (ITCH chosen, no IEX reader); D2 is the README's terms note | vendor docs |
-| G9 | Aggregate loader: one expression over two plugin directories compiles, a mirror-built instance passes an identity-sensitive call, a name in two scopes reports ambiguity, and the expression survives a second context (review 2) | E2 acceptance test |
-| P1 | Throughput of a `DataInputStream` ITCH reader on one real day, and the heap of a full-day book reconstruction across all symbols — is it actually heavy enough to make the governor visible? | measure on the real file, once |
+| G9 | Aggregate loader: one expression over two plugin directories compiles, a mirror-built instance passes an identity-sensitive call, a name in two folder scopes reports ambiguity, an application-classpath / folder collision resolves to the application copy everywhere and is listed as shadowed (review 3), and the expression survives a second context (review 2) | E2 acceptance test |
+| P1 | On one real day: sequential decode throughput and heap; **derived-store build time and disk size; peak size of the order-ref → symbol map; per-symbol replay throughput; the safety margin of the stored materialization weight against the actual footprint; the largest real symbol-day's materialized footprint** (review 3) — is it heavy enough to make the governor visible? | measure on the real file, once |
 
 ## 10. Candidate phase outline (input to a future plan, not a plan)
 
 1. Java 25 baseline across the release train + republish — the hard prerequisite for everything, including
    the *existing* sample plugin.
 2. Throwaway spike answering G1–G7 (no kzen code, answers recorded here).
-3. Per-context work roots (no `logDir`; claimed on the runtime, duplicates fail fast); `KzenAutoHost`
-   with its `Class<?>`-keyed builder; `BlockingReaderCapability` + cursor-driven `SourceWorker` — three
-   small kzen-auto sessions, each defensible alone.
+3. Per-context work roots (no `logDir`; created → `toRealPath()` → claimed on the runtime, duplicates
+   fail fast, released after server and run stop); `KzenAutoHost` with its `Class<?>`-keyed builder;
+   `BlockingReaderCapability` + cursor-driven `SourceWorker` — three small kzen-auto sessions, each
+   defensible alone.
 4. **E2/E3 per §6a** (plugin = loader; `KzenAutoRuntime`; folder discovery; `ServiceLoader` + notation
    per loader; one mirror over the aggregate loader; explicit compilation classpath; per-context plugin
    service availability; reduced diagnostics) and **E9** (closeable streams and items — explicit leases)
@@ -645,10 +696,13 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
    objects, object-graph paths) run beside it. The three contracts review 2 asked to settle before
    E2/E9 are handed to an implementer — lease ownership, aggregate loader + compilation classpath,
    resolution-time ambiguity — are written into the E plan, as are the smaller ones (host builder, root
-   uniqueness, bean order, path semantics).
-5. `kzen-sample-plugin`: **core** module (reader, sealed message records, index + `SymbolDay`, book fold)
-   + **adapter** module; fixture writer + tests; the `BlockingReaderCapability` route; the expression
-   route over `SymbolDay` batches (E9); bundled `ItchDay` Job; verified standalone in kzen-project from a
+   uniqueness, bean order, path semantics), and review 3's closing details (adoption at send, weak
+   tombstones, owner set, teardown order, proportional diagnostics; parent-first precedence,
+   per-context availability view, per-context capability instances; E8 output names).
+5. `kzen-sample-plugin`: **core** module (reader, sealed message records, the symbol-partitioned
+   derived store + `SymbolDay` materialization, book fold) + **adapter** module; fixture writer + tests;
+   the `BlockingReaderCapability` route; the expression route over `SymbolDay` batches (E9); bundled
+   `ItchDay` Job; verified standalone in kzen-project from a
    plugin folder (P1 measured here) — through the **plugin compatibility test kit** (review 1: a reusable
    entry point in `kzen-auto-plugin`'s test fixtures that runs any plugin directory through loader
    creation, discovery, reflective construction, expression visibility, duplicate detection and
@@ -688,4 +742,10 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
   is one aggregate delegating loader plus the explicit plugin-jar union; a `@Reflect` name in two scopes
   is a resolution-time ambiguity; a plugin's `@Service` needs are validated per context and surfaced as
   unavailable, never blocking; work roots are claimed process-wide; bean property order is lexical.
-- **[decided 2026-09-04]** Q3–Q8 all closed (§7). Nothing here is open except the gates in §9.
+- **[decided 2026-09-04, review 3]** The ITCH "index" is a symbol-partitioned derived store and one
+  materialized `SymbolDay` is the closeable analytical unit; E9 adopts at the run-scoped send, tombstones
+  closed identities weakly, carries an owner set, force-closes after `JobRun`'s scope join, and warns on
+  stalls from the deadlock monitor's clock; E2's aggregate loader is parent-first with the application
+  winning, availability is a per-context view, capabilities are per-context instances; E8's output
+  names are the full dotted path with aliases.
+- **[decided 2026-09-04]** Q1–Q8 all closed (§7). Nothing here is open except the gates in §9.
