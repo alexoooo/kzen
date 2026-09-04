@@ -18,6 +18,13 @@
 > the verdicts as its Phase E1 as-built, E2/E3 re-elaborated to §6a, and new **E7** (plain-object data
 > shape) / **E8** (object-graph paths). The plugin-system part of this document is therefore *planned*;
 > the in-process hosting seams and the two samples remain analysis.
+>
+> **2026-09-04 (review 1):** `2026-09-03_in-process-hosting_review-1.md` reviewed this document; its
+> points are folded in below, marked **[review 1]** — the process-global extension universe
+> (`KzenAutoRuntime`), the reduced diagnostics promise, cursor-driven Java sources, the `Set` / resume
+> rule, and the stale-drafting spots it listed. The user added one requirement on top: **streams *and*
+> individual items may be `AutoCloseable`** — that is how the host's memory arena is enforced (a
+> symbol-day batch consumes the arena on open and releases it on close) — now **E9** in the E plan.
 
 ## 1. Problem statement
 
@@ -41,6 +48,22 @@ Three hard constraints:
    embeds the Kotlin compiler for dynamic expressions and the compiler fails inside Boot's nested
    jars. kzen has the identical constraint (`CachedKotlinCompiler`; `ClasspathNotationMedia` scanning
    `notation/**` through Guava `ClassPath`, which cannot see into nested jars).
+
+**Precision [review 1].** "Designed process-per-project" overstates it: the composition root is already
+instance-based, and what process isolation buys today is safe ownership of a few process-wide and
+CWD-relative facilities. The precise statement is: *kzen's default deployment is one process per
+project; hosting several contexts in a foreign JVM means making workspace state context-owned while
+deliberately keeping the extension universe process-global.* That splits into three independently
+testable outcomes, and the sample must keep their acceptance criteria distinct so that one passing
+sample cannot hide an accidental coupling between them:
+
+1. several isolated `KzenAutoContext`s run in one JVM;
+2. selected live host objects enter Jobs ergonomically;
+3. a third-party jar set contributes server-side code and notation without kzen source edits.
+
+**Trust model, stated plainly [review 1].** kzen expressions execute arbitrary code. In-process hosting
+and plugins preserve that model; they do not create a sandbox. The security boundary is whether a user
+may run kzen on the machine at all, never which getters of a plain object happen to be visible.
 
 **And the existing sample cannot prove any of it.** `kzen-sample-plugin` is a toy: one `ReportDefiner`
 over a world-cities CSV, exercising the *legacy* Report-paradigm SPI only. It does not touch the Job
@@ -114,16 +137,17 @@ services … values that can't be expressed in notation."* Today the only host t
 |---|---|---|
 | All five siblings emit class-file 70 (Java 26); host runs 25 | retarget `jvmTargetVersion` / `javaVersion` to 25 in the five `Dependencies.kt`; keep building on the newest JDK (toolchain stays 26 unless Kotlin's consistency check objects) | yes — strictly widening |
 | `WorkUtils.sibling` is a static `../work` off CWD; `processSignature` is per-process; `JobWorkPool` boot-sweeps `job/`, so a second context deletes the first's live scratch | `KzenAutoConfig.workRoot` / `logDir` with CLI args; `WorkUtils` becomes a context-owned instance with a per-context signature | yes — a limitation of kzen-auto in its own right |
-| `logs/` is CWD-relative in the context and in kzen-auto-jvm's bundled `logback.xml` | config-driven dir; a host sets `logging.config` | yes |
+| `logs/` is CWD-relative in the context (a managed storage area) and in kzen-auto-jvm's bundled `logback.xml` | **[review 1]** kzen logs through SLF4J; the *host* owns the backend and its configuration. No per-context `logDir` — the `logs` managed-storage area becomes config-suppressible, and the bundled `logback.xml` stays a surfaced defect (§8) | yes |
 | `GraphEnvironment` is a hardcoded builder; no host can reach a `@Service` parameter with its own object | `KzenAutoHost(services: Map<ClassName, Any>)` on `KzenAutoContext.create`, merged after kzen's entries, collision fails fast (CC-08) | yes — completes the KDoc's stated intent |
-| No admission seam around a run; every `ServerLogicController` entry point is `@Synchronized` and non-suspend, called from `LogicHandler` inside `runBlocking` | **not needed in kzen** — the host gates at its own proxy (§5.3) | n/a |
+| No admission seam around a run; every `ServerLogicController` entry point is `@Synchronized` and non-suspend, called from `LogicHandler` inside `runBlocking` | **not needed in kzen** — the host governs memory inside its own closeable objects (§5.3); kzen's only obligation is E9's close discipline | n/a |
 | `DataOpenerLookup` ignores `DataRef.source`; `DataSourceId` is never minted | **not a blocker** — `SourceWorker` and `ReaderCapability` cover both ways in; `ProviderDataSource` stays the deferred design-time upgrade (DM11 / O15) | n/a |
 | `kzenAutoInit` sets `java.awt.headless`, arms `exitProcess`, registers a shutdown hook | accepted — a host calls `create` + `ktorMain` directly | n/a |
-| `ReflectionRegistry.global` / `GlobalMirror` / `ServiceEnvironmentValidation` are process-global | accepted — all workspaces in one host share one module set and one `KzenAutoHost` | n/a |
+| `ReflectionRegistry.global` / `GlobalMirror` / `ServiceEnvironmentValidation` are process-global; the mirror is registered once in the context's companion `init`; `ClassLoaderUtils.dynamicParentClassLoader()` is static | **[review 1] embrace it as a contract:** one externally configured, JVM-global, startup-pinned *extension universe* — plugin loaders, mirrors, reader discovery, the expression classpath — initialized exactly once before any context (`KzenAutoRuntime`, E2); a second initialization with a conflicting configuration fails fast. Contexts own graph, host services, work roots, controller and server | yes — E2 |
 | Notation root is a CWD heuristic | already overridable via `KzenAutoConfig.moduleRoot` | — |
 
 Three kzen-auto changes, all small, all defensible without any host existing: the Java 25 baseline,
-per-context work roots, and `KzenAutoHost`. Everything else is host-side.
+per-context work roots, and `KzenAutoHost`. The fourth — the explicit `KzenAutoRuntime` — belongs to
+E2, and the close discipline to E9. Everything else is host-side.
 
 ## 4. The dataset — real market data, and what "orders" means in each
 
@@ -192,56 +216,87 @@ kzen-sample-plugin  ◄──── Maven dep ────  kzen-sample-embed-sp
 
 ### 5.1 kzen-auto — three generic seams **[decided in shape]**
 
-Exactly the three rows of §3 marked generic: Java 25 baseline; `KzenAutoConfig.workRoot` / `logDir` with a
-context-owned `WorkUtils`; `KzenAutoHost(services)` merged into the `GraphEnvironment`. Nothing else. Each
-has a standalone default `KzenAutoMain` uses unchanged; none names a host.
+Exactly the three rows of §3 marked generic: Java 25 baseline; `KzenAutoConfig.workRoot` with a
+context-owned `WorkUtils` (no `logDir` — logging is host-owned, review 1); `KzenAutoHost(services)`
+merged into the `GraphEnvironment`. Nothing else. Each has a standalone default `KzenAutoMain` uses
+unchanged; none names a host. The `KzenAutoRuntime` split (§3) is E2's, and the E9 close discipline is
+what lets the host's memory governance stay entirely on its side.
 
 One SPI question sits beside them — **§6 gap C** (Java-implementability of the `suspend` reader methods).
 
 ### 5.2 `kzen-sample-plugin` — from toy to the substantive piece **[decided in shape]**
 
 The plugin becomes the place where the market-data logic lives, so that it works in *any* kzen (standalone
-kzen-project, kzen-shell-spawned, or embedded), not only in the Spring host:
+kzen-project, kzen-shell-spawned, or embedded), not only in the Spring host. **[review 1] Two Maven
+modules, not one:** a plain Java **core** with no kzen dependency at all, and a thin kzen **adapter**
+module (reader, Workers, notation) — a build-level dependency boundary is a stronger proof of "neither
+side customized" than a package convention inside one jar. The Spring sample consumes the core directly
+and the adapter as plugin zero.
 
-- **`ItchReaderCapability`** (+ `ReaderProbeCapability` keyed on the file's first bytes / `.NASDAQ_ITCH50`
-  name) registered through `META-INF/services`. Each message becomes one record `DataValue`: message type,
-  timestamp (ns since midnight), order reference, symbol, side, shares, price, match number, MPID.
-  Reader config: symbol filter, message-type filter, time window — so the same file serves a small Job and
-  the pressure run.
-- **Domain model** (Java): `Instrument`, `Order` (with the replace chain — ITCH `U` links old and new
-  reference numbers), `Execution`, `Trade`, `BookLevel` / `Book`, and a **book-reconstruction library** that
-  folds the message stream into per-symbol book state and can emit snapshots at a cadence.
-- **Analysis Workers** (`@Reflect`, `@Service`-free): `ItchBookSnapshotWorker` (stream → top-N book
-  snapshots per symbol per interval), `ItchOrderLifecycleWorker` (stream → one row per order with fill
-  ratio, resting time, replace count). These are what "push the reporting capabilities" — they hold state
-  per symbol across a whole day, which is the memory profile the governor is for.
-- **Bundled notation** under `notation/auto-jvm/kzen-sample-plugin/…`: archetypes for the Workers and one
-  ready-made Job (`ItchDay.yaml`: File worker over the day file → lifecycle Worker → aggregate by symbol
-  and hour → CSV). Discovered off the classpath like kzen-project's samples.
-- **Test tree**: the seeded synthetic ITCH writer and exact-assertion tests over it.
-- The existing `WorldCitiesPopProcessorDefiner` **[open, §7 Q3]**: keep beside the new code as the only
-  `ReportDefiner` example, or retire it.
+**Core (plain Java, zero kzen imports):**
+
+- **Decoded wire messages.** `ItchReader implements Iterable<ItchMessage>` over a `Path` (a
+  `DataInputStream` loop over the ~20 fixed-width message types); `ItchMessage` is a sealed family of Java
+  records per message kind, **not one wide nullable record** — replay and book reconstruction need the
+  event distinctions [review 1]. A normalized flat row projection exists beside it for generic Jobs.
+- **Index and symbol-day batches [user, 2026-09-04].** The day file is indexed once (symbol → message
+  offsets; cheap; persisted beside the file), then processed **one symbol-day at a time**:
+  `SymbolDay implements AutoCloseable` loads that symbol's messages (and, on demand, its reconstructed
+  orders and book) into memory on open and releases them on close. This is the unit the host's memory
+  arena governs (§5.3) and the unit E9 keeps alive through a Job.
+- **Reconstructed order lifecycle** (`Order` with the replace chain — ITCH `U` links old and new
+  reference numbers — `Execution`, `Trade`) and **reconstructed book state** (`BookLevel` / `Book`, a fold
+  over the message stream with snapshots at a cadence). Kept distinct from the wire messages and from
+  the flat projections.
+
+**Adapter (the kzen plugin, both routes demonstrated):**
+
+- **`ItchReaderCapability`** (a `BlockingReaderCapability`, + `ReaderProbeCapability` keyed on the file's
+  first bytes / `.NASDAQ_ITCH50` name) registered through `META-INF/services`; config: symbol filter,
+  message-type filter, time window — so the same file serves a small Job and the pressure run.
+- **Analysis Workers** (`@Reflect`, `@Service`-free, cursor-driven per §6 C): `ItchBookSnapshotWorker`
+  (stream → top-N book snapshots per symbol per interval), `ItchOrderLifecycleWorker` (stream → one row
+  per order with fill ratio, resting time, replace count). Stateful per symbol across a day — the memory
+  profile the governor is for. Book reconstruction stays in the core; the Workers are thin (§7 Q4).
+- **Bundled notation** under `notation/auto-jvm/kzen-sample-plugin/…`: archetypes for the Workers and
+  ready-made Jobs — `ItchDay.yaml` (File worker over the day file → lifecycle Worker → aggregate by
+  symbol and hour → CSV), and the **plain-library route** with no plugin code at all: an expression
+  source `ItchIndex.open(Path.of(file)).symbolDays()` streaming `SymbolDay` batches (E9 closes each).
+- **The world-cities logic** stays as the *simple* case beside ITCH, re-cut as a
+  `BlockingReaderCapability` — Job-only; the `ReportDefiner` is retired (§7 Q3, decided).
+- **Test tree**: the seeded synthetic ITCH writer, exact-assertion tests over it, and the three-path
+  agreement test on the *fixture* — the real day is measured separately (P1); never keep two full-day
+  representations alive just to prove equality [review 1].
 
 ### 5.3 `kzen-sample-embed-spring` — the host, and the *second* way in **[decided in shape]**
 
-Depends on `kzen-sample-plugin` as an ordinary Maven dependency, so the reader, domain and Workers arrive
-on the classpath and register themselves. What the host adds is everything that is *embedding-specific*:
+Depends on `kzen-sample-plugin`'s core and adapter modules as ordinary Maven dependencies, so the plain
+library, the reader and the Workers arrive on the classpath and register themselves (plugin zero). What
+the host adds is everything that is *embedding-specific*:
 
 - **Workspaces.** `kzen.workspaces[]` in `application.yaml`; each is one `KzenAutoContext` + one CIO
-  server on a loopback port, under `SmartLifecycle`. Two in the sample (`trading`, `risk`) so isolation is
-  proven, not assumed. The launcher UI is not embedded — the host's portlet page *is* the workspace list.
+  server on a loopback port, under `SmartLifecycle`, all created against the one `KzenAutoRuntime` the
+  host initializes first — plugin directories and classpath are the host's choice ("external
+  management", review 1). Two in the sample (`trading`, `risk`). The launcher UI is not embedded — the
+  host's portlet page *is* the workspace list. The host also owns the SLF4J backend.
 - **Proxy.** `@RequestMapping("/kzen/{workspace}/**")` returning `StreamingResponseBody`, JDK `HttpClient`
   with `BodyHandlers.ofInputStream()`, kzen-shell's header rules, `spring.mvc.async.request-timeout=-1`,
   flush per chunk (SSE).
-- **Admission at the proxy.** A `MemoryGovernor` permit is taken when a request to `…/logic/startRun`
-  passes and released when `…/logic/status` reports the run settled (timeout backstop). Covers every
-  HTTP-initiated run including the Run button in the kzen UI. Coupling to kzen's URL shape is already
-  implied by proxying at all. What it cannot see — programmatic starts, a run's memory profile up front —
-  is why a kzen-side `RunAdmission` remains a *possible* later seam, recorded in §8, not proposed.
-- **The host's own domain services.** The host loads a day (through the plugin's reader) into its own
-  in-memory services — `OrderBookService`, `TradeRepository` — exposes them on its own `@RestController`s
-  for its own UI, and hands them to kzen through `KzenAutoHost.services`. A Kotlin-glue
-  `@Reflect HostTradeSourceWorker(@Service TradeRepository)` extends `SourceWorker` over them.
+- **Memory governance lives in the host's own objects, not at the proxy [user, 2026-09-04].** The
+  host's arena is a semaphore weighted by batch size: a `SymbolDay` takes its permit when it loads (a
+  blocking acquire — kzen drives it through `JobControl.runBlockingIo`, so quiescence detection still
+  sees it) and releases it in `close()`. kzen needs no admission concept at all; it only has to **honour
+  `AutoCloseable` on the streams and items it is handed, with defined close timing** — E9. The earlier
+  proxy-level permit around `…/logic/startRun` / `status` is demoted to an optional whole-run backstop.
+- **The host's own domain services.** The host loads a day through the plain core into its own
+  services — `OrderBookService`, `TradeRepository` — exposes them on its own `@RestController`s for its own
+  UI, and hands them to kzen through `KzenAutoHost.services` (type-keyed, like `@Service` today; named or
+  qualified bindings would be a later extension, not a reason to complicate the first API — review 1).
+  Tier 1 is a Kotlin-glue `@Reflect HostTradeSourceWorker(@Service TradeRepository)`. Tier 2 — a *named
+  host iterable plus its item type*, served by one generic host-source Worker with no Worker class per
+  repository — is the smallest concrete form of the deferred `ProviderDataSource`, a later expansion.
+- **Isolation test** covers more than two successful starts: one context's boot sweep, output cleanup,
+  notation edit, run cancellation and shutdown must not touch the other's work or state [review 1].
 
 **Where the two mechanisms overlap, and why both belong.** The same trades reach a Job two ways:
 
@@ -253,7 +308,8 @@ on the classpath and register themselves. What the host adds is everything that 
 They are not redundant: the first is what the plugin mechanism is for; the second is what in-process
 hosting is for. And they give the e2e test its strongest assertion for free — **the two paths must
 agree**: a Job over the file and a Job over the host's repository produce the same per-symbol aggregate.
-That replaces the earlier draft's "seeded generator → exact equality" with a cross-check over real data.
+The agreement is asserted on the seeded fixture (exact); the real day is measured separately for
+throughput and arena footprint (P1) [review 1].
 
 ## 6. Gaps found while checking — the ones that need a decision
 
@@ -264,14 +320,17 @@ That replaces the earlier draft's "seeded generator → exact equality" with a c
 - **B. Java 25 and the plugin.** `kzen-sample-plugin` already compiles with `maven.compiler.release=25`,
   but against `kzen-auto-plugin` bytecode at 26 — it builds and cannot run on 25. The retarget is the
   first thing to do regardless of anything else here.
-- **C. The reader SPI is not Java-friendly. [decided 2026-09-04, user: add the adapter]**
+- **C. The reader SPI is not Java-friendly. [decided 2026-09-04, user: add the adapter; shape per review 1]**
   `ReaderCapability.open` / `inspect` and `SourceWorker.produce` are `suspend`. A Java class *can*
   implement a `suspend` interface method (accept the `Continuation` parameter, return the value
   directly) but it is boilerplate a third-party author should not have to know. `kzen-auto-plugin`
   gains a `BlockingReaderCapability` (abstract class: non-suspend `openBlocking` / `inspectBlocking`,
-  the `suspend` pair implemented once on top) and, for the same reason, a blocking `SourceWorker`
-  variant for Java Workers. Generic SPI improvements justified on their own terms — the SPI's only
-  sample is Java. The plugin stays Java-only.
+  the `suspend` pair implemented once on top) and a **cursor-driven `SourceWorker`** for Java Workers:
+  Java opens an `Iterator` (+ `AutoCloseable`) and kzen owns the pulls, batching, checkpoints,
+  cancellation and close. Checked: `Emitter.send` and `JobControl.checkpoint` have no non-suspend forms,
+  so the first draft's "blocking `produce(emit, control)`" cannot be written from Java — the cursor
+  inverts control instead and routes each pull through `JobControl.runBlockingIo`. Generic SPI
+  improvements justified on their own terms — the SPI's only sample is Java. The plugin stays Java-only.
 - **D1. IEX DEEP+ in HIST.** The `DPLC` / `DPLS` files on the HIST listing are presumably the DEEP+ feed
   split in two, but no document found says so; the DEEP+ message spec must be obtained before an IEX reader
   is sized. Moot if ITCH is chosen.
@@ -312,24 +371,40 @@ including the application classloader itself (so "jar on the classpath" and "jar
 are the same case, which is what makes the embedded host and standalone kzen behave identically):
 
 1. **Discovery.** A plugin is a **directory** (`<project home>/plugins/<name>/*.jar`, configurable via
-   `KzenAutoConfig` / `--plugin.root=`), loaded into one `URLClassLoader` per directory at **boot**, parent
-   kzen-auto-jvm's loader. A set of related jars is the normal case; shading stops being required. The
-   application classloader is plugin zero. Restart to upgrade (R5-G's recommended verdict; the jar-lock
-   problem disappears with boot-time pinning because nothing ever tries to replace a loaded jar).
+   `--plugin.root=`), loaded into one `URLClassLoader` per directory at **boot**, parent kzen-auto-jvm's
+   loader. A set of related jars is the normal case; shading stops being required. The application
+   classloader is plugin zero. Restart to upgrade (R5-G's recommended verdict; the jar-lock problem
+   disappears with boot-time pinning because nothing ever tries to replace a loaded jar).
+   **[review 1] The loader set is process-global**, initialized exactly once by `KzenAutoMain` or the
+   embedding host *before* any context (`KzenAutoRuntime`, E2) — not a per-context `pluginRoot`, which
+   would register N mirror sets on the one `GlobalMirror`. Directory and jar order is deterministic
+   (sorted by name); duplicate plugin ids, reader identities, `@Reflect` class names and notation paths
+   are boot errors; a broken plugin fails *its* scope with a named diagnostic and does not hide the
+   others.
 2. **Per loader, three contribution channels, all existing:**
-   - `ServiceLoader` for SPI capabilities — `ReaderCapability` (and probe / authoring), and **`ReportDefiner`
-     moves here too**, retiring `plugins.yaml`'s class list;
+   - `ServiceLoader` for SPI capabilities — `ReaderCapability` (and probe / authoring), with providers
+     de-duplicated by *declaring* loader so a parent's providers are not re-counted per child;
+     `ReportDefiner` is **not** carried forward (Job replaces Report — §7 Q3), which retires
+     `plugins.yaml`;
    - a `ReflectiveClassMirror(loader)` registered on `GlobalMirror` — `@Reflect` classes become
-     constructible (Workers, steps, vertices, prototypes, data sources), `@Service` parameters resolved from
-     the `GraphEnvironment`, R4 boot validation covering them for free;
+     constructible (Workers, steps, vertices, prototypes, data sources), `@Service` parameters resolved
+     from the `GraphEnvironment`. **[review 1] The mirror is lazy**, so R4's boot validation (which
+     iterates the *generated* `ReflectionRegistry.global`) does not cover plugin classes — a malformed
+     class or a missing `@Service` surfaces when notation first references it; E3's view shows it then.
+     A Kotlin plugin's KSP `ModuleReflection` participates only through an explicit rule (a
+     `ServiceLoader` provider for it), since a folder plugin cannot "call `register()`" on its own;
    - bundled `notation/**` merged like kzen-project's — archetypes, ribbon tools, ready-made documents.
-3. **A manifest only for what cannot be discovered**: `META-INF/kzen/plugin.yaml` with a plugin id and
-   version (for diagnostics and the §6a.3 allow-list), nothing else mandatory.
-4. **`PluginDocument` becomes a read-only view** of what loaded and what failed (E3's per-definer
-   diagnostics), not the loading mechanism. Jar upload (D3) is dropped: a plugin folder is the install.
+3. **A manifest only for what cannot be discovered**: `META-INF/kzen/plugin.yaml` with a plugin id,
+   version and **[review 1] a kzen plugin-SPI compatibility version or range** (a boot-time compatibility
+   error beats a later linkage failure) — metadata, never a class allow-list; nothing in it mandatory.
+4. **`PluginDocument` becomes a read-only view** of what loaded and what failed (E3's per-contribution
+   diagnostics), not the loading mechanism — and only of what *discovery* saw plus what the mirror was
+   actually asked for (review 1's reduced promise; no class index or scan exists for the screen). Jar
+   upload (D3) is deferred, not precluded: a plugin folder is the install.
 
-This is E2 + E3 with D2 answered "per directory", D3 answered "no", and two additions E2 does not have
-today: `ServiceLoader` capabilities per plugin loader, and the app classloader treated as a plugin.
+This is E2 + E3 with D2 answered "per directory", D3 answered "not now", two additions E2 did not have
+(`ServiceLoader` capabilities per plugin loader, and the app classloader treated as a plugin), and, from
+review 1, the process-level runtime and the reduced diagnostics promise.
 
 ### 6a.3 "JDK-compatible logic with neither side customized" **[proposed — the genuinely new part]**
 
@@ -380,7 +455,8 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
      gaps: (a) **recursive types** — the describer guards cycles by making the recursive occurrence
      Opaque, which stops a path at `order.executions[].order`; the contract needs a *named type reference*
      so a design-time picker can keep descending (the value side already can) — **M**; (b) **`Set`** is
-     refused (lists only); accept as an unordered Listing — **XS**; `Sequence` / `Iterator` stay refused
+     refused (lists only); accept as an unordered Listing — **XS** (a *top-level* `Set` source is not
+     resumable — E9, below); `Sequence` / `Iterator` stay refused
      as *values* (only an expression result streams); (c) a **path-projection / unnest Worker** — Filter
      and Formula already see the whole native object in Kotlin (`it.executions.sumOf { e -> e.qty }`
      works now), but aggregate and the CSV writer need flat columns: a Worker taking paths
@@ -390,6 +466,34 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
 
   Nothing here dispatches on a library's class name (CC-17): records, data classes, lists and scalars are
   JDK/Kotlin capabilities.
+
+- **Streams that own resources, and items that own resources [user, 2026-09-04 — E9].** Review 1 found
+  that an expression-created iterator over a file has *no close path* today (`FormulaSourceWorker` never
+  closes anything), and that its live-edit resume — re-evaluate and skip the already-delivered prefix —
+  assumes a stable, re-openable stream. The user's requirement goes further: **individual items** are
+  `AutoCloseable` too, because that is how the host's memory arena works (a symbol-day batch consumes the
+  arena on open and releases it on close). So:
+  1. **Streams:** `Iterable` / `Iterator` / `Sequence` and `java.util.stream.Stream` (a fourth stream
+     type — `Files.lines(...)`-style APIs become sources in one change): close the iterator, then the
+     stream object, whichever of them is `AutoCloseable`, on completion, cancellation and failure. A
+     closeable stream is **detached and re-adopted across a live-edit migration** (the `DataReadCore`
+     cursor precedent), never re-evaluated-and-skipped; a non-closeable stream keeps skip-resume; a
+     top-level `Set` is not resumable at all (restart on edit) because its order is not stable.
+  2. **Items:** a `DataValue` whose native is `AutoCloseable` is a **closeable element** owned by the
+     framework through a per-run ledger keyed by native identity: a reference count over channel
+     hand-offs (+1 per channel sent to, −1 when a consumer moves past it, zero closes); **owner
+     propagation** so aliases cannot outlive the parent — navigation children inherit the owner, and a
+     non-scalar Formula / Filter output inherits its input's owner while scalars never do [decided
+     2026-09-04, user]; **flush on send** for owned elements, or the producer's pending buffer would
+     deadlock against the arena; migration carryover (`drainBuffered` / `preload`) transfers ownership
+     without closing; teardown, cancel and failure close every outstanding element; access after close
+     is a named error. Accumulating Workers (Sort, Pivot, Summary) over owned elements can stall the
+     source against the arena — inherent, not incidental, so no rule: the ledger surfaces open items and
+     their holders and names the accumulator in a stall diagnostic [decided 2026-09-04, user].
+
+  This is route-independent — the same ledger serves `DataCursor` items, cursor-driven Java Workers,
+  host-object sources and expression streams — and it is what turns "kzen needs no admission concept"
+  (§5.3) from a hope into a mechanism. **M–L.**
 
 **What this means for the sample plugin (§5.2 revised).** The ITCH parser, domain model and book library
 are written as a **plain Java library with zero kzen imports** — `ItchReader implements Iterable<ItchMessage>`
@@ -406,7 +510,7 @@ expression itself; it is the *entry* route, and `ReaderCapability` is what a for
 here touches JS — a plain-library object gets the generic editors of `2026-08-21_extension-points.md`
 §2.1, which is the intended default.
 
-### 6a.4 What E1 now has to ratify (this analysis's amendments to its D-table)
+### 6a.4 The E1 table as ratified (2026-09-04), plus what review 1 added
 
 | E1 item | Recommendation as amended |
 |---|---|
@@ -419,6 +523,10 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 | ~~new D8~~ allow-listed plain classes | **Dropped** — the expression Workers already do this (§6a.3); the only work is threading the plugin loader into the expression compiler (part of D1/E2) |
 | **D9** class-model mapping | **Ratified 2026-09-04.** Mostly shipped (records / data classes / List / Map / scalars, recursive, lazy navigation). First cut: design-time shape via the adapter registry (S); enums (XS); ordinary-class shape by convention, no wrapper required (S); per-class native-token cache (XS); `Set` as Listing (XS); recursive type references (M); path-projection / unnest Worker + path picker (M); P1 measurement |
 | D10 app classloader as plugin zero | **No decision needed** — it is an implementation rule for E2 (one discovery code path over every loader, the app loader included), recorded so it is not forgotten |
+| Extension universe scope (review 1) | **Process-global, externally configured, startup-pinned** — `KzenAutoRuntime` initialized once before any context; per-context loaders were the first re-elaboration's mistake |
+| Diagnostics promise (review 1) | **Reduced:** installed scopes, contributions found through explicit protocols, `@Reflect` classes actually resolved, and named failures — never an exhaustive class inventory or reflective boot validation |
+| Java `SourceWorker` shape (review 1) | **Cursor-driven** (Java opens an iterator, kzen pulls) — `Emitter` / `JobControl` are `suspend`-only, so a blocking emitter cannot be written from Java |
+| **E9** closeable streams and items (user) | **Added 2026-09-04** — §6a.3 last bullet; the mechanism behind host-side memory governance |
 
 ## 7. Open questions for the user
 
@@ -433,21 +541,22 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
   kzen* is usable too, less ergonomically and with an extra wrapper where needed — the absorb-external-
   functionality route. §6a.3's adapters serve tier 2; a wrapper class (tier 1 over a tier-2 library) is
   an acceptable answer where the adapters fall short.
-- ~~Q6 — ratify §6a.4 as E1?~~ **D1, R5-G, D2, D3, D7 ratified 2026-09-04** (table above). Remaining
-  before the E plan is rewritten: **Q7** below.
+- ~~Q6 — ratify §6a.4 as E1?~~ **D1, R5-G, D2, D3, D7 ratified 2026-09-04** (table above); the E plan was rewritten the same day.
 - ~~Q7 — D9 first cut.~~ **Decided 2026-09-04:** the full list in §6a.3 item D9 — ordinary classes by
   convention (no wrapper), enums, `Set`, per-class token cache, recursive references, and the
   path-projection / unnest Worker for object graphs.
 - ~~Q8 — where does the allow-list live?~~ **Moot** — no allow-list (D8 dropped).
-- **Q4 — analysis logic in plugin Workers, or in notation over generic Workers?** §5.2 proposes stateful
-  Workers in the plugin (book reconstruction cannot be expressed with today's generic Workers). If a
-  generic "fold by key" Worker is wanted in kzen instead, that is a kzen feature and out of scope here.
-- **Q5 — name.** `kzen-sample-embed-spring` as the user wrote it, or `kzen-sample-spring` from the earlier
-  draft. Either way it is a new sibling and an `includeBuild` in the umbrella like `kzen-sample-plugin`.
+- ~~Q4 — analysis logic in plugin Workers, or in notation over generic Workers?~~ **Decided 2026-09-04
+  (review 1's answer, adopted):** stateful analysis stays in thin plugin Workers over the plain core; no
+  generic "fold by key" Worker until a second domain shows the same need — ordering, eviction, spilling
+  and checkpoint semantics make it much larger than the market case suggests.
+- ~~Q5 — name.~~ **Decided: `kzen-sample-embed-spring`** (review 1: not architectural; keep the user's
+  name). A new sibling and an `includeBuild` in the umbrella like `kzen-sample-plugin`.
 
 ## 8. Recorded, not proposed
 
-- **`RunAdmission` inside kzen.** If admission ever has to cover runs the proxy cannot see, the only sound
+- **`RunAdmission` inside kzen.** Further from needed after E9 — governance rides on item lifetimes
+  (§5.3). If whole-run admission ever has to cover runs the host cannot see, the only sound
   design is *deferred launch* with a queued `LogicStatus` state: every controller entry point is
   `@Synchronized`, `settleAfterDrive` fires at every pause boundary (so "release on settle" is wrong), and
   five sites launch a run. Blocking in `LogicHandler` or on the driving executor were both considered and
@@ -483,17 +592,23 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 1. Java 25 baseline across the release train + republish — the hard prerequisite for everything, including
    the *existing* sample plugin.
 2. Throwaway spike answering G1–G7 (no kzen code, answers recorded here).
-3. Per-context work / log roots; `KzenAutoHost`; `BlockingReaderCapability` + blocking `SourceWorker` —
-   three small kzen-auto sessions, each defensible alone.
-4. **E1 ratified → E2/E3 re-elaborated per §6a** (plugin = loader; folder discovery; `ServiceLoader` +
-   mirror + notation per loader; manifest allow-list; JDK-type adapters). This is the kzen-side arc the
-   sample plugin then rides on; it is L and the riskiest item here.
-5. `kzen-sample-plugin`: plain Java ITCH library (reader, records, book fold) + fixture writer + tests;
-   the `BlockingReaderCapability` route; the manifest + notation zero-customization route; bundled
-   `ItchDay` Job; verified standalone in kzen-project from a plugin folder (P1 measured here).
-6. `kzen-sample-embed-spring`: scaffold, workspaces, proxy, governor, host services + Kotlin glue Worker,
-   portlet; `@SpringBootTest` driving `startRun` / `status` / trace query through the proxy, the
-   three-paths agreement assertion, admission, isolation, SSE.
+3. Per-context work roots (no `logDir`); `KzenAutoHost`; `BlockingReaderCapability` + cursor-driven
+   `SourceWorker` — three small kzen-auto sessions, each defensible alone.
+4. **E2/E3 per §6a** (plugin = loader; `KzenAutoRuntime`; folder discovery; `ServiceLoader` + mirror +
+   notation per loader; reduced diagnostics) and **E9** (closeable streams and items) — the kzen-side arc
+   the sample rides on; E2 is L and the riskiest item here. E7/E8 (typed plain objects, object-graph
+   paths) run beside it.
+5. `kzen-sample-plugin`: **core** module (reader, sealed message records, index + `SymbolDay`, book fold)
+   + **adapter** module; fixture writer + tests; the `BlockingReaderCapability` route; the expression
+   route over `SymbolDay` batches (E9); bundled `ItchDay` Job; verified standalone in kzen-project from a
+   plugin folder (P1 measured here) — through the **plugin compatibility test kit** (review 1: a reusable
+   entry point in `kzen-auto-plugin`'s test fixtures that runs any plugin directory through loader
+   creation, discovery, reflective construction, expression visibility, duplicate detection and
+   expected diagnostics).
+6. `kzen-sample-embed-spring`: scaffold, workspaces, proxy, arena-backed `SymbolDay` loading, host
+   services + Kotlin glue Worker, portlet; **separate acceptance tests per outcome** (review 1): plugin
+   in standalone kzen; host-object access; two-workspace isolation; three-path equality on the fixture;
+   real-day pressure — never one large test whose success cannot be interpreted.
 7. Docs-to-truth: Java 25 in the toolchain sections; "process-per-project is the shell's default, in-process
    hosting is supported through `KzenAutoHost`"; `SourceWorker` and `ReaderCapability` named as the two
    code-as-source extension points; the plugin README rewritten around the new content.
@@ -504,14 +619,20 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 - **[decided]** Unit of embedding is `KzenAutoContext` + `ktorMain` per workspace over a loopback proxy;
   the host replaces `kzen-shell`; CIO engine.
 - **[decided]** Plain jars; Java 25 bytecode target; Spring MVC `@RestController` proxy.
-- **[decided]** Admission is host-side at the proxy; no kzen seam.
+- **[decided]** Memory governance is host-side, inside the host's own closeable objects; kzen's only
+  obligation is E9's close discipline; no admission seam (a proxy-level whole-run permit is optional).
+- **[decided 2026-09-04, review 1 — the four contracts a plan must state]** (1) one externally
+  configured, JVM-global, startup-pinned extension universe; (2) context-owned workspace state and work
+  roots; (3) host-owned synchronization, memory governance and logging, with no Spring concepts in kzen;
+  (4) discovery-based diagnostics, not an exhaustive class inventory or reflective boot validation.
 - **[decided]** The domain enters a Job by `SourceWorker` (host objects) and `ReaderCapability` (files);
   `ProviderDataSource` is deferred.
 - **[decided]** The dataset is real exchange order-level data; no real data is ever committed; a seeded
   synthetic fixture in the same binary format covers tests.
 - **[decided]** The market-data logic lives in `kzen-sample-plugin`; the Spring sample depends on it and adds
   only what is embedding-specific.
-- **[decided 2026-09-04]** NASDAQ ITCH 5.0; Java-only plugin; `BlockingReaderCapability` in the SPI.
-- **[decided in direction 2026-09-04]** The plugin system is reworked to be general and simple, through
-  the existing E1–E5 arc; §6a.4 is the amended E1 table awaiting ratification.
-- **[open]** Q3, Q6–Q8 above.
+- **[decided 2026-09-04]** NASDAQ ITCH 5.0; Java-only plugin (core + adapter modules);
+  `BlockingReaderCapability` and a cursor-driven `SourceWorker` in the SPI.
+- **[decided 2026-09-04]** The plugin system is reworked to be general and simple through the E arc:
+  E1 ratified, E2/E3 re-elaborated, E7/E8/E9 added (§6a.4).
+- **[decided 2026-09-04]** Q3–Q8 all closed (§7). Nothing here is open except the gates in §9.
