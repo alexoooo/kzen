@@ -1,12 +1,21 @@
 # In-process hosting of kzen, and a sample that is worth analyzing
 
-> **Status: analysis, not scheduled.** Started 2026-09-03 as a design conversation about hosting kzen
+> **Status: design authority; implementation planned, not started.** Execution is split into sessions in
+> [`../plans/in-process-hosting/README.md`](../plans/in-process-hosting/README.md).
+> Started 2026-09-03 as a design conversation about hosting kzen
 > *inside* a foreign JVM; reworked 2026-09-04 after the host's real constraints landed and the scope
 > moved from "a Spring sample with a synthetic FIX domain" to "a substantive `kzen-sample-plugin` over
 > real market data, wrapped by a Spring host". An earlier draft of this document was written as a
-> phased plan (HS1–HS9) — that was premature. Nothing here is on the master ledger; the candidate
-> phase outline at the end is what a plan would start from — every question is now decided and only
-> the gates in §9 remain. Decisions are marked **[decided]**; per CC-20 no line numbers are cited.
+> phased plan (HS1–HS9) — that was premature. The session plan now owns implementation steps;
+> the master ledger owns sequencing. The gates in §9 precede their dependent implementation,
+> not the act of planning. Decisions are marked **[decided]**; per CC-20 no line numbers are cited.
+>
+> **2026-09-04, planning review and memory clarification:** symbol message data is off-heap;
+> book depth/history and order lifecycles form a heap object graph using persistent data structures
+> (§5.2.1). `SymbolDay` owns both lifetimes, with leak detection as a diagnostic backstop. E9 must
+> protect acquisition across the blocking-dispatch return boundary and account for actual channel
+> capacity, not promise one item per hop (§6a.3). P1 starts with a core-only measurement before
+> the plugin/host integration and is repeated against the finished routes.
 >
 > **2026-09-04, review cycle closed.** Five design reviews were written against this document and
 > folded in the same day; the review files were then removed. Reviews 1–4 are recoverable with
@@ -61,7 +70,7 @@
 > **2026-09-04 (latest):** E1 ratified; `docs/plans/2026-07-25_extensibility-improvements.md` now carries
 > the verdicts as its Phase E1 as-built, E2/E3 re-elaborated to §6a, and new **E7** (plain-object data
 > shape) / **E8** (object-graph paths). The plugin-system part of this document is therefore *planned*;
-> the in-process hosting seams and the two samples remain analysis.
+> the in-process hosting seams and the two samples are now covered by the session plan linked above.
 >
 > **2026-09-04 (review 2):** folded. E9's item ownership becomes an **explicit lease
 > ledger** (the first draft's `ChannelInput`-iterator hook did not match the framework's batch-consuming
@@ -300,8 +309,9 @@ and the adapter as plugin zero.
   materialize the **full symbol state graph** (orders, executions, trades, book history) for temporal
   questions such as "the book depth one second before each trade". The symbol-day boundary is
   therefore *analytical*, not merely operational, and `SymbolDay implements AutoCloseable` is the
-  matching resource boundary: open acquires the host's arena allocation, close releases the whole
-  graph. One `SymbolDay` is one closeable logical Job element (E9), however large inside — not to be
+  matching resource boundary: open acquires the host's allocation and close ends the model's usable
+  lifetime; native release and heap reclamation are distinguished in §5.2.1.
+  One `SymbolDay` is one closeable logical Job element (E9), however large inside — not to be
   confused with `JobChannel`'s physical batching of several `DataValue`s.
 
   Build rules [review 4 corrects the routing key]: decode each frame once and route it by its
@@ -346,7 +356,7 @@ and the adapter as plugin zero.
 - **`ItchReaderCapability`** (a `BlockingReaderCapability`, + `ReaderProbeCapability` keyed on the file's
   first bytes / `.NASDAQ_ITCH50` name) registered through `META-INF/services`; config: symbol filter,
   message-type filter, time window — so the same file serves a small Job and the pressure run.
-- **Analysis Workers** (`@Reflect`, `@Service`-free, cursor-driven per §6 C): `ItchBookSnapshotWorker`
+- **Analysis Workers** (`@Reflect`, `@Service`-free, Java-friendly callbacks per §6 C): `ItchBookSnapshotWorker`
   (stream → top-N book snapshots per symbol per interval), `ItchOrderLifecycleWorker` (stream → one row
   per order with fill ratio, resting time, replace count). Stateful per symbol across a day — the memory
   profile the governor is for. Book reconstruction stays in the core; the Workers are thin (§7 Q4).
@@ -375,6 +385,48 @@ and the adapter as plugin zero.
   intermediate representation, and a book-derived aggregate cannot come from the raw route — the real
   day is measured separately (P1); never keep two full-day representations alive just to prove
   equality [review 1].
+
+### 5.2.1 Symbol-day storage, lifetime and leak detection **[decided 2026-09-04]**
+
+**Representation.** Store the symbol's message bytes off-heap. Build a heap object graph for book
+depth/history and order lifecycles using persistent data structures: successive states share unchanged
+nodes, while historical states retain the meaning they had at their feed ordinal. Domain nodes can
+refer to message offsets/views instead of duplicating the decoded payload on the heap. This is the
+intended implementation of the materialized `SymbolDay`, not a requirement to retain one heap wire
+record per message. Choose and measure the persistent collection representation in the core; it must
+be usable from plain Java with no kzen dependency.
+
+**Lifetime.** `SymbolDay` owns the native storage and roots of the persistent graph. All downstream
+arena-backed views remain protected by its E9 owner. Explicit close invalidates access, releases the
+native storage, drops the model's graph roots and only then returns the budget permit. The graph's
+remaining heap objects are reclaimed by GC when unreachable; close does not promise immediate heap
+reclamation or invalidate detached scalar copies. Use a cross-thread closeable allocation mechanism:
+construction, Worker access and teardown can occur on different threads. A shared JDK foreign-memory
+arena is the initial candidate; a confined arena cannot satisfy that execution model. See the
+[JDK 25 Arena contract](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/foreign/Arena.html).
+Child views must keep the lifetime owner reachable while usable; safe native access must also hold
+under plain-library use, outside kzen. Persistent structure sharing stays within a symbol-day's owned
+lifetime unless an explicit separate owner is introduced; do not share arena-backed nodes across runs.
+
+**Accounting.** The stored weight distinguishes predictable native allocation (including alignment
+and shared day-wide messages) from an estimate of the peak heap graph, indexes and reconstruction
+temporaries. The host's multiplier applies to the estimated component with documented headroom;
+acquire the combined reservation before materialization. Measure native bytes, live reservations,
+peak heap and retained heap separately. Structural snapshots and copied results use heap outside the
+native arena: bounded previews and aggregate outputs must not accidentally copy the full history and
+present a returned native permit as proof of a global heap bound. A release failure is visible and
+must not report successfully freed native capacity. Oversized symbol-days fail before blocking.
+
+**Leak detector (user's “Closer” requirement).** Use JDK `Cleaner` for detection of a model abandoned
+without explicit close, unless the user identifies a specific `Closer` utility. Normal release remains
+deterministic through explicit close and E9. Register detached cleanup state that cannot retain the
+model or its graph; distinguish explicit close from abandoned cleanup, emit a named leak diagnostic
+(symbol/day, native bytes and optional allocation provenance), and attempt safe fallback native and
+permit release exactly once. Report cleanup failures explicitly. This catches unreachable unclosed
+models; a model still retained by a bad lease cannot trigger GC cleanup, so E9's holder diagnostics and
+end-of-run open/close accounting remain necessary. Test the cleanup action deterministically and use
+a bounded, separate reachability test; ordinary correctness tests must not depend on GC timing. See
+[JDK Cleaner](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/ref/Cleaner.html).
 
 ### 5.3 `kzen-sample-embed-spring` — the host, and the *second* way in **[decided in shape]**
 
@@ -452,6 +504,11 @@ throughput and arena footprint (P1) [review 1].
   so the first draft's "blocking `produce(emit, control)`" cannot be written from Java — the cursor
   inverts control instead and routes each pull through `JobControl.runBlockingIo`. Generic SPI
   improvements justified on their own terms — the SPI's only sample is Java. The plugin stays Java-only.
+  **Planning anchor correction:** `TransformWorker.onElement` / `onComplete` are also suspend;
+  the analysis Workers consume an input stream and cannot use a source base as their transform API.
+  HS11 provides the minimal Java bridge for those callbacks (ordinary methods returning output
+  iterators, framework-owned emission/closure), exercised by HS22. Worker bases stay in the JVM
+  Worker module if their dependencies require it; the reader adapter lives in the public plugin SPI.
 - **D1. IEX DEEP+ in HIST.** The `DPLC` / `DPLS` files on the HIST listing are presumably the DEEP+ feed
   split in two, but no document found says so; the DEEP+ message spec must be obtained before an IEX reader
   is sized. Moot if ITCH is chosen.
@@ -621,7 +678,8 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
      top-level `Set` is not resumable at all (restart on edit) because its order is not stable.
   2. **Items:** emitting an `AutoCloseable` native **transfers its ownership to the run** (a host object
      kzen must not close is wrapped as borrowed) — at **source ingress** for a pulled item (the
-     framework's pull loop adopts it right after `next()` and holds a producer lease through lift,
+     framework's pull loop adopts it right after `next()`, before any cancellable return from the
+     blocking dispatcher, and holds a producer lease through lift,
      projection and send, so a lift failure or a projection to scalars closes it) and at the
      **run-scoped send** for a Worker-created one [reviews 3, 4] — ingress exists **only where the
      framework owns the pull** (`ReadWorker`, `FormulaSourceWorker` over the returned stream, the
@@ -642,13 +700,20 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
      propagation** so aliases cannot outlive the parent — navigation children inherit the owner, and a
      non-scalar Formula / Filter output inherits its input's owner while scalars never do [decided
      2026-09-04, user]; **flush on send** for owned elements, or the producer's pending buffer would
-     deadlock against the arena; migration carryover (`drainBuffered` / `preload`) transfers ownership
+     deadlock against the arena; flushing does not remove channel capacity — buffered singleton
+     batches, blocked producers, active callbacks and explicit retention all count toward occupancy;
+     migration carryover (`drainBuffered` / `preload`) transfers ownership
      without closing; teardown, cancel and failure close every outstanding element, a processing
      failure staying primary with close failures suppressed [review 5]; access after close
      is a named error. Accumulating Workers (Sort, Pivot, Summary) over owned elements can stall the
      source against the arena — inherent, not incidental, so no rule: the ledger surfaces open items and
      their holders (exact, from the explicit leases) and names the accumulator in a stall diagnostic
      [decided 2026-09-04, user; made precise by review 2].
+
+  **Acquisition handoff [planning review].** Cancellation can discard a successfully acquired resource
+  during return from the blocking dispatcher. E9's acquisition-handoff contract in the
+  [extensibility plan](../plans/2026-07-25_extensibility-improvements.md) covers framework-owned
+  stream opening and item pulls; HS11/HS17 implement and test it.
 
   This is route-independent — the same ledger serves `DataCursor` items, cursor-driven Java Workers,
   host-object sources and expression streams — and it is what turns "kzen needs no admission concept"
@@ -758,7 +823,12 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
   `work/` as inside the project home when `WorkUtils` resolves it to the parent; kzen-project `AGENTS.md`
   naming a `CommonServer.kt` that does not exist.
 
-## 9. Gates — answer before planning, record either way
+## 9. Gates — resolve before dependent implementation, record either way
+
+These are executable sessions and acceptance gates, not prerequisites for writing the plan.
+G1–G7 are the host spike; G8 is the baseline build; G9/G10 are E2 acceptance. P1 starts in the
+plain core before host/plugin integration and is repeated on the finished routes. The session
+plan's README maps each gate to its owner. No gate is recorded as passed by this document change.
 
 | # | Question | How |
 |---|---|---|
@@ -773,9 +843,15 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 | ~~D1~~ / D2 | §6 — D1 moot (ITCH chosen, no IEX reader); D2 is the README's terms note | vendor docs |
 | G9 | Aggregate loader: one expression over two plugin directories compiles, a mirror-built instance passes an identity-sensitive call, a name in two folder scopes reports ambiguity, an application-classpath / folder collision resolves to the application copy everywhere and is listed as shadowed (review 3), and the expression survives a second context (review 2) | E2 acceptance test |
 | G10 | Exact-origin notation: with two folder plugins installed, the application's bundled notation is discovered once, a folder / application collision on one logical path is reported with both origins and never read from the parent, and a folder's documents read back byte-identical to the jar entry (review 4) | E2 acceptance test |
-| P1 | On one real day: sequential decode throughput and heap; **derived-store build time and disk size; per-symbol replay throughput; the peak per-symbol-day reconstruction state (order-reference map, book) while materializing; the safety margin of the stored materialization weight against the actual footprint, turned into the host's multiplier; the largest real symbol-day's materialized footprint** (reviews 3, 4 — no full-day order-reference map is built, so none is measured) — is it heavy enough to make the governor visible? | measure on the real file, once |
+| P1 | On one real day: sequential decode throughput and heap; derived-store build time/disk size; per-symbol replay; **native allocation separately from peak/retained heap for the persistent book/history, order indexes and reconstruction temporaries**; weight-estimate margin and host multiplier; largest symbol-day; native release and leak diagnostics; final pipeline occupancy including actual channel capacities — is the governor visible and the representation practical? | early core-only measurement, then integrated confirmation |
 
-## 10. Candidate phase outline (input to a future plan, not a plan)
+## 10. Implementation plan
+
+The session files in [`../plans/in-process-hosting/`](../plans/in-process-hosting/README.md)
+replace this document's candidate phase outline. E2/E3/E7/E8/E9 retain their design authority in the
+extensibility plan; the new directory splits their execution into sessions alongside the hosting and
+sample work. The broad outline below is historical context only; the session tracker defines the
+actual dependencies, early measurement and acceptance gates.
 
 1. Java 25 baseline across the release train + republish — the hard prerequisite for everything, including
    the *existing* sample plugin.
@@ -871,4 +947,9 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
   pull, the author owning the pre-emit interval otherwise; a processing failure is primary over close
   failures; the per-context availability view is initialized at creation and augmented lazily; embedded
   shutdown is server stop → context close → claim release, with construction rollback.
-- **[decided 2026-09-04]** Q1–Q8 all closed (§7). Nothing here is open except the gates in §9.
+- **[decided 2026-09-04]** Off-heap symbol message data plus a heap graph using persistent data
+  structures for book history and order lifecycles; `SymbolDay` lifetime, budget accounting and leak
+  detection are specified in §5.2.1. Blocking acquisition handoff and actual channel occupancy are
+  E9 acceptance requirements (§6a.3).
+- **[decided 2026-09-04]** Q1–Q8 all closed (§7). The gates in §9 are assigned to implementation
+  sessions; none is implicitly passed by planning.

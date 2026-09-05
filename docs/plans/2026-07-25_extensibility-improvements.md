@@ -67,6 +67,18 @@
 >   the reflection plan (Phase R6) and EXT D7; C6's per-tag card registry is the in-tree seam that
 >   keeps the door open.
 
+## Execution sessions (2026-09-04)
+
+The [in-process hosting session plan](in-process-hosting/README.md) elaborates E2/E3/E7/E8/E9
+alongside the sample and hosting work. This document remains their design authority. E2 is split
+across HS07–HS11 with external acceptance in HS22; E3 is HS12 plus HS21 retirement and HS22 proof;
+E7 is HS13–HS14; E8 is HS19–HS20; E9 is HS15–HS18. These supersede the one-phase-per-session sizing
+above. No phase is implemented merely by scheduling it. E4 remains outside that arc.
+
+The sample's off-heap message storage, persistent heap graph and Cleaner leak-detection backstop
+are specified once in [the hosting analysis §5.2.1](../analysis/2026-09-03_in-process-hosting.md).
+Cleaner does not replace the deterministic close contract below.
+
 ## The strategic finding (do not re-litigate)
 
 **The extension ceiling is `ReflectionRegistry`, not notation.** Notation is already open — a
@@ -313,7 +325,10 @@ and a **cursor-driven `SourceWorker`**: the Java subclass implements one non-sus
 detection), batching, checkpoints, cancellation and close. Checked: `Emitter.send` and
 `JobControl.checkpoint` are `suspend` with no non-suspend forms, so the earlier "blocking
 `produce(emit, control)`" cannot be written from Java. Close semantics for the cursor and its items are
-E9's; this phase only wires the hook.
+E9's; this phase only wires the hook. The Java-only analytical sample also needs transform callbacks:
+`TransformWorker.onElement` / `onComplete` are suspend too. HS11 provides a minimal ordinary-Java
+callback bridge returning output iterators, with framework-owned emission and E9 closure; HS22
+proves it. Keep Worker bases with their JVM dependencies, not in a reverse-dependent plugin SPI.
 
 **Java host facade [review 2].** `KzenAutoHost` keeps `Map<ClassName, Any>` as its representation
 (common code), and gains a JVM builder keyed by `Class<?>` — `KzenAutoHost.builder().service(
@@ -595,7 +610,8 @@ lifecycle today.
      pull [review 5] (`ReadWorker` over a `DataCursor`, the cursor-driven Java `SourceWorker`,
      `FormulaSourceWorker` over the stream an expression *returned*, a host-object source through the
      cursor-driven adapter) adopt the
-     native **immediately after a successful pull** and hold a **producer lease** through lift,
+     native **immediately after a successful pull, inside the blocking acquisition boundary before
+     cancellable return to the calling dispatcher** and hold a **producer lease** through lift,
      conversion, projection and send; releasing that lease with no channel lease taken — conversion
      failed, the source elected not to emit, projection emitted only scalars, or the pull was cancelled
      between conversion and send — **closes the item**;
@@ -728,12 +744,26 @@ lifecycle today.
    security restriction or an inspection of arbitrary objects; `Borrowed` lives in `kzen-auto-plugin`,
    which is on the expression classpath, so Formula bodies can use it. Documented beside this rule in
    the Formula KDoc. **S.**
+
+   **Cancellation-safe acquisition handoff (planning review, 2026-09-04).** The existing
+   `runBlockingIo` uses `runInterruptible` on the elastic dispatcher. An acquired resource can be
+   discarded when cancellation wins the return dispatch. Stream/cursor opening and item pulls must
+   therefore adopt or establish an abort-cleanup handoff within the blocking body, before returning;
+   adoption only after the suspend call completes is insufficient. This does not extend ownership
+   into arbitrary author-written pre-emit/pre-return code. HS17 owns the shared implementation and
+   latch-controlled cancel/migrate-after-acquisition-before-delivery tests; HS11 already protects
+   its cursor-opening path. Host waits must honor interruption and partially built models unwind.
+   See the [Kotlin resource-return contract](https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines/with-context.html).
+
 4. **Flush on send.** A producer holds elements in `pending` until the batch is full; with an arena
    behind the source, item 1 would sit unflushed while the source blocks loading item 2 on a permit that
    only item 1's close can release — a deadlock the framework would have caused. So an owned element
-   **flushes immediately on send**; the open-item bound is then tight: at most one in flight per hop plus
-   what each stage is currently processing. Document that bound as the arena capacity a host must
-   provide. **XS.**
+   **flushes immediately on send**. This removes pending-buffer retention, not channel capacity:
+   `JobChannel` still buffers up to its configured number of batches. Account for queued values,
+   parked producers, active callbacks and explicit retention; a fan-out can hold several leases on
+   one native identity. Report actual occupancy and weighted native identities rather than a false
+   one-item-per-hop bound. The host's budget caps admitted weight; a pipeline that retains values
+   until end-of-stream still has the stall behavior in item 5. **XS.**
 5. **Accumulating Workers — help the user debug, do not add rules [decided 2026-09-04, user].** Sort,
    Pivot and Summary buffer the whole stream until end-of-stream; owned elements flowing into one stay
    open until the source finishes, and a day larger than the arena then blocks the source on a permit
@@ -802,9 +832,10 @@ error; a Formula returns a *new* closeable from an owned input, and a `Borrowed`
 cascades close — each native identity closes exactly once and the parent stays alive through
 downstream use of the child; a `produce` body that throws after acquiring and before `send` leaves
 nothing in the ledger (the author's interval); a processing failure alongside a throwing `close()`
-surfaces the processing failure with the close failure suppressed. Sample plugin: the `SymbolDay` route holds at most
-one item in flight per hop, measured (P1 in the analysis), and each run materializes its own
-`SymbolDay` instances.
+surfaces the processing failure with the close failure suppressed. Add cancellation/migration after
+successful open/next but before dispatcher delivery, covering acquired-yet-undelivered resources.
+Sample plugin: measure actual capacity-dependent occupancy (P1 in the analysis), and each run
+materializes its own `SymbolDay` instances.
 
 ---
 
@@ -832,8 +863,9 @@ remains. D7 stays parked under the existing R6 verdict.
 | E8 — object-graph paths | kzen-auto (jvm + js) | M | medium | E7 |
 | E9 — closeable streams and items | kzen-auto-jvm (per-run lease ledger + process-level `NativeIdentityRegistry`, ingress adoption in the source pull loops, `JobControl.retain` + `JobControl.snapshot` for the result boundary, the Worker drive loops, `JobChannel`, `FormulaSourceWorker`, inference, `JobRun` teardown + deadlock-monitor threshold) + kzen-auto-plugin (`Borrowed`) + kzen-lib-jvm (post-close guard) | M–L | medium (touches `JobChannel` migration carryover and every framework drive loop) | — (E2's cursor hook is its second client, not a prerequisite) |
 
-**E2 → E3** and **E7 → E8** are two independent spines, and **E9** is a third (it shares files with
-neither — it is channel and source lifecycle). E2, E7 and E9 can run in parallel. The `kzen-sample-plugin`
+**E2 → E3** and **E7 → E8** are two logical spines, and **E9** is a third. They are not guaranteed
+to have disjoint files: expression inference, native access and the cursor adapter cross these
+boundaries. Serialize overlapping edits and use the session prerequisites above. The `kzen-sample-plugin`
 rewrite in the in-process-hosting analysis rides on E2 (folder install, `BlockingReaderCapability`), E7
 (the ITCH records' columns at design time) and E9 (the `SymbolDay` arena route); its object-graph Job
 rides on E8. The in-process host's memory governance needs **only E9** from kzen. **E4's C7 half is independent of
