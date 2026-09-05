@@ -8,7 +8,28 @@
 > phase outline at the end is what a plan would start from — every question is now decided and only
 > the gates in §9 remain. Decisions are marked **[decided]**; per CC-20 no line numbers are cited.
 >
-> **2026-09-04 (review 4, `…_review-4.md`):** folded. ITCH partitioning corrected: every ITCH 5.0
+> **2026-09-04, review cycle closed.** Five design reviews were written against this document and
+> folded in the same day; the review files were then removed. Reviews 1–4 are recoverable with
+> `git show 17b959b:docs/analysis/2026-09-03_in-process-hosting_review-<n>.md`; review 5 was never
+> committed and is fully absorbed by the entry below. External references the reviews contributed:
+> the [NASDAQ TotalView-ITCH 5.0 specification](https://nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHSpecification.pdf),
+> Nasdaq's [ITCH sample directory](https://emi.nasdaq.com/ITCH/Nasdaq%20ITCH/) (gzip day files), and
+> Guava's [`ClassPath`](https://guava.dev/releases/snapshot-jre/api/docs/com/google/common/reflect/ClassPath.html)
+> documentation (ancestor-inclusive scanning, the reason for exact-origin notation discovery).
+>
+> **2026-09-04 (review 5):** folded. The **store-backed `SymbolDay` route is the
+> canonical plain-library route** and the raw `ItchReader` expression is a separately named
+> raw-ingestion demonstration (§5.2, §6a.3); the three-path agreement compares one named result. E9
+> closes four contracts: an owned native **never escapes its run** — a Result, trace or preview
+> boundary takes a run-scoped structural snapshot or fails by name; a closeable **child** a Formula
+> returns is declared `Borrowed`, a new closeable transfers by default; source-ingress adoption is
+> **scoped to the framework-owned pull loops** (a Kotlin `produce` body or an expression body owns its
+> pre-emit interval); a processing failure stays **primary** over close failures. E2's per-context
+> availability view is **initialized at creation and monotonically augmented** by lazy reflective
+> resolution. Embedded context shutdown is ordered server stop → context close (cancel + join) → claim
+> release, with construction rollback (§2, §6a.4).
+>
+> **2026-09-04 (review 4):** folded. ITCH partitioning corrected: every ITCH 5.0
 > message carries a **Stock Locate**, so the derived store partitions by locate (catalogued to symbols
 > by the Stock Directory), locate zero *is* the day-wide partition, and the order-reference state is
 > per-symbol-day materialization state, not a full-day build map (§5.2, P1). E9 gains a **source-ingress
@@ -19,7 +40,7 @@
 > boot errors. The sample core gains a host-neutral **`MaterializationBudget`** seam (§5.2, §5.3), and
 > the download plus derived store live in a **durable area outside `job/`** (§5.2).
 >
-> **2026-09-04 (review 3, `…_review-3.md`):** folded. The user clarified the ITCH model: the "index" is
+> **2026-09-04 (review 3):** folded. The user clarified the ITCH model: the "index" is
 > a **persistent symbol-partitioned derived store** built by one sequential decode, and one fully
 > materialized `SymbolDay` is the closeable analytical unit (§5.2, P1 widened). E9's last gaps closed:
 > adoption happens at the **run-scoped send**, not `lift`; a closed identity is **tombstoned weakly**,
@@ -42,7 +63,7 @@
 > shape) / **E8** (object-graph paths). The plugin-system part of this document is therefore *planned*;
 > the in-process hosting seams and the two samples remain analysis.
 >
-> **2026-09-04 (review 2, `…_review-2.md`):** folded. E9's item ownership becomes an **explicit lease
+> **2026-09-04 (review 2):** folded. E9's item ownership becomes an **explicit lease
 > ledger** (the first draft's `ChannelInput`-iterator hook did not match the framework's batch-consuming
 > Worker loops, and contradicted its own accumulator rule); E2's expression classpath is an **aggregate
 > delegating loader plus an explicit jar union** for the compiler; a `@Reflect` name in two scopes is a
@@ -52,8 +73,7 @@
 > title, §6a, §9). Review 2's readiness verdict stands: planning and the Java 25 baseline + G spike can
 > start; E2/E9 are now specified to the level an implementer needs.
 >
-> **2026-09-04 (review 1):** `2026-09-03_in-process-hosting_review-1.md` reviewed this document; its
-> points are folded in below, marked **[review 1]** — the process-global extension universe
+> **2026-09-04 (review 1):** folded; its points are marked **[review 1]** below — the process-global extension universe
 > (`KzenAutoRuntime`), the reduced diagnostics promise, cursor-driven Java sources, the `Set` / resume
 > rule, and the stale-drafting spots it listed. The user added one requirement on top: **streams *and*
 > individual items may be `AutoCloseable`** — that is how the host's memory arena is enforced (a
@@ -169,7 +189,7 @@ services … values that can't be expressed in notation."* Today the only host t
 | Blocker | Resolution | Generic? |
 |---|---|---|
 | All five siblings emit class-file 70 (Java 26); host runs 25 | retarget `jvmTargetVersion` / `javaVersion` to 25 in the five `Dependencies.kt`; keep building on the newest JDK (toolchain stays 26 unless Kotlin's consistency check objects) | yes — strictly widening |
-| `WorkUtils.sibling` is a static `../work` off CWD; `processSignature` is per-process; `JobWorkPool` boot-sweeps `job/`, so a second context deletes the first's live scratch | `KzenAutoConfig.workRoot` with a CLI arg (no `logDir` — next row); `WorkUtils` becomes a context-owned instance with a per-context signature (root claim + UUID); the runtime claims each live context's root — created, then `toRealPath()`, then one atomic claim — and a duplicate fails fast; the claim is released after the context's server and run have stopped [reviews 2, 3] | yes — a limitation of kzen-auto in its own right |
+| `WorkUtils.sibling` is a static `../work` off CWD; `processSignature` is per-process; `JobWorkPool` boot-sweeps `job/`, so a second context deletes the first's live scratch | `KzenAutoConfig.workRoot` with a CLI arg (no `logDir` — next row); `WorkUtils` becomes a context-owned instance with a per-context signature (root claim + UUID); the runtime claims each live context's root — created, then `toRealPath()`, then one atomic claim — and a duplicate fails fast; the claim is released after the context's server and run have stopped — the host's order is **server stop → context close (cancel + join the run) → claim release** in `close`'s `finally`, and a context whose initialization fails after claiming releases it on the way out [reviews 2, 3, 5] | yes — a limitation of kzen-auto in its own right |
 | `logs/` is CWD-relative in the context (a managed storage area) and in kzen-auto-jvm's bundled `logback.xml` | **[review 1]** kzen logs through SLF4J; the *host* owns the backend and its configuration. No per-context `logDir` — the `logs` managed-storage area becomes config-suppressible, and the bundled `logback.xml` stays a surfaced defect (§8) | yes |
 | `GraphEnvironment` is a hardcoded builder; no host can reach a `@Service` parameter with its own object | `KzenAutoHost` (`Map<ClassName, Any>` inside; a `Class<?>`-keyed builder for Java hosts, so a Spring proxy registers under the interface the Worker declares [review 2]) on `KzenAutoContext.create`, merged after kzen's entries, collision fails fast (CC-08) | yes — completes the KDoc's stated intent |
 | No admission seam around a run; every `ServerLogicController` entry point is `@Synchronized` and non-suspend, called from `LogicHandler` inside `runBlocking` | **not needed in kzen** — the host governs memory inside its own closeable objects (§5.3); kzen's only obligation is E9's close discipline | n/a |
@@ -334,7 +354,10 @@ and the adapter as plugin zero.
   ready-made Jobs — `ItchDay.yaml` (File worker over the day file → lifecycle Worker → aggregate by
   symbol and hour → CSV), and the **plain-library route** with no plugin code at all: an expression
   source `ItchStore.open(Path.of(store)).symbolDays()` streaming `SymbolDay` batches from the derived
-  store (E9 closes each). **The budget seam, host-neutral [review 4]:** the core defines a tiny
+  store (E9 closes each). **This store-backed route is the canonical plain-library route [review 5]**
+  — it is what exercises `SymbolDay`, the budget and E9's item lifetime; the raw
+  `ItchReader(Path.of(file))` expression with columns from the `ItchMessage` record stays as a
+  separately named **raw-ingestion demonstration**, smaller and flat. **The budget seam, host-neutral [review 4]:** the core defines a tiny
   `MaterializationBudget` — `acquire(weight): AutoCloseable` — and `symbolDays(budget)` takes it;
   the no-arg form is the **unlimited no-op budget**, which is what the expression route above gets
   (an expression has no way to receive a host object). Acquire happens *before* graph allocation; a
@@ -346,8 +369,12 @@ and the adapter as plugin zero.
 - **The world-cities logic** stays as the *simple* case beside ITCH, re-cut as a
   `BlockingReaderCapability` — Job-only; the `ReportDefiner` is retired (§7 Q3, decided).
 - **Test tree**: the seeded synthetic ITCH writer, exact-assertion tests over it, and the three-path
-  agreement test on the *fixture* — the real day is measured separately (P1); never keep two full-day
-  representations alive just to prove equality [review 1].
+  agreement test on the *fixture* — comparing **one named result [review 5]**, the per-symbol trade
+  count and shares traded (from `P`, `E`, `C` and `Q`, less `B` breaks), which raw reader rows,
+  store-backed `SymbolDay` objects and the host repository can each produce; the paths share no
+  intermediate representation, and a book-derived aggregate cannot come from the raw route — the real
+  day is measured separately (P1); never keep two full-day representations alive just to prove
+  equality [review 1].
 
 ### 5.3 `kzen-sample-embed-spring` — the host, and the *second* way in **[decided in shape]**
 
@@ -371,7 +398,9 @@ the host adds is everything that is *embedding-specific*:
   the core's `MaterializationBudget` over its weighted semaphore and hands kzen a budget-bound
   `SymbolDayLoader` as a `@Service`; that host-service route is the governed one, and it creates a
   **fresh `SymbolDay` per run** (E9's linear ownership — a cached instance would have to be
-  `Borrowed`). The persisted weight is an estimate, so P1's safety-margin measurement yields a
+  `Borrowed`). The glue Worker over that loader is the **cursor-driven source adapter**, not a
+  hand-written `produce` [review 5], so the route gets E9's full ingress guarantee: adoption right
+  after `next()`, a producer lease through lift / projection / send, deterministic close on failure. The persisted weight is an estimate, so P1's safety-margin measurement yields a
   documented **conservative multiplier** as host policy, and a symbol-day whose weight exceeds the
   arena's total capacity **fails before acquiring**, never blocks forever. kzen needs no admission
   concept at all; it only has to **honour `AutoCloseable` on the streams and items it is handed, with
@@ -594,7 +623,13 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
      kzen must not close is wrapped as borrowed) — at **source ingress** for a pulled item (the
      framework's pull loop adopts it right after `next()` and holds a producer lease through lift,
      projection and send, so a lift failure or a projection to scalars closes it) and at the
-     **run-scoped send** for a Worker-created one [reviews 3, 4]; ownership is **linear across runs**,
+     **run-scoped send** for a Worker-created one [reviews 3, 4] — ingress exists **only where the
+     framework owns the pull** (`ReadWorker`, `FormulaSourceWorker` over the returned stream, the
+     cursor-driven Java adapter); a Kotlin `produce` body or an expression body owns what it acquires
+     until it emits or returns [review 5]; an owned native **never escapes the run** — a Result,
+     retained trace or preview boundary takes a run-scoped structural snapshot while the lease is
+     held, or fails by name [review 5]; a closeable **child** a Formula returns is declared
+     `Borrowed`, a new closeable transfers by default [review 5]; ownership is **linear across runs**,
      enforced fail-fast by a process-level weak identity registry (owned-by-run or closed) that also
      serves as the post-close tombstone [review 4]; the run's ledger, keyed by native identity, counts
      **leases with named holders** [review 2 — the first draft's "decrement in `ChannelInput`'s
@@ -608,7 +643,8 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
      non-scalar Formula / Filter output inherits its input's owner while scalars never do [decided
      2026-09-04, user]; **flush on send** for owned elements, or the producer's pending buffer would
      deadlock against the arena; migration carryover (`drainBuffered` / `preload`) transfers ownership
-     without closing; teardown, cancel and failure close every outstanding element; access after close
+     without closing; teardown, cancel and failure close every outstanding element, a processing
+     failure staying primary with close failures suppressed [review 5]; access after close
      is a named error. Accumulating Workers (Sort, Pivot, Summary) over owned elements can stall the
      source against the arena — inherent, not incidental, so no rule: the ledger surfaces open items and
      their holders (exact, from the explicit leases) and names the accumulator in a stall diagnostic
@@ -624,9 +660,13 @@ over a `Path`, `ItchMessage` a Java record, `BookBuilder` a plain fold. Then two
 demonstrating both routes: (a) the *first-class format* route — a `BlockingReaderCapability` + probe +
 authoring, so the File worker sees `.NASDAQ_ITCH50` files with detection and config UI; (b) the
 *plain-library* route — no plugin code at all, a notation document whose expression source is
-`ItchReader(Path.of(file))` and whose columns come from the `ItchMessage` record. The e2e assertion that
+`ItchStore.open(Path.of(store)).symbolDays()` streaming `SymbolDay` batches from the derived store
+(§5.2) — the **canonical** plain-library route [review 5: this paragraph had reverted to the raw
+reader, which exercises neither `SymbolDay`, the budget nor E9's item lifetime]; the raw
+`ItchReader(Path.of(file))` expression with columns from the `ItchMessage` record stays as a separately
+named *raw-ingestion demonstration*. The e2e assertion that
 both routes agree (§5.3) extends naturally to three paths: file-through-reader, plain-library-through-
-expression, and host-object-through-`@Service`.
+expression, and host-object-through-`@Service`, compared on the one named result in §5.2.
 
 **Limits, stated up front.** The expression route has no probe/detection and no config UI beyond the
 expression itself; it is the *entry* route, and `ReaderCapability` is what a format graduates to. Nothing
@@ -659,14 +699,20 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 | E9 adoption, tombstones, owner set, teardown (review 3) | Adopt at the **run-scoped send**, never `lift` (a process-wide singleton with no run) — review 4 adds the source-ingress boundary, below; a closed identity is a **weak tombstone** (absorbed into the process-level registry by review 4) and re-adoption is the named use-after-close error; the owner is an **immutable set**; force-close runs in `JobRun`'s `finally` after the existing `coroutineScope` join |
 | E9 diagnostics (review 3) | **Proportional**: counts by holder in progress, bounded per-item detail on demand, a stall *warning* on the deadlock monitor's no-progress clock at a lower non-failing threshold |
 | Aggregate loader precedence (review 3) | **Application classpath wins, parent-first** (each folder loader is parent-first already; a peer rule would break identity with the mirror); ambiguity checked among folder scopes only; a folder class shadowed by the app classpath is a named warning; tested with an app / folder collision |
-| Global discovery vs contextual availability; capability lifecycle (review 3) | Runtime state is immutable after init; "unavailable in this workspace" is a **per-context view** computed once at creation; the runtime holds `ServiceLoader` provider **descriptors** and each context instantiates its own capability instances (already the case today) — no SPI thread-safety demand |
+| Global discovery vs contextual availability; capability lifecycle (review 3) | Runtime state is immutable after init; "unavailable in this workspace" is a **per-context view** computed once at creation (augmented lazily per review 5, below); the runtime holds `ServiceLoader` provider **descriptors** and each context instantiates its own capability instances (already the case today) — no SPI thread-safety demand |
 | E8 output-schema convention (review 3) | Default name = **full dotted path, wildcards dropped**; explicit `as` alias; duplicate names rejected; scalar leaves only; maps unnest via `[*]` with `key` / `value` in `ValueAccess.entries` order |
 | ITCH partition key (review 4) | **Stock Locate**, not an order-reference map — every ITCH 5.0 message carries it; the Stock Directory catalogues locate → symbol; locate zero is the day-wide partition (spec convention), stored once, logically duplicated on load; order-reference state is per-`SymbolDay` materialization state; source + store live in a durable area outside `job/` |
-| E9 adoption boundaries (review 4) | **Source ingress** for pulled items (producer lease from `next()` through lift / projection / send; releasing it without a channel lease closes) and **send** for Worker-created closeables; iterator + container closed once by identity |
+| E9 adoption boundaries (review 4) | **Source ingress** for pulled items (scoped to framework-owned pull loops by review 5, below; producer lease from `next()` through lift / projection / send; releasing it without a channel lease closes) and **send** for Worker-created closeables; iterator + container closed once by identity |
 | E9 cross-run ownership (review 4) | **Linear**: one run per owned identity for its lifetime, fresh instance per run, shared / cached instances are `Borrowed`; **fail-fast** via one process-level weak `NativeIdentityRegistry` (owned-by-run / closed) that absorbs the per-run tombstone; `lift` never touches it |
 | Exact-origin notation discovery (review 4) | `ClassPath.from` walks ancestors and `getResource` is parent-first, so each folder scope is scanned over its own jar URLs only and read through the exact resource URL; the application scope separately; duplicate logical paths across origins = the boot error, both origins named; a scope-local `ClasspathNotationMedia` variant in kzen-lib-jvm |
 | Plugin identity and test universes (review 4) | Implicit id = canonical directory name, reserved `application` id for plugin zero, manifest `id` overrides; one constructed test universe for live negative cases, a forked-JVM Gradle task for boot-error cases, no reset seam |
 | Materialization-budget seam (review 4) | Core-level `MaterializationBudget.acquire(weight): AutoCloseable`, taken by `symbolDays(budget)`; unlimited no-op default (the expression route), host semaphore implementation through a `@Service` loader (the governed route); acquire before allocation, failure closes the lease, over-capacity fails before blocking; P1's margin becomes a documented multiplier |
+| Canonical plain-library route (review 5) | The **store-backed `SymbolDay` route** wherever the substantive sample says "plain-library"; the raw `ItchReader` expression is a separately named raw-ingestion demonstration; the three-path test compares one named result (per-symbol trade count and shares) and implies no shared intermediate representation |
+| E9 Job-result boundary (review 5) | An owned native **never escapes its run**: `ResultSinkWorker` and every other `JobDataValues.boundary` caller convert an owned value through a **run-scoped snapshot** (`JobControl.snapshot`, so the process-lifetime codec stays run-blind) — structural / scalar only, taken while the lease is held; an opaque owned native fails with a named boundary error; unowned values keep today's identity-preserving path; transferring ownership to the result rejected |
+| E9 closeable alias (review 5) | A Formula's `AutoCloseable` output **transfers independent ownership by default** (the existing rule); a closeable **child** whose lifetime the parent governs is returned as `Borrowed.of(child)`, which suppresses adoption and preserves the inherited parent owner; consistency chosen over the leak / double-close trade-off, carried by the Formula KDoc and tests |
+| E9 ingress scope (review 5) | Source-ingress adoption exists **only where the framework owns the pull** — `ReadWorker`, `FormulaSourceWorker` over the returned stream, the cursor-driven Java adapter; a Kotlin `produce` body, and an expression body before it returns its stream, own what they acquire until emitted or returned (send-time adoption protects it afterwards); the host route goes through the cursor-driven adapter and gets the full guarantee |
+| Per-context availability learns lazily (review 5) | The context view is **initialized at creation** from explicit descriptors and **monotonically augmented** per class name (compute-if-absent) as reflective references are first resolved — safe because the context's service environment is fixed at creation; the global scope list stays immutable; a notation edit that first names such a class is an E2/E3 acceptance case |
+| Failure precedence and embedded shutdown (review 5) | A processing failure stays **primary** and close failures attach as suppressed; if only closing failed the first close failure is primary. Host shutdown order: **server stop → context close (cancel + join the run) → claim release** in `close`'s `finally`; construction rollback releases a claim if initialization fails after it; encoded by the Spring `SmartLifecycle`; touches nothing process-global |
 
 ## 7. Questions put to the user — all closed (kept as the record)
 
@@ -735,7 +781,8 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
    the *existing* sample plugin.
 2. Throwaway spike answering G1–G7 (no kzen code, answers recorded here).
 3. Per-context work roots (no `logDir`; created → `toRealPath()` → claimed on the runtime, duplicates
-   fail fast, released after server and run stop); `KzenAutoHost` with its `Class<?>`-keyed builder;
+   fail fast, released after server stop and run join in that order, with construction rollback
+   [review 5]); `KzenAutoHost` with its `Class<?>`-keyed builder;
    `BlockingReaderCapability` + cursor-driven `SourceWorker` — three small kzen-auto sessions, each
    defensible alone.
 4. **E2/E3 per §6a** (plugin = loader; `KzenAutoRuntime`; folder discovery; `ServiceLoader` + notation
@@ -750,20 +797,26 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
    capability instances; E8 output names), and review 4's boundary corrections (source-ingress
    adoption beside send; linear cross-run ownership through one process-level weak identity registry;
    exact-origin notation discovery; directory-name plugin identity; the constructed-universe /
-   forked-task test split).
+   forked-task test split), and review 5's closing details (a run-scoped result snapshot so no owned
+   native escapes a run; `Borrowed` for a cascaded closeable child; ingress scoped to the framework's
+   pull loops; a processing failure primary over close failures; a lazily augmented availability
+   view).
 5. `kzen-sample-plugin`: **core** module (reader, sealed message records, the locate-partitioned
    derived store with its symbol catalog, `MaterializationBudget`, `SymbolDay` materialization, book
    fold) + **adapter** module; durable data area outside `job/`; fixture writer + tests;
-   the `BlockingReaderCapability` route; the expression route over `SymbolDay` batches (E9); bundled
+   the `BlockingReaderCapability` route; the **canonical** store-backed expression route over
+   `SymbolDay` batches (E9) plus the raw-reader ingestion demonstration [review 5]; bundled
    `ItchDay` Job; verified standalone in kzen-project from a
    plugin folder (P1 measured here) — through the **plugin compatibility test kit** (review 1: a reusable
    entry point in `kzen-auto-plugin`'s test fixtures that runs any plugin directory through loader
    creation, discovery, reflective construction, expression visibility, duplicate detection and
    expected diagnostics).
 6. `kzen-sample-embed-spring`: scaffold, workspaces, proxy, a semaphore-backed `MaterializationBudget`
-   behind a `SymbolDayLoader` service (fresh `SymbolDay` per run), host services + Kotlin glue Worker,
-   portlet; **separate acceptance tests per outcome** (review 1): plugin
-   in standalone kzen; host-object access; two-workspace isolation; three-path equality on the fixture;
+   behind a `SymbolDayLoader` service (fresh `SymbolDay` per run), host services reached through the
+   cursor-driven source adapter [review 5], a `SmartLifecycle` encoding server stop → context close →
+   claim release, portlet; **separate acceptance tests per outcome** (review 1): plugin
+   in standalone kzen; host-object access; two-workspace isolation; three-path equality on the fixture
+   (per-symbol trade count and shares);
    real-day pressure — never one large test whose success cannot be interpreted.
 7. Docs-to-truth: Java 25 in the toolchain sections; "process-per-project is the shell's default, in-process
    hosting is supported through `KzenAutoHost`"; `SourceWorker` and `ReaderCapability` named as the two
@@ -810,4 +863,12 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
   id is its directory name, and boot-error tests run in a forked task against their own universe; the
   sample core exposes a host-neutral `MaterializationBudget`, unlimited by default and
   semaphore-backed in the Spring host.
+- **[decided 2026-09-04, review 5]** The store-backed `SymbolDay` route is the canonical plain-library
+  route and the raw reader a separately named demonstration, agreement measured on per-symbol trade
+  count and shares; an owned native never escapes its run (run-scoped structural snapshot at every
+  result / trace / preview boundary, or a named failure); a closeable child a Formula returns is
+  `Borrowed`, a new closeable transfers; source-ingress adoption only where the framework owns the
+  pull, the author owning the pre-emit interval otherwise; a processing failure is primary over close
+  failures; the per-context availability view is initialized at creation and augmented lazily; embedded
+  shutdown is server stop → context close → claim release, with construction rollback.
 - **[decided 2026-09-04]** Q1–Q8 all closed (§7). Nothing here is open except the gates in §9.
