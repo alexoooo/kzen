@@ -8,6 +8,17 @@
 > phase outline at the end is what a plan would start from — every question is now decided and only
 > the gates in §9 remain. Decisions are marked **[decided]**; per CC-20 no line numbers are cited.
 >
+> **2026-09-04 (review 4, `…_review-4.md`):** folded. ITCH partitioning corrected: every ITCH 5.0
+> message carries a **Stock Locate**, so the derived store partitions by locate (catalogued to symbols
+> by the Stock Directory), locate zero *is* the day-wide partition, and the order-reference state is
+> per-symbol-day materialization state, not a full-day build map (§5.2, P1). E9 gains a **source-ingress
+> adoption** boundary beside the send (a lift or projection failure closes a pulled item) and **linear
+> ownership across runs**, enforced by one process-level weak identity registry that absorbs the
+> tombstone (§6a.3). E2's bundled-notation discovery is **exact-origin** (§6a.3, G10), a plugin's implicit
+> id is its directory name, and the test plan splits one constructed universe from a forked task for
+> boot errors. The sample core gains a host-neutral **`MaterializationBudget`** seam (§5.2, §5.3), and
+> the download plus derived store live in a **durable area outside `job/`** (§5.2).
+>
 > **2026-09-04 (review 3, `…_review-3.md`):** folded. The user clarified the ITCH model: the "index" is
 > a **persistent symbol-partitioned derived store** built by one sequential decode, and one fully
 > materialized `SymbolDay` is the closeable analytical unit (§5.2, P1 widened). E9's last gaps closed:
@@ -273,19 +284,30 @@ and the adapter as plugin zero.
   graph. One `SymbolDay` is one closeable logical Job element (E9), however large inside — not to be
   confused with `JobChannel`'s physical batching of several `DataValue`s.
 
-  Build rules: decode each frame once and route it to its symbol partition; **only Add messages carry
-  the stock** — Executed, Cancel, Delete and Replace carry an order reference alone, so the scan keeps a
-  live **order-reference → symbol map** (day-unique references; entries dropped on delete or full
-  fill — this map is the build's real memory cost, measured in P1); market-wide messages (system
-  events, circuit breakers) are stored **once in a day-wide partition merged on load** rather than
-  copied into every symbol; per-stock non-order messages (directory, trading action, Reg SHO) go to
-  their symbol; the original feed ordinal is retained as the tie-breaker for equal timestamps;
-  per-symbol counts and an **estimated materialization weight** (counts × per-message-type constants)
-  are persisted so the host can acquire its arena allocation *before* materializing; the store is
-  built in a temporary location and **published by atomic rename** only after a complete build; a
-  **source fingerprint plus parser / store format version** rejects a stale store; simultaneously open
-  partition writers are bounded (an LRU writer cache). A symbol-day larger than the whole arena stays
-  a host sizing / error-policy decision.
+  Build rules [review 4 corrects the routing key]: decode each frame once and route it by its
+  **Stock Locate** — every ITCH 5.0 message carries the two-byte locate after the type byte (Add,
+  Executed, Cancel, Delete, Replace, Trade, Cross, Broken Trade, Trading Action, Reg SHO alike), and the
+  Stock Directory message (`R`) maps the day-local locate to the symbol — so the **physical partition
+  key is the locate**, a **catalog** (locate → symbol, from the directory) names and exposes the
+  partitions, and arbitrary exchange symbols never become file names. No order-reference map is needed
+  at build time; the earlier "only Add carries the stock" confused the symbol *string* with the locate.
+  Market-wide messages (system events, MWCB levels and status) carry **locate zero by the spec's own
+  convention**, so locate zero *is* the day-wide partition, stored **once** and merged into every
+  `SymbolDay` on load — **storage de-duplication with logical duplication on load**, which preserves
+  the user's rule that a message applying to several symbols participates in each one's history. The
+  original feed ordinal is retained as the tie-breaker for equal timestamps; per-symbol counts and an
+  **estimated materialization weight** (counts × per-message-type constants) are persisted so the
+  host can acquire its arena allocation *before* materializing; the store is built in a temporary
+  location and **published by atomic rename** only after a complete build; a **source fingerprint plus
+  parser / store format version** rejects a stale store; simultaneously open partition writers are
+  bounded (an LRU writer cache). The **order-reference state lives in materialization**, bounded to one
+  `SymbolDay`: reconstructing its order graph and book needs reference → order with remaining shares,
+  removal on delete or full fill, and transfer from old to new reference on `U` — that per-symbol peak
+  is what P1 measures, not a full-day map. A symbol-day larger than the whole arena stays a host
+  sizing / error-policy decision. **Location [review 4]:** the downloaded source and the derived store
+  are durable inputs, not run scratch — they live in a **named durable area** (host-configured; default
+  a `data/` sibling of the persistent per-Worker base under the work root), never under the transient
+  `job/` tree that `JobWorkPool` boot-sweeps and run-settle cleanup deletes.
 
   Event families stay distinct in the materialized graph: `E` / `C` are executions of *displayed*
   orders and belong to an `Order` lifecycle; `P` is a non-displayed match and does not change the
@@ -312,7 +334,15 @@ and the adapter as plugin zero.
   ready-made Jobs — `ItchDay.yaml` (File worker over the day file → lifecycle Worker → aggregate by
   symbol and hour → CSV), and the **plain-library route** with no plugin code at all: an expression
   source `ItchStore.open(Path.of(store)).symbolDays()` streaming `SymbolDay` batches from the derived
-  store (E9 closes each).
+  store (E9 closes each). **The budget seam, host-neutral [review 4]:** the core defines a tiny
+  `MaterializationBudget` — `acquire(weight): AutoCloseable` — and `symbolDays(budget)` takes it;
+  the no-arg form is the **unlimited no-op budget**, which is what the expression route above gets
+  (an expression has no way to receive a host object). Acquire happens *before* graph allocation; a
+  materialization failure closes the acquired lease before the error propagates; a successful
+  `SymbolDay` owns its lease until `SymbolDay.close()`. The stream `symbolDays(...)` returns is itself
+  closeable and **closes the store and partition handles it holds** — the `ItchStore` receiver is
+  unreachable once the expression returns, so the stream must carry that lifecycle (E9 item 1 closes
+  it). The **governed** path is the host-service route in §5.3, not this one.
 - **The world-cities logic** stays as the *simple* case beside ITCH, re-cut as a
   `BlockingReaderCapability` — Job-only; the `ReportDefiner` is retired (§7 Q3, decided).
 - **Test tree**: the seeded synthetic ITCH writer, exact-assertion tests over it, and the three-path
@@ -337,8 +367,15 @@ the host adds is everything that is *embedding-specific*:
   host's arena is a semaphore weighted by batch size: a `SymbolDay` takes its permit — sized from the
   store's persisted materialization weight (§5.2) — *before* it materializes (a blocking acquire —
   kzen drives it through `JobControl.runBlockingIo`, so quiescence detection still sees it) and
-  releases it in `close()`. kzen needs no admission concept at all; it only has to **honour
-  `AutoCloseable` on the streams and items it is handed, with defined close timing** — E9. The earlier
+  releases it in `close()`. **How the host's arena reaches the core [review 4]:** the host implements
+  the core's `MaterializationBudget` over its weighted semaphore and hands kzen a budget-bound
+  `SymbolDayLoader` as a `@Service`; that host-service route is the governed one, and it creates a
+  **fresh `SymbolDay` per run** (E9's linear ownership — a cached instance would have to be
+  `Borrowed`). The persisted weight is an estimate, so P1's safety-margin measurement yields a
+  documented **conservative multiplier** as host policy, and a symbol-day whose weight exceeds the
+  arena's total capacity **fails before acquiring**, never blocks forever. kzen needs no admission
+  concept at all; it only has to **honour `AutoCloseable` on the streams and items it is handed, with
+  defined close timing** — E9. The earlier
   proxy-level permit around `…/logic/startRun` / `status` is demoted to an optional whole-run backstop.
 - **The host's own domain services.** The host loads a day through the plain core into its own
   services — `OrderBookService`, `TradeRepository` — exposes them on its own `@RestController`s for its own
@@ -554,7 +591,12 @@ exists, and the first draft's manifest allow-list and method-call Worker are unn
      cursor precedent), never re-evaluated-and-skipped; a non-closeable stream keeps skip-resume; a
      top-level `Set` is not resumable at all (restart on edit) because its order is not stable.
   2. **Items:** emitting an `AutoCloseable` native **transfers its ownership to the run** (a host object
-     kzen must not close is wrapped as borrowed); the run's ledger, keyed by native identity, counts
+     kzen must not close is wrapped as borrowed) — at **source ingress** for a pulled item (the
+     framework's pull loop adopts it right after `next()` and holds a producer lease through lift,
+     projection and send, so a lift failure or a projection to scalars closes it) and at the
+     **run-scoped send** for a Worker-created one [reviews 3, 4]; ownership is **linear across runs**,
+     enforced fail-fast by a process-level weak identity registry (owned-by-run or closed) that also
+     serves as the post-close tombstone [review 4]; the run's ledger, keyed by native identity, counts
      **leases with named holders** [review 2 — the first draft's "decrement in `ChannelInput`'s
      iterator, no Worker cooperation" did not match the framework loops, which consume batches through
      `receiveBatch()`, and could not see an accumulator's retained reference]: a channel holds a lease
@@ -613,12 +655,18 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 | Duplicate `@Reflect` names (review 2) | **Resolution-time ambiguity**, not a boot error; plugin ids, reader identities and notation paths stay boot errors |
 | Plugin `@Service` validation (review 2) | **Per context**: an unsatisfied plugin contribution is *unavailable in this workspace*, named; kzen's own generated registry keeps boot validation |
 | Host facade, root uniqueness, bean order, path semantics (review 2) | `Class<?>`-keyed `KzenAutoHost` builder; the runtime claims live real-path work roots; lexical bean property order with stated precedence; null intermediate → null leaf and keep the row, empty list → zero rows |
-| ITCH storage model (user, review 3) | **Symbol-partitioned derived store** built by one sequential decode (order-ref → symbol map; market-wide messages once in a day-wide partition; feed ordinal tie-break; persisted weights; atomic publish; fingerprint + format version); one materialized `SymbolDay` is the closeable analytical unit |
-| E9 adoption, tombstones, owner set, teardown (review 3) | Adopt at the **run-scoped send** (`lift` is a process-wide singleton with no run); a closed identity is a **weak tombstone** and re-adoption is the named use-after-close error; the owner is an **immutable set**; force-close runs in `JobRun`'s `finally` after the existing `coroutineScope` join |
+| ITCH storage model (user, review 3) | **Symbol-partitioned derived store** built by one sequential decode (~~order-ref → symbol map~~ — routing key corrected to Stock Locate by review 4, below; market-wide messages once in a day-wide partition; feed ordinal tie-break; persisted weights; atomic publish; fingerprint + format version); one materialized `SymbolDay` is the closeable analytical unit |
+| E9 adoption, tombstones, owner set, teardown (review 3) | Adopt at the **run-scoped send**, never `lift` (a process-wide singleton with no run) — review 4 adds the source-ingress boundary, below; a closed identity is a **weak tombstone** (absorbed into the process-level registry by review 4) and re-adoption is the named use-after-close error; the owner is an **immutable set**; force-close runs in `JobRun`'s `finally` after the existing `coroutineScope` join |
 | E9 diagnostics (review 3) | **Proportional**: counts by holder in progress, bounded per-item detail on demand, a stall *warning* on the deadlock monitor's no-progress clock at a lower non-failing threshold |
 | Aggregate loader precedence (review 3) | **Application classpath wins, parent-first** (each folder loader is parent-first already; a peer rule would break identity with the mirror); ambiguity checked among folder scopes only; a folder class shadowed by the app classpath is a named warning; tested with an app / folder collision |
 | Global discovery vs contextual availability; capability lifecycle (review 3) | Runtime state is immutable after init; "unavailable in this workspace" is a **per-context view** computed once at creation; the runtime holds `ServiceLoader` provider **descriptors** and each context instantiates its own capability instances (already the case today) — no SPI thread-safety demand |
 | E8 output-schema convention (review 3) | Default name = **full dotted path, wildcards dropped**; explicit `as` alias; duplicate names rejected; scalar leaves only; maps unnest via `[*]` with `key` / `value` in `ValueAccess.entries` order |
+| ITCH partition key (review 4) | **Stock Locate**, not an order-reference map — every ITCH 5.0 message carries it; the Stock Directory catalogues locate → symbol; locate zero is the day-wide partition (spec convention), stored once, logically duplicated on load; order-reference state is per-`SymbolDay` materialization state; source + store live in a durable area outside `job/` |
+| E9 adoption boundaries (review 4) | **Source ingress** for pulled items (producer lease from `next()` through lift / projection / send; releasing it without a channel lease closes) and **send** for Worker-created closeables; iterator + container closed once by identity |
+| E9 cross-run ownership (review 4) | **Linear**: one run per owned identity for its lifetime, fresh instance per run, shared / cached instances are `Borrowed`; **fail-fast** via one process-level weak `NativeIdentityRegistry` (owned-by-run / closed) that absorbs the per-run tombstone; `lift` never touches it |
+| Exact-origin notation discovery (review 4) | `ClassPath.from` walks ancestors and `getResource` is parent-first, so each folder scope is scanned over its own jar URLs only and read through the exact resource URL; the application scope separately; duplicate logical paths across origins = the boot error, both origins named; a scope-local `ClasspathNotationMedia` variant in kzen-lib-jvm |
+| Plugin identity and test universes (review 4) | Implicit id = canonical directory name, reserved `application` id for plugin zero, manifest `id` overrides; one constructed test universe for live negative cases, a forked-JVM Gradle task for boot-error cases, no reset seam |
+| Materialization-budget seam (review 4) | Core-level `MaterializationBudget.acquire(weight): AutoCloseable`, taken by `symbolDays(budget)`; unlimited no-op default (the expression route), host semaphore implementation through a `@Service` loader (the governed route); acquire before allocation, failure closes the lease, over-capacity fails before blocking; P1's margin becomes a documented multiplier |
 
 ## 7. Questions put to the user — all closed (kept as the record)
 
@@ -678,7 +726,8 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
 | G8 | Does anything in the five siblings use a Java-26-only API? | the retarget itself |
 | ~~D1~~ / D2 | §6 — D1 moot (ITCH chosen, no IEX reader); D2 is the README's terms note | vendor docs |
 | G9 | Aggregate loader: one expression over two plugin directories compiles, a mirror-built instance passes an identity-sensitive call, a name in two folder scopes reports ambiguity, an application-classpath / folder collision resolves to the application copy everywhere and is listed as shadowed (review 3), and the expression survives a second context (review 2) | E2 acceptance test |
-| P1 | On one real day: sequential decode throughput and heap; **derived-store build time and disk size; peak size of the order-ref → symbol map; per-symbol replay throughput; the safety margin of the stored materialization weight against the actual footprint; the largest real symbol-day's materialized footprint** (review 3) — is it heavy enough to make the governor visible? | measure on the real file, once |
+| G10 | Exact-origin notation: with two folder plugins installed, the application's bundled notation is discovered once, a folder / application collision on one logical path is reported with both origins and never read from the parent, and a folder's documents read back byte-identical to the jar entry (review 4) | E2 acceptance test |
+| P1 | On one real day: sequential decode throughput and heap; **derived-store build time and disk size; per-symbol replay throughput; the peak per-symbol-day reconstruction state (order-reference map, book) while materializing; the safety margin of the stored materialization weight against the actual footprint, turned into the host's multiplier; the largest real symbol-day's materialized footprint** (reviews 3, 4 — no full-day order-reference map is built, so none is measured) — is it heavy enough to make the governor visible? | measure on the real file, once |
 
 ## 10. Candidate phase outline (input to a future plan, not a plan)
 
@@ -696,19 +745,24 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
    objects, object-graph paths) run beside it. The three contracts review 2 asked to settle before
    E2/E9 are handed to an implementer — lease ownership, aggregate loader + compilation classpath,
    resolution-time ambiguity — are written into the E plan, as are the smaller ones (host builder, root
-   uniqueness, bean order, path semantics), and review 3's closing details (adoption at send, weak
-   tombstones, owner set, teardown order, proportional diagnostics; parent-first precedence,
-   per-context availability view, per-context capability instances; E8 output names).
-5. `kzen-sample-plugin`: **core** module (reader, sealed message records, the symbol-partitioned
-   derived store + `SymbolDay` materialization, book fold) + **adapter** module; fixture writer + tests;
+   uniqueness, bean order, path semantics), review 3's closing details (owner set, teardown order,
+   proportional diagnostics; parent-first precedence, per-context availability view, per-context
+   capability instances; E8 output names), and review 4's boundary corrections (source-ingress
+   adoption beside send; linear cross-run ownership through one process-level weak identity registry;
+   exact-origin notation discovery; directory-name plugin identity; the constructed-universe /
+   forked-task test split).
+5. `kzen-sample-plugin`: **core** module (reader, sealed message records, the locate-partitioned
+   derived store with its symbol catalog, `MaterializationBudget`, `SymbolDay` materialization, book
+   fold) + **adapter** module; durable data area outside `job/`; fixture writer + tests;
    the `BlockingReaderCapability` route; the expression route over `SymbolDay` batches (E9); bundled
    `ItchDay` Job; verified standalone in kzen-project from a
    plugin folder (P1 measured here) — through the **plugin compatibility test kit** (review 1: a reusable
    entry point in `kzen-auto-plugin`'s test fixtures that runs any plugin directory through loader
    creation, discovery, reflective construction, expression visibility, duplicate detection and
    expected diagnostics).
-6. `kzen-sample-embed-spring`: scaffold, workspaces, proxy, arena-backed `SymbolDay` loading, host
-   services + Kotlin glue Worker, portlet; **separate acceptance tests per outcome** (review 1): plugin
+6. `kzen-sample-embed-spring`: scaffold, workspaces, proxy, a semaphore-backed `MaterializationBudget`
+   behind a `SymbolDayLoader` service (fresh `SymbolDay` per run), host services + Kotlin glue Worker,
+   portlet; **separate acceptance tests per outcome** (review 1): plugin
    in standalone kzen; host-object access; two-workspace isolation; three-path equality on the fixture;
    real-day pressure — never one large test whose success cannot be interpreted.
 7. Docs-to-truth: Java 25 in the toolchain sections; "process-per-project is the shell's default, in-process
@@ -748,4 +802,12 @@ here touches JS — a plain-library object gets the generic editors of `2026-08-
   stalls from the deadlock monitor's clock; E2's aggregate loader is parent-first with the application
   winning, availability is a per-context view, capabilities are per-context instances; E8's output
   names are the full dotted path with aliases.
+- **[decided 2026-09-04, review 4]** The derived store partitions by Stock Locate with a symbol
+  catalog, locate zero as the day-wide partition, and order-reference state confined to `SymbolDay`
+  materialization; the source and store live in a durable area outside `job/`; E9 adopts pulled items
+  at source ingress and Worker-created ones at send, and enforces linear cross-run ownership through
+  one process-level weak identity registry; E2's notation discovery is exact-origin, a plugin's implicit
+  id is its directory name, and boot-error tests run in a forked task against their own universe; the
+  sample core exposes a host-neutral `MaterializationBudget`, unlimited by default and
+  semaphore-backed in the Spring host.
 - **[decided 2026-09-04]** Q1–Q8 all closed (§7). Nothing here is open except the gates in §9.
