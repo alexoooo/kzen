@@ -1,6 +1,6 @@
 # In-process hosting — constituent session plan
 
-> Status: planned 2026-09-04; no implementation session has run.
+> Status: all 25 sessions landed 2026-09-04/05 (see the tracker; E2/E3 keep one named open line, recorded in HS25).
 > Design: [hosting analysis](../../analysis/2026-09-03_in-process-hosting.md).
 > Existing generic contracts: [extensibility plan](../2026-07-25_extensibility-improvements.md).
 > The [master ledger](../2026-07-25_master-plan.md) owns sequencing across arcs.
@@ -22,31 +22,31 @@ The analysis's old seven-step candidate outline is superseded by this tracker.
 
 | ID | Session | Status |
 |---|---|---|
-| HS01 | [Java 25 baseline and local publication](01-java-25-baseline.md) | ☐ |
-| HS02 | [Plain-jar Spring compatibility gates](02-spring-compatibility-spike.md) | ☐ |
-| HS03 | [Plain Java core, ITCH reader and synthetic oracle](03-java-core-and-itch-reader.md) | ☐ |
-| HS04 | [Persistent locate-partitioned derived store](04-locate-partitioned-store.md) | ☐ |
-| HS05 | [Off-heap SymbolDay and persistent analytical graph](05-symbol-day-and-leak-detection.md) | ☐ |
-| HS06 | [Early real-day storage and memory gate](06-early-memory-measurement.md) | ☐ |
-| HS07 | [Process-global runtime and plugin scopes](07-runtime-and-plugin-scopes.md) | ☐ |
-| HS08 | [Provider descriptors and exact-origin notation](08-provider-and-notation-discovery.md) | ☐ |
-| HS09 | [Aggregate class loading, expressions and contextual availability](09-plugin-compilation-and-availability.md) | ☐ |
-| HS10 | [Context-owned work roots, host services and shutdown](10-context-roots-and-host-services.md) | ☐ |
-| HS11 | [Java-friendly reader and cursor-source adapters](11-java-blocking-adapters.md) | ☐ |
-| HS12 | [Plugin diagnostics and compatibility test kit](12-plugin-diagnostics-and-test-kit.md) | ☐ |
-| HS13 | [Plain-object shapes and expression inference](13-plain-object-shapes.md) | ☐ |
-| HS14 | [Recursive object contracts across JVM and JS](14-recursive-contracts.md) | ☐ |
-| HS15 | [E9 ownership ledger and native lifetime primitives](15-run-ownership-primitives.md) | ☐ |
-| HS16 | [E9 leases through channels and Worker callbacks](16-channel-and-worker-ownership.md) | ☐ |
-| HS17 | [E9 source acquisition, streams and live-edit migration](17-source-acquisition-and-migration.md) | ☐ |
-| HS18 | [E9 result snapshots, diagnostics and acceptance](18-result-boundaries-and-ownership-gate.md) | ☐ |
-| HS19 | [Object-graph path projection and unnesting](19-object-graph-projection.md) | ☐ |
-| HS20 | [Design-time object-graph path picker](20-object-graph-path-picker.md) | ☐ |
-| HS21 | [ITCH and cities Job reader adapters](21-sample-reader-adapters.md) | ☐ |
-| HS22 | [Analytical Workers, bundled Jobs and standalone plugin proof](22-analytical-jobs-and-standalone-proof.md) | ☐ |
-| HS23 | [Spring host workspaces, lifecycle and streaming proxy](23-spring-host-and-proxy.md) | ☐ |
-| HS24 | [Live host objects and shared memory governance](24-host-objects-and-memory-governor.md) | ☐ |
-| HS25 | [Integrated acceptance, real-day pressure and documentation](25-integrated-acceptance-and-docs.md) | ☐ |
+| HS01 | [Java 25 baseline and local publication](01-java-25-baseline.md) | ☑ 2026-09-04 |
+| HS02 | [Plain-jar Spring compatibility gates](02-spring-compatibility-spike.md) | ☑ 2026-09-04 (G5 public-API half → HS24) |
+| HS03 | [Plain Java core, ITCH reader and synthetic oracle](03-java-core-and-itch-reader.md) | ☑ 2026-09-04 |
+| HS04 | [Persistent locate-partitioned derived store](04-locate-partitioned-store.md) | ☑ 2026-09-04 |
+| HS05 | [Off-heap SymbolDay and persistent analytical graph](05-symbol-day-and-leak-detection.md) | ☑ 2026-09-04 |
+| HS06 | [Early real-day storage and memory gate](06-early-memory-measurement.md) | ☑ 2026-09-05 |
+| HS07 | [Process-global runtime and plugin scopes](07-runtime-and-plugin-scopes.md) | ☑ 2026-09-05 |
+| HS08 | [Provider descriptors and exact-origin notation](08-provider-and-notation-discovery.md) | ☑ 2026-09-05 |
+| HS09 | [Aggregate class loading, expressions and contextual availability](09-plugin-compilation-and-availability.md) | ☑ 2026-09-05 |
+| HS10 | [Context-owned work roots, host services and shutdown](10-context-roots-and-host-services.md) | ☑ 2026-09-05 |
+| HS11 | [Java-friendly reader and cursor-source adapters](11-java-blocking-adapters.md) | ☑ 2026-09-05 |
+| HS12 | [Plugin diagnostics and compatibility test kit](12-plugin-diagnostics-and-test-kit.md) | ☑ 2026-09-05 |
+| HS13 | [Plain-object shapes and expression inference](13-plain-object-shapes.md) | ☑ 2026-09-05 |
+| HS14 | [Recursive object contracts across JVM and JS](14-recursive-contracts.md) | ☑ 2026-09-05 |
+| HS15 | [E9 ownership ledger and native lifetime primitives](15-run-ownership-primitives.md) | ☑ 2026-09-05 |
+| HS16 | [E9 leases through channels and Worker callbacks](16-channel-and-worker-ownership.md) | ☑ 2026-09-05 |
+| HS17 | [E9 source acquisition, streams and live-edit migration](17-source-acquisition-and-migration.md) | ☑ 2026-09-05 |
+| HS18 | [E9 result snapshots, diagnostics and acceptance](18-result-boundaries-and-ownership-gate.md) | ☑ 2026-09-05 |
+| HS19 | [Object-graph path projection and unnesting](19-object-graph-projection.md) | ☑ 2026-09-05 |
+| HS20 | [Design-time object-graph path picker](20-object-graph-path-picker.md) | ☑ 2026-09-05 |
+| HS21 | [ITCH and cities Job reader adapters](21-sample-reader-adapters.md) | ☑ 2026-09-05 |
+| HS22 | [Analytical Workers, bundled Jobs and standalone plugin proof](22-analytical-jobs-and-standalone-proof.md) | ☑ 2026-09-05 (E2/E3 deferred checks listed) |
+| HS23 | [Spring host workspaces, lifecycle and streaming proxy](23-spring-host-and-proxy.md) | ☑ 2026-09-05 |
+| HS24 | [Live host objects and shared memory governance](24-host-objects-and-memory-governor.md) | ☑ 2026-09-05 |
+| HS25 | [Integrated acceptance, real-day pressure and documentation](25-integrated-acceptance-and-docs.md) | ☑ 2026-09-05 |
 
 ## Execution order and gates
 

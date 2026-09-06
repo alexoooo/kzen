@@ -1,6 +1,6 @@
 # HS07 — Process-global runtime and plugin scopes
 
-> Status: not started. One implementation session. Prerequisites: HS01.
+> Status: complete 2026-09-05. One implementation session. Prerequisites: HS01.
 > Read [the arc rules](README.md) before execution. Design authority: Extensibility plan E2: runtime, scope identity and test universes.
 
 ## Outcome and anchors
@@ -27,4 +27,41 @@ Update this session, the README tracker and its master-ledger row when complete.
 
 ## As-built
 
-Not executed.
+Executed 2026-09-05 in `kzen-auto-jvm` (`tech.kzen.auto.server.context.runtime`) and `kzen-auto-plugin`.
+
+**Runtime.** `KzenAutoRuntime` is the process-global, startup-pinned universe: `initialize(KzenAutoRuntimeConfig)`
+pins it once under a lock; an equal (normalized, absolute-path) configuration is a no-op returning the same
+instance, a differing one fails with `PluginBootException` naming both configurations. `currentOrDefault()` lets
+the first `KzenAutoContext.create` pin the universe implicitly from `KzenAutoRuntimeConfig.default()` (system
+property `kzen.plugin.root`, else standalone — the no-folder path is unchanged); `current()` is the named
+failure before initialization. No unload or reset seam exists. `KzenAutoMain` now initializes the runtime
+before the first context from `--plugin.root=` or, when present, `<moduleRoot|cwd>/plugins`.
+`ClassLoaderUtils.applicationClassLoader()` is the reserved plugin-zero loader; `dynamicParentClassLoader()`
+returns the runtime's aggregate (HS09).
+
+**Scopes.** `PluginScopeDiscovery.discover(pluginRoot, applicationLoader)` is pure over the filesystem: the
+application scope first, then one `PluginScope` per subdirectory of the root in name order over its `*.jar`
+files in name order, each with one pinned, parent-first `URLClassLoader`. `PluginManifest` is the optional
+`META-INF/kzen/plugin.yaml` (`id`, `version`, `spi`; unknown keys are errors; metadata only, never an
+allow-list); the implicit id is the directory name. Per-scope faults (unopenable jar, two manifests, malformed
+manifest, empty folder) leave that scope `FAILED` with a named diagnostic and no loader — `requireClassLoader()`
+is the named failure — and never hide the others. Universe faults (duplicate ids, the reserved `application`
+id, an `spi` other than `PluginSpiVersion.current = 1`) are reported together as one `PluginBootException`.
+`PluginScopes` exposes `application`, `folders`, `loadedFolders` and `get(id)`; `PluginScopeId` is the value
+type.
+
+**Test universes.** `PluginUniverseBuilder` (test source) compiles Java fixtures with `javax.tools` at test time
+into `plugins/<name>/*.jar` under a temp root, with `resource`, `manifest`, `bytes` and `corrupt` entries; no
+checked-in fixture jars. Ordinary tests (`PluginScopeDiscoveryTest`, 5 cases) exercise discovery without
+touching global state. Boot-level cases that must pin a universe live in
+`tech.kzen.auto.server.context.runtime.boot`, excluded from `test` and run by the `pluginUniverseTest` task
+(`forkEvery = 1`, wired into `check`): `RuntimeInitializationBootTest` (identical no-op, conflict names both),
+`RuntimeDefaultThenConflictBootTest` (implicit default then a conflicting explicit initialize fails),
+`RuntimeSharedByContextsBootTest` (three contexts share one runtime including its failed scope). Kotlin/KSP
+fixture modules were not needed for this session's cases: the generated-registry path is covered with a
+hand-written `ModuleReflection` fixture (HS08).
+
+**Verification.** `./gradlew :kzen-auto-jvm:test --tests "tech.kzen.auto.server.context.runtime.*"` and
+`:kzen-auto-jvm:pluginUniverseTest` green (details in the HS08–HS11 as-builts, which share the suites); the full
+`./gradlew build` of kzen-auto stays green. Global boot errors (`PluginBootException`) are distinct from a
+failed individual scope (`PluginScope.failure`). All new files staged by explicit path.

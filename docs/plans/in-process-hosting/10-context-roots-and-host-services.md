@@ -1,6 +1,6 @@
 # HS10 — Context-owned work roots, host services and shutdown
 
-> Status: not started. One implementation session. Prerequisites: HS09.
+> Status: complete 2026-09-05 (one test noted partial). One implementation session. Prerequisites: HS09.
 > Read [the arc rules](README.md) before execution. Design authority: Hosting analysis §3 and extensibility plan E2 host/root contracts.
 
 ## Outcome and anchors
@@ -27,4 +27,42 @@ Update this session, the README tracker and its master-ledger row when complete.
 
 ## As-built
 
-Not executed.
+Executed 2026-09-05 in kzen-auto-jvm (`KzenAutoConfig`, `KzenAutoContext`, `WorkUtils`, `WorkRootRegistry`,
+`KzenAutoHost`, `ServerLogicController`, `ReportWorkPool`, `KzenAutoMain`).
+
+**Work roots.** `KzenAutoConfig.workRoot` (`--work.root=`; null = the standalone default `../work`).
+`WorkUtils` is instance-owned: `WorkUtils(base, signature)` with `sibling()` / `temporary(name)` /
+`freshSignature(token)`; the signature (claim token + random) marks what *this* context wrote (Report output
+info files read another context's mark as dead). Every work path — Job scratch (`JobWorkPool`), persisted
+Worker output, the compiler cache and the schema cache — resolves through the context's own `WorkUtils`.
+`KzenAutoContext.create` creates the root, `toRealPath()`s it and claims it on `runtime.workRoots`
+(`WorkRootRegistry`) **before** any boot sweep; a root another live context holds, an alias of one, or one
+nested inside / containing a held root (overlapping cleanup paths) fails by name; any failure after the claim
+releases it (rollback). `close()` runs `ServerLogicController.closeAndJoin()` (cancel the active run and join
+it, bounded at 10 s) and releases the claim only if the run joined, otherwise logs and keeps the root claimed;
+`isWorkRootReleased()` reports which. The server owner stops its server before `close()` (standalone
+`KzenAutoMain` shutdown hook; the Spring adapter follows the same order in HS23).
+
+**Host services.** `KzenAutoHost` is immutable; `KzenAutoHost.builder().service(Class<T>, T)` (Java-keyed, with
+`isInstance` assignability so a proxy can be registered under the interface a Worker declares) and the reified
+Kotlin overload; a second registration of one type fails by name. `KzenAutoConfig.hostServices` is merged into
+the `GraphEnvironment` **after** kzen's built-ins, so a key kzen already provides fails context creation by name
+(and the claim is rolled back).
+
+**Logs.** `KzenAutoConfig.manageLogs` (default true) gates the cwd-relative `logs/` managed-storage area; a
+foreign host turns it off and keeps its own logging backend. No per-context `logDir`, no process-global shutdown
+side effect was added.
+
+**Verification, `WorkRootAndHostBootTest` (forked).** Two isolated contexts A and B: A's boot sweep and scratch
+stay inside A's real-path root and B's marker file survives; duplicate, aliased (`..`-spelled) and nested roots
+fail by name and leave no claim; distinct signatures; a plugin Worker needing a host service is `Unavailable`
+in A and `Available` (and constructible, resolving the proxy through the Java interface) in a providing
+context created afterwards, with A unaffected; a host key kzen provides fails creation by name and rolls back
+the claim; the builder refuses a non-instance; the logs area is present only when managed; after close both
+claims are released and the registry is empty. **Partial:** the "controlled active callback" shutdown-ordering
+test (a run that blocks in a callback while `close()` is called, proving cancel → join → release) is not yet
+written; `closeAndJoin()` implements the ordering and the unjoined case keeps the claim, but that path is
+presently proven only by the joined case. Recorded here for HS23 (hosted lifecycle), which exercises the same
+sequence under the Spring adapter. *(Closed in HS25: `HostIsolationIT.stoppingAWorkspaceWithARunActiveCancelsJoinsAndReleasesWhileTheOtherServes`
+stops a workspace while a fifty-million-element run is active — cancel → join → `work root released`, no
+`stays claimed` — with the other workspace serving throughout.)*

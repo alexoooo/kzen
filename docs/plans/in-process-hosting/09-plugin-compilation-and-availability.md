@@ -1,6 +1,6 @@
 # HS09 — Aggregate class loading, expressions and contextual availability
 
-> Status: not started. One implementation session. Prerequisites: HS08.
+> Status: complete 2026-09-05. One implementation session. Prerequisites: HS08.
 > Read [the arc rules](README.md) before execution. Design authority: Extensibility plan E2: compiler classpath, reflection and per-context availability; gate G9.
 
 ## Outcome and anchors
@@ -27,4 +27,40 @@ Update this session, the README tracker and its master-ledger row when complete.
 
 ## As-built
 
-Not executed.
+Executed 2026-09-05 in kzen-lib-jvm (`AggregateClassLoader`, `AmbiguousClassException`,
+`ReflectiveClassMirror`), kzen-auto-jvm (`KzenAutoRuntime`, `PluginDiagnostics`, `PluginAvailability`,
+`ScriptKotlinCompiler`, `KzenAutoContext`).
+
+**Loader.** `AggregateClassLoader(parent = application, scopes)` is parent-first and returns each defining
+scope's *existing* `Class` (it never defines bytes itself, so no duplicate runtime classes). On an application
+miss it asks every scope `findResource(name.class)` before loading: a name defined by several folders throws
+`AmbiguousClassException` naming the scopes, and the finding is recorded on each scope
+(`PluginDiagnostics.ambiguousClasses`); on an application hit it reports folder shadowing
+(`shadowedClasses`) and serves the application copy. Findings are lazy and append-only; no class scan builds
+them. `ReflectiveClassMirror` maps an `AmbiguousClassException` to `Entry.Malformed`, so the mirror serves the
+ambiguity as a named failure rather than an arbitrary pick. Test: `AggregateClassLoaderTest`.
+
+**Compiler.** `ScriptKotlinCompiler` adds `KzenAutoRuntime.currentOrDefault().pluginClasspath()` — the explicit
+union of every loaded folder scope's jars, in scope then jar order, after the application classpath — since a
+classpath derived from a class loader cannot see through the delegating aggregate. Runtime identity comes from
+`ClassLoaderUtils.dynamicParentClassLoader()` = the aggregate; the compiled class and the mirror-created
+instance therefore share one `Class`.
+
+**Mirror and availability.** One `ReflectiveClassMirror` over the aggregate is registered via
+`GlobalMirror.registerAfterGlobalRegistry`, keeping generated-first for scoped KSP registrations.
+`PluginAvailability` (per context) is initialized from the runtime's explicit contributions (each scope's
+generated registry checked against that context's `GraphEnvironment`) and augmented lazily by `of(className)`
+(compute-if-absent). A class whose `@Service` type the environment lacks is `Unavailable(missingServices)` in
+that workspace only; a class the mirror cannot serve is `Unresolvable(reason)`. Nothing here mutates runtime
+state. Folder contributions flow through the runtime into the normal standalone bootstrap (`KzenAutoMain`).
+
+**Verification (G9), `AggregateExpressionBootTest` (forked).** One expression names classes from two folders and
+accepts a mirror-created instance in an identity-sensitive cast; a name two folders define fails lazily with both
+scopes named and is served by the mirror as a failure; an application/folder collision serves the application
+class through the aggregate (compile, reflection and execution agree) while the folder's own loader still
+defines its copy; availability is per context and learns lazily — a context lacking a service reports
+`Unavailable` naming it while another context is untouched; the compiled expression still works after a second
+context starts. The "later notation edit first naming a reflective Worker" case was **not** wired here: nothing in
+production called the lazy `of()` path. HS12 closed the gap — `PluginAvailability` now observes the graph store
+and learns folder-defined classes from notation on boot and after every command, proven with a real
+`CreateDocumentCommand` in `CompatibilityKitBootTest`. `./gradlew :kzen-auto-jvm:pluginUniverseTest` green.

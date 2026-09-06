@@ -1,6 +1,6 @@
 # HS11 — Java-friendly reader and cursor-source adapters
 
-> Status: not started. One implementation session. Prerequisites: HS10.
+> Status: complete 2026-09-05. One implementation session. Prerequisites: HS10.
 > Read [the arc rules](README.md) before execution. Design authority: Hosting analysis §6 C; extensibility plan E2 Java SPI.
 
 ## Outcome and anchors
@@ -28,4 +28,40 @@ Update this session, the README tracker and its master-ledger row when complete.
 
 ## As-built
 
-Not executed.
+Executed 2026-09-05. Module boundaries as resolved: the reader base is public SPI in **kzen-auto-plugin**
+(`tech.kzen.auto.plugin.api.data.BlockingReaderCapability`); the Worker bases depend on JVM implementation
+classes (`SourceWorker`, `TransformWorker`, `JobDataValues`) and live in **kzen-auto-jvm**
+(`tech.kzen.auto.server.objects.job.worker.CursorSourceWorker`, `JavaTransformWorker`); no reverse dependency
+from the plugin module was added. Java coordinates: `tech.kzen.auto:kzen-auto-plugin` for the reader,
+`tech.kzen.auto:kzen-auto-jvm` for the Worker bases (both at the current train version, published to
+mavenLocal with `:kzen-auto-plugin:publishToMavenLocal` before the fixture build).
+
+**Adapters.**
+- `BlockingReaderCapability`: implement `openBlocking(ReaderOpenRequest): DataCursor` and
+  `inspectBlocking(ReaderInspectionRequest): DataShape`; the `suspend` pair is provided once. The bridge is a
+  direct call: the framework already runs a reader's open/inspect/pulls where blocking is accounted for.
+- `CursorSourceWorker`: the subclass's `open(control): Iterator<*>` returns an ordinary iterator; the framework
+  owns every pull, lifting (`elementContract()` optional), batching, checkpoints, cancellation and close. Open
+  and each pull run through `JobControl.runBlockingIo`. **Cancellation-safe acquisition:** a value produced inside
+  the blocking body is captured before the body returns, so if cancellation wins the dispatch back to the
+  coroutine the acquired cursor or item is closed rather than lost; a failing open leaves no cursor. A returned
+  iterator that is `AutoCloseable` is closed exactly once on completion, failure or cancellation; an item the
+  subclass hands out is the run's from that moment (identity-close). Live-edit migration detaches the open
+  iterator to the replacement instance (`DetachedCursor.adopt()`, no re-open, no skip) and the engine closes a
+  detached cursor whose instance was removed — the HS17 integration hook. Owned-item support is not claimed
+  until E9 completes.
+- `JavaTransformWorker`: `onElementBlocking(element, control): Iterator<*>?` sees the element's boundary object
+  (`JobDataValues.boundary`) and returns outputs; `onCompleteBlocking(control)` adds trailing outputs; the
+  framework runs both through `runBlockingIo`, lifts and emits (suspend) every output, and closes an
+  `AutoCloseable` iterator once drained. No Continuation shim.
+
+**Verification, `JavaAdaptersTest` with javac-compiled fixtures** (`src/test/java/.../javafixture`:
+`JavaCountingSource extends CursorSourceWorker`, `JavaDoublingTransform extends JavaTransformWorker`,
+`JavaBlockingReader extends BlockingReaderCapability`; notation `test/job/plugin/java-adapters-test.yaml`):
+source → transform → collecting sink runs end to end (`0,0,1,2,2,4,total=3`), the closeable cursor is closed once
+and every item created; a failing `open` is the run's `Outcome.Failed` with no cursor; a latch test cancels after
+the first item is acquired inside the blocking body but before it is delivered — the acquired item and the cursor
+are closed and nothing reaches the sink; the Java reader serves the suspend contract (open, pulls, inspect,
+identity, encode/decode round trip). Existing scalar-source behaviour is covered by the unchanged Job suites in
+the full build. Commands: `./gradlew :kzen-auto-jvm:test --tests "*JavaAdaptersTest"` and the full
+`./gradlew build`; `compileTestJava` targets release 25 with `-parameters`.

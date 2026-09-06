@@ -48,7 +48,7 @@ turn downloads the project archetype zip. The wiring that makes a released app f
 
 ## Prerequisites [OPERATOR]
 
-- **JDK 26** installed at `~/.jdks/temurin-26.*` (the Gradle toolchain target; `auto-download=false`).
+- **JDK 25** installed at `~/.jdks/temurin-25.*` (the compile toolchain — Java and Kotlin compile against the Java 25 API and emit class-file 69; `auto-download=false`). Any JDK ≥ 25 runs the result.
 - The Gradle JVM must be **≥ 25** — set `JAVA_HOME` to `~/.jdks/temurin-25.*` or `temurin-26.*` for CLI
   Gradle; on an older JVM buildSrc fails with "Unresolved reference kotlinVersion".
 - **`gh` CLI authenticated**: run `gh auth login` once (interactive — in a Claude Code session type
@@ -129,11 +129,11 @@ Cheap structural + standalone checks before anything is pushed:
   `dependencies\` + `kzen-shell.properties` (whose `launcher.zip` is the `v<VERSION>` GitHub URL); the
   full zip additionally = `jdk\` + `kzen.bat` + `kzen-cmd.bat`. Confirm `jdk\bin\java.exe -version`
   reports the expected Temurin major, and the bats reference `jdk\bin\...` and `kzen-<VERSION>.jar`.
-- Boot each `main.jar` (and the shell's `kzen-<VERSION>.jar`) standalone on a free port with **JDK 26**
+- Boot each `main.jar` (and the shell's `kzen-<VERSION>.jar`) standalone on a free port with **JDK 25** (the runtime baseline; a newer JDK also works)
   and confirm it serves HTTP:
 
 ```powershell
-& "$env:USERPROFILE\.jdks\temurin-26.0.2\bin\java" -jar main.jar --server.port=8091
+& "$env:USERPROFILE\.jdks\temurin-25.0.4.1\bin\java" -jar main.jar --server.port=8091
 # then in another shell: curl http://127.0.0.1:8091/   (expect a response, not connection-refused)
 ```
 
