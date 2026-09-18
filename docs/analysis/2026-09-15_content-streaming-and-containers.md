@@ -19,7 +19,7 @@ that represents a file is an ordinary record whose fields are the file's metadat
 ```text
 Entry { name: Text, size: Integer?, modified: Timestamp?, content: Content }
 ```
-
+  
 **Containers yield entries; codings transform bytes.** A container (tar, zip) is content that holds named
 entries; a directory or object-store prefix is an entry source that is not itself content. A coding (gzip,
 zstd) is a transparent byte-to-byte transform and is bidirectional — the same registry entry decodes on read

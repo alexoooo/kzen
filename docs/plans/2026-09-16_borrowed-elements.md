@@ -7,7 +7,7 @@
 > for `Content`, lifetimes, containers and output semantics (§4, §5, §7, §12). **This plan amends its §6**:
 > the structural scope (§6.1–§6.3), the scope-compatible contract (§6.2), the flat-notation fold (§6.5) and
 > the §10 rejection of a per-channel lease are replaced by the cursor-owned release protocol in §3 below.
-> The [master ledger](2026-07-25_master-plan.md) owns sequencing (rows BE1–BE4).
+> The [master ledger](2026-07-25_master-plan.md) owns sequencing (rows BE1–BE5).
 > Executor: one session per row; each session appends its as-built under §8.
 
 ## 1. Decision
@@ -144,7 +144,7 @@ Consumer-side close propagates through `TransformWorker` today. BE2 adds it to `
 
 | Spike | After | Notes |
 |---|---|---|
-| `EntryScope` (+ body) | `Entries` (`CursorSourceWorker`) | `path`, `entries` glob, `output`; emits `Entry`; Sources ribbon group |
+| `EntryScope` (+ body) | `Entries` (`CursorSourceWorker`) — superseded in BE5 by `File (emit: units) → Extract` | `Extract` (`ExpandingTransformWorker` + `BorrowingSource`, `CursorLending`): `input`, `members` glob, `output`; emits `Entry`; Transforms ribbon group; the file selection is `File`'s |
 | `ScopeFilter` | `FilterWorker` | already compiles a predicate over the element contract; `Entry` is a bean shape |
 | `ScopeTake` | `TakeWorker` | already exists (CS2) |
 | `ScopeReadPart` | `ReadPartWorker` | accepts a `Content`-bearing element (via `ContentDataOpener.openContent`) as well as a `DataPart`; declared schema; first entry fixes the shape |
@@ -265,6 +265,35 @@ independent); `File → Take(10)` (a plain source upstream of a take) completes 
 
 **Verification.** The browser walk-through recorded in the as-built with the saved `Job.yaml`.
 
+### BE5 — one file selector: `Extract`
+
+**Why.** The user's verdict on the BE1–BE4 `Entries` card: a confusingly named Source with two bare text
+boxes and no file browser — and the design point, *there should be one file selector, not one per downstream
+purpose*. Selecting files is `File`'s job; what happens to them is downstream. The 2026-09-15 analysis (§7,
+§8 "A directory of archives") already had this shape.
+
+**Anchors.** `worker/CursorSourceWorker.kt` (the lending loop to factor out), `worker/ExpandingTransformWorker.kt`,
+`worker/BorrowingSource.kt`, `content/EntriesWorker.kt` (delete), `content/tar/TarGzEntryCursor.kt`,
+`data/ReadPartWorker.kt` (the `DataUnit` / `Entry` dual-input precedent), `job-worker.yaml`, `job-js.yaml`,
+the 22 `entries-*` fixtures and three test classes.
+
+**Work.**
+
+1. `CursorLending`: the lend / await-release loop, `SourceIngress` adoption, `DetachedCursor` capture / adopt
+   and the two refusals, moved out of `CursorSourceWorker` (same API, same strings) and shared.
+2. `Extract` = `ExpandingTransformWorker` + `BorrowingSource`: per input element open one `.tar.gz` (a
+   `DataUnit` from `File` / `Read` in units mode, or an `Entry` for a nested archive) and lend its members;
+   `members` globs; static `Entry` output lane; lane check names the fix when the upstream is a known non-file
+   type. `Entries`, its archetype and ribbon tool deleted; `ExtractTool` under Transforms; no client change.
+3. Fixtures and tests ported (`File(units) → Extract → …`); new rows: two archives with ``,
+   nested `Extract → Extract`, Items-mode hint, static lane error.
+4. Docs: architecture blockquote, this plan (§3.8 note, tracker, as-built), the master ledger.
+
+**Verification.** JVM gate (`*content*`, `*Migration*`, `*JobValidatorTest*`, `*JobRun*`), JS compile, jar;
+browser on a spare port: `File → Extract → Write → Result` over two archives, Advanced → Emit: Units,
+`members: *.csv`, `name: ${parent.name}/${name}${extension}`; per-card progress, files on disk, and the
+Emit hint when Items.
+
 ## 5. Unknowns to answer in the as-builts
 
 1. Does `JobDeadlockMonitor` need to know about *await release*, or does a suspended wait already count as
@@ -300,10 +329,429 @@ independent); `File → Take(10)` (a plain source upstream of a take) completes 
 
 | ID | Session | Status |
 |---|---|---|
-| BE1 | The protocol, `Entries`, `Write` | ☐ |
-| BE2 | `Read part` over content, `Take`, close propagation | ☐ |
-| BE3 | Migration generalized | ☐ |
-| BE4 | UI removal, browser verification, docs | ☐ |
+| BE1 | The protocol, `Entries`, `Write` | ☑ 2026-09-16 |
+| BE2 | `Read part` over content, `Take`, close propagation | ☑ 2026-09-16 |
+| BE3 | Migration generalized | ☑ 2026-09-16 |
+| BE4 | UI removal, browser verification, docs | ☑ 2026-09-16 |
+| BE5 | One file selector: `Extract` | ☑ 2026-09-17 |
+
+### As-built BE1 (2026-09-16)
+
+**Built.** The protocol of §3.1–§3.3 over the E9 ledger, and the two flat Workers, in `kzen-auto` (staged, not
+committed):
+
+- `LentElement: AutoCloseable { lentName(); lender() }` (`worker/LentElement.kt`, new) is the marker; `Entry`
+  implements it (`close()` → `Content.release()`, a new default no-op that `TarEntryContent` overrides with its
+  invalidation — the old `internal invalidate()`). No `CursorBorrowed` / `EntryRelease` / authority holder
+  were needed: the run's `OwnedNative` for the entry is the token, its last hold's release its close.
+- `BorrowingSource { lending(); awaitingRelease() }` (renamed from `ScopeBoundary`, moved to `worker/`).
+  `CursorSourceWorker` implements it: after sending a `LentElement` (the channel flushes an owned element at
+  once, so nothing waits for siblings) it releases its producer hold, suspends on
+  `OwnedNative.awaitClosed()` (new `CompletableDeferred` under the entry's lock, completed in `closeOnce`),
+  then checkpoints, then pulls. `lending()` / `awaitingRelease()` / `lentElementName()` are read from other
+  threads (volatile). A `DownstreamClosedException` from the send ends the source without draining.
+- Retention refused by name: `EngineJobControl.retain` and `yieldResult` throw
+  `"<worker> cannot keep entry 'x': it is borrowed from 'archive' and is only valid until the source advances.
+  Snapshot it, read it, or write it."` when any owner's native is a `LentElement`. The framework's own
+  per-callback hold moved to `RunOwnershipControl.holdForCallback` (no refusal), which `CallbackLeases` uses.
+- `Entries` (`content/EntriesWorker.kt`, from `EntryScopeWorker`): a `CursorSourceWorker` over one
+  `TarGzEntryCursor`; `entries` globs reselect on adoption; `path` is the cursor configuration key; progress
+  `entries / skipped / entry`. `Write` (`content/WriteWorker.kt`, from `ContentWriter`): a `TransformWorker`
+  emitting `Written`; totals / `captureState` / `loadState` removed. `ReadEntry` (`content/ReadEntryWorker.kt`,
+  from `ScopeReadPart`): an `ExpandingTransformWorker` over an `Entry`, an **interim** archetype that BE2
+  folds into `ReadPart`. `EntryGlob` moved to `content/`; `ScopeMigrationKey` stays (keyed on `EntriesWorker`).
+- `JobRun`: draining keyed on `BorrowingSource.lending()`; the deadlock monitor gets
+  `awaitingRelease = { borrowingSources.count { it.awaitingRelease() } }` (new `JobDeadlockMonitor` parameter,
+  added to the blocked sum).
+- Pulled forward from BE2 (needed to keep the ported CS2 rows green): `SourceWorker.drive`,
+  `CursorSourceWorker.produce` and `ExpandingTransformWorker.drive` complete normally on
+  `DownstreamClosedException` (the expanding Worker releases its active batch and closes its input on the
+  consumer side). `TransformWorker` already did.
+- Migration: `DetachedCursor` carries the lent element's name; `loadMigrationState` refuses
+  `"Source was interrupted inside entry 'x'; a live edit applies only between elements."` **without closing the
+  detached cursor** — the ledger owns it and closes it at teardown; closing it in the refusal invalidated the
+  entry under its holder, whose "was released" failure then won the race and hid the refusal.
+- Deleted: `ScopeBodyWorker`, `BodyEmitter`, `ScopeFilter`, `ScopeTake`, `DetachedScope` (was inside
+  `EntryScopeWorker`), the `body` attribute, `content-test-bodies.yaml`, the `EntryScopeWorkerDisplay` object
+  entry in `job-js.yaml` (its Kotlin files go in BE4). Notation: `Entries`, `Write`, `ReadEntry` archetypes in
+  `job-worker.yaml`; `EntriesTool` (Sources), `ReadEntryTool` (Transforms), `WriteTool` (Sinks) in
+  `job-js.yaml`. `docs/architecture.md` Job blockquote and the `js-architecture.md` §7 preface updated.
+- Tests: `ContentScopeHarness` → `ContentTestHarness`; `EntryScopeWorkerTest` → `EntriesWorkerTest`,
+  `ScopeReadPartTest` → `ReadEntryWorkerTest`, `ScopeMigrationTest` → `EntriesMigrationTest`; `TestBodies` →
+  `TestWorkers` (`StashingWorker`, `HoldingWorker`, `FailingWorker`, `BlockingWorker`, `LabelsWorker`, all
+  `TransformWorker`s declared in `content-test-workers.yaml`); every `scope-*.yaml` fixture → `entries-*.yaml`,
+  flat (`Archive: is: Entries` → `Filter` / `Write` / `ReadEntry` / `TakeWorker` / test Worker → `collect`);
+  new `entries-formula-test.yaml` for the §10 deadlock case. kzen-lib's YAML parser accepts only empty inline
+  collections, so `entries:` lists are block lists.
+
+**§5 answers.**
+
+1. **The monitor needed to know.** A source parked in `awaitClosed()` is suspended on a `Deferred`, not on a
+   channel op, so it is invisible to `blockedCount()`; without the `awaitingRelease()` term the
+   `withoutConsumerCloseTheEngineReportsTheCompletedTakeAsADeadlock` row hung (the reader blocked on its send
+   and the source awaiting release: blocked 1 < active 2). With it the verdict fires as before. For the
+   refused-retention row the monitor never speaks: the refusal fails the run at the first entry.
+2. **No.** Every hold the wait saw was the channel's or a callback's (the stall report names holders; in the
+   Formula row it names `Formula: 1` — the callback hold during Kotlin script compilation, ~2 s — and the
+   source's cursor). The one surprise was in the test, not the protocol: `HoldingWorker` retains → the run
+   fails → the source, released by the failed callback, may pull one more header (never opened) before the
+   cancel reaches it, so the retention row now allows 1..2 pulled / 0 opened, as the take-in row already did.
+
+**Verification.** `./gradlew :kzen-auto-jvm:test --tests "*content*"`: 46 tests green (16 `EntriesWorkerTest`,
+6 `ReadEntryWorkerTest`, 5 `EntriesMigrationTest`, plus the pre-existing content-store tests). All CS1 §12 rows
+flat, plus the Formula (§10) row: `Entries → Formula(label = name + "!") → LabelsWorker` completes with the four
+entries invalidated in order. Wider gate (`*Migration*`, `*JobRun*`, `*JobChannel*`, `*LogicController*`,
+`*JobDeadlockMonitor*`, `*FormulaStepTest`, `*Worker*`): 248 tests, one failure —
+`JobRunWorkerTest.perUnitChildBindsNamedDateAndYieldsOrderedFingerprintedRefs`, a `ClassCastException`
+(`SingletonList` → `String`) in the child's `flatDate` argument expression, in `RunWorker` / Formula code this
+session did not touch; it fails identically on a clean HEAD worktree, so it is pre-existing. `:kzen-auto-js:compileKotlinJs` green.
+
+**Blocker to know about.** The test corpus loads the user's `notation/main/` documents, and the untracked
+`notation/main/Job-5.yaml` (`is: EntryScope`) no longer resolves, which fails every definition-loading test at
+`TargetSpecCreator`'s autowired list. The suite was run with a throwaway `EntryScope: is: Entries` alias in
+`job-worker.yaml`, removed before hand-off; the document itself was not touched (user document).
+
+**BE2 inherits.** `ReadEntry` to fold into `ReadPart` (§3.8); `Take` already flat (`TakeWorker`, kept); close
+propagation is done in the three drive loops (item 2 of BE2 is only the sink loop, if anything remains);
+`entries-take-*` / `entries-write-take` fixtures already exercise ten-or-eleven (§5 item 3: the take-in row
+measured 10 written / 10 opened / 10–11 pulled).
+
+### As-built BE2 (2026-09-16)
+
+**Built.** `Read part` over an `Entry`, the CS2 rows ported flat, and the interim `ReadEntry` gone, in
+`kzen-auto` (staged, not committed):
+
+- `ReadPartWorker.onElement` takes an [Entry] as well as a `DataUnit`: `readEntry` opens the entry's bytes
+  under `runBlockingIo`, hands them to `ContentDataOpener.openContent` with a synthetic `DataPart` (ref
+  `<archive>!<entry>`, role `main`, fingerprint identity `tech.kzen.auto/archive-entry-v1` over archive / entry /
+  size / modified, read spec from the new `format` attribute), establishes the shape baseline (`strict`: first
+  entry fixes it, later must match; a declared schema fixes it up front) and emits through `DataReadCore.emitNext`
+  — the same lifted literal records a file produces, independent of the entry. The reader is closed at the end
+  of the entry (`close` on completion, `closeFallback` on failure or `DownstreamClosedException`), never carried
+  across a migration (`onExpansionClose` also drops it; the source refuses an edit inside a lent element anyway).
+  `payloadFlow` accepts a non-null `Entry` native type next to the opaque `DataUnit`. The `DataUnit` / `DataPart`
+  path is untouched.
+- `format: ConfiguredRecordFormat` on `ReadPartWorker` (non-null; a nullable object reference would need a
+  custom definer), default `configured-delimited-format.yaml#ConfiguredCsv`, `SelectDataFormatEditor` in
+  notation; it applies to content elements only — a unit's parts carry their own resolved read specs.
+- Deleted: `ReadEntryWorker` (`content/`), the `ReadEntry` archetype in `job-worker.yaml`, `ReadEntryTool` in
+  `job-js.yaml`. Consumer-side close (§3.7) was already in the three drive loops from BE1; `SinkWorker` has no
+  output, so nothing to add.
+- Tests: `ReadEntryWorkerTest` → `EntriesReadPartTest` (the CS2 rows, flat, over `is: ReadPartWorker` with
+  `format: main.formats/csv`: `entries-read-test`, `entries-read-sort-test`, `entries-take-out-test`,
+  `entries-migrate-summary-test`); new `file-take-test.yaml` + `ContentTestHarness.prepareBigFile` for the
+  inherited `File → Take(10)` row; `ReadPartWorkerTest`'s helper passes `ConfiguredDelimitedTestFormats.csv()`.
+  `docs/architecture.md` Job blockquote extended.
+
+**§5 answers.**
+
+3. **Ten written, ten opened, ten or eleven pulled.** `Entries → Take(10) → Write` (take-in row): 11 headers
+   pulled, 10 opened, 10 written; the eleventh header is pulled before the take's completion reaches the source
+   and is never opened. `Entries → Write → Take(10)` (write-take row): 11 written, 12 pulled — the take closes
+   after its tenth element, the `Write` in flight finishes its eleventh, and the source's last pull is a header
+   only. An eleventh file is therefore possible only with a Worker between `Take` and the source, never from the
+   take itself.
+4. **Yes, four things.** Beyond `openContent`: a `format` attribute (the read spec a `DataPart` otherwise carries),
+   the synthetic `DataPart` / fingerprint above, `payloadFlow` acceptance of the `Entry` native class, and a
+   second cursor field (`entryCursor`) so the fallback close at expansion close reaches an open entry reader. No
+   ledger, ownership or channel change was needed: the rows are ordinary lifted literals and the entry's
+   release is the reader's close.
+
+**Verification.** `./gradlew :kzen-auto-jvm:test --tests "*content*" "*ReadPart*" "*JobRunWorkerTest"
+"*JobDeadlockMonitor*"`: 79 tests, one failure — the pre-existing
+`JobRunWorkerTest.perUnitChildBindsNamedDateAndYieldsOrderedFingerprintedRefs` (BE1 report; identical on a
+clean HEAD worktree). Rows: `Entries(bar.csv) → Read part → Result` equals `File → Read → Result` on the
+extracted file; `Entries → Read part → Take(10)` over a 2 000 000-row entry: 10 taken, 1 207 ms, no drain,
+cursor closed once; `Entries → Read part → Sort → Result` green; `File → Take(10)` over a 2 000 000-row file:
+10 taken, 1 145 ms, completes cleanly. Wider gate (`*Worker*`, `*Migration*`, `*JobRun*`, `*JobChannel*`,
+`*LogicController*`): 231 tests, the same single pre-existing failure. `:kzen-auto-jvm:compileTestKotlin` and `:kzen-auto-js:compileKotlinJs` green.
+
+**Blocker, still.** The untracked user document `notation/main/Job-5.yaml` (`is: EntryScope`) fails every
+definition-loading test; the suites ran with the same throwaway `EntryScope: is: Entries` alias in
+`job-worker.yaml` as BE1, removed before hand-off. The document was not touched.
+
+**BE3 inherits.** §5 item 5 (`cursorConfigurationKey` per `CursorSourceWorker` subclass); `ScopeMigrationKey`
+still keyed on `EntriesWorker`; `DetachedCursor` / `loadMigrationState` refusal-by-name is the only lent-element
+migration rule so far, and the entry reader in `ReadPartWorker` is deliberately not migration state.
+
+### As-built BE3 (2026-09-16)
+
+**Built.** The pre-detach refusal generalized from the `Entries` archive path to every source's selection, in
+`kzen-auto` (staged, not committed):
+
+- `WorkerBase.migrationKey(graphNotation, location): Any?` (default null) is the rule: the part of a Worker's
+  NOTATION its run-scoped state was opened over. It is read from notation, not from the instance, so the
+  RUNNING instance evaluates both its own definition and the edited one (same stable id, possibly renamed)
+  — the extension rule of `payloadFlow`: no general layer learns a Worker type. `migrationKeyOf` (companion)
+  builds the usual key, the named attributes' notations (`firstAttribute`, inherited ones included; kzen-lib's
+  attribute notations are data classes, so the comparison is structural).
+- Implementations: `EntriesWorker` (`path`), `FileSourceWorker` (`directory`, `filter`, `files`, `format`,
+  `groupPattern`, `missing`), `ReadWorker` (`source`; an edit inside the same data source is still judged by
+  the definition digest on adoption, which restarts the read from a fresh manifest, as before).
+- `JobLogic` keeps one live handle, `LiveWorkers` (new, `exec/job/`): the Workers of the runs hosted from the
+  definition, by stable id, registered by `JobRun` once instantiated and withdrawn when the run ends
+  (including at its own migration barrier — the rebuilt run registers its own). `refuseMigration(edited)`
+  walks them, locates the edited counterpart through the compile-time `workerStableIds` (replacing
+  `scopeKeys`), and refuses `"Source selection of <name> changed. Start a new run to apply it."` on the first
+  differing key. Without a live run there is nothing to refuse. `JobRun`'s constructor is `internal` (it takes
+  the registry). `ScopeMigrationKey` and the `content/scope/` package are gone.
+- `CursorSourceWorker.cursorConfigurationKey()` and the *interrupted inside entry* refusal stay as the
+  belt-and-braces on adoption (§4 BE3 item 2); the entry reader in `ReadPartWorker` is not migration state.
+- Tests: the CS3 rows were already flat in `EntriesMigrationTest` (BE1); its path-refusal row now asserts
+  `null` before the run, the refusal and the compatible edit's `null` from the paused live run, `null` again
+  after the run. New `FileSourceMigrationTest` + `file-migrate-test.yaml` (`File(big.csv) → Summary → Result`,
+  100 000 rows): a `files` edit is refused by name from the paused run, the sink edit is compatible, the run
+  completes with every row counted once. `ContentTestHarness.prepareCsvFile(name, rows)`.
+  `docs/architecture.md` Job blockquote updated; `ServerLogicController`'s comment generalized.
+
+**§5 answer 5.** `EntriesWorker` is the only `CursorSourceWorker` subclass, and the only one with a
+`cursorConfigurationKey` (`path`). The `File` / `Read` sources are `ReadWorker`s, not cursor sources: their
+adoption rule is the instance-side definition digest (`compatibilityKey`, restart on mismatch), so they did
+not get the pre-detach refusal "for free" from `cursorConfigurationKey` as §3.6 assumed — they got it from
+the notation-level `migrationKey`, which is why the hook lives on `WorkerBase` rather than
+`CursorSourceWorker`. Nothing else needed a key.
+
+**Verification.** `./gradlew :kzen-auto-jvm:test --tests "*Migration*" "*content*"`: green (5
+`EntriesMigrationTest` rows incl. the §5-item-3 rows, `FileSourceMigrationTest`, the BE1/BE2 content
+suites). Wider gate (`*Worker*`, `*Migration*`, `*JobRun*`, `*JobChannel*`, `*LogicController*`, `*Logic*`):
+266 tests, the same single pre-existing failure. JVM main + test compile green; no JS change.
+
+**Blocker, still.** `notation/main/Job-5.yaml` (`is: EntryScope`, untracked user document) — same throwaway
+alias for the test runs, removed before hand-off, document untouched.
+
+**BE4 inherits.** UI removal (`ScopeBodyEditor`, `EntryScopeWorkerDisplay`, `EntryScopeTool` in `job-js.yaml`),
+browser verification, and the `docs/architecture.md` / `js-architecture.md` passes; nothing from BE3 changes
+the client. A nested Job (hosted by a `RunWorker` inside a Script) is still not judged pre-detach — the
+controller asks only the root `JobLogic`, as before.
+
+### As-built BE4 (2026-09-16)
+
+**Built.** The client side of the scope model is gone and the borrowed-elements Workers are verified end to end
+in a real browser (`kzen-auto`, staged, not committed):
+
+- Deleted `kzen-auto-js` `job/edit/ScopeBodyEditor.kt` and `job/display/EntryScopeWorkerDisplay.kt`; nothing
+  else referenced them (`AddNameForm` stays — Formula / Sort / ValueSet editors share it;
+  `PluginController.renderScopeBody` is the plugin scope, unrelated). `job-js.yaml` already carried
+  `EntriesTool` under `JobGroup_Sources`, `ReadPartTool` under Transforms and `WriteTool` under Sinks from
+  BE1; no `EntryScope*` object remains anywhere outside the untracked user document (below).
+  `./gradlew :kzen-auto-jvm:jar` (which compiles the JS bundle) is green after the deletions.
+- `docs/js-architecture.md` §7: the subsection *Nested-object list attributes: host the editor from a
+  `display:`, not an `editor:`* is removed — it documented the deleted body editor; the general rule it
+  stated no longer has an instance in the tree. `docs/architecture.md`'s Job section carried the
+  borrowed-elements paragraph since BE1–BE3; unchanged in BE4.
+- `WriteWorker`'s class doc no longer claims that a Job ending in `Write` needs no sink (finding below).
+
+**Browser walk-through.** Own server: the built jar on port 8097, `--module.root` / `--work.root` pointed at a
+scratch project under `%TEMP%\kzen-be4` whose `data/input.tar.gz` holds `part1..4.csv` (`id,name` + two rows
+each) and a `readme.txt`. Two Jobs built from the ribbon into the gaps, each saved by the client as an
+order-driven document (no Channel objects, no port references):
+
+```yaml
+# main/Job.yaml — Entries → Filter → Read part → Take → Result
+main:
+  is: Job
+  results:
+    main:
+      class: kotlin.Any
+      generics: []
+      nullable: false
+
+main.workers/Entries:
+  is: Entries
+  path: C:/Users/ostro/AppData/Local/Temp/kzen-be4/data/input.tar.gz
+  entries:
+    - '*.csv'
+
+main.workers/Filter:
+  is: FilterWorker
+  where: name != "part3.csv"
+
+main.workers/Read part:
+  is: ReadPartWorker
+
+main.workers/Take:
+  is: TakeWorker
+  count: 3
+
+main.workers/Result:
+  is: ResultSinkWorker
+```
+
+Run: Entries `entries=4 skipped=1 Done`, Filter `seen=4 kept=3 Done`, Read part `units=2 emitted=5 Done`,
+Take `taken=3 Done`, Result `collected=3 Done`, value `{id=2, name=alpha2}` — the third record overall
+(part1's two rows, then part2's first), so `Take` closed its input after the third record, `Read part` never
+opened `part4.csv` (two units, five emitted: part2 was drained after the close), and the lanes between the
+cards read `Entry (Record)` → `Entry (Record)` → `Dynamic` → `Dynamic`.
+
+```yaml
+# main/Job-1.yaml — Entries → Write → Result
+main:
+  is: Job
+  results:
+    main:
+      class: kotlin.Any
+      generics: []
+      nullable: false
+
+main.workers/Entries:
+  is: Entries
+  path: C:/Users/ostro/AppData/Local/Temp/kzen-be4/data/input.tar.gz
+  entries:
+    - '*.csv'
+
+main.workers/Write:
+  is: Write
+  directory: C:/Users/ostro/AppData/Local/Temp/kzen-be4/data/out
+
+main.workers/Result:
+  is: ResultSinkWorker
+```
+
+Run: Entries `entries=4 skipped=1 Done`, Write `written=4 skipped=0 Done`, Result `collected=4 Done`, value
+the `Written` record of `part4.csv.gz`. On disk `data/out/part1.csv.gz` … `part4.csv.gz` (54 bytes each)
+decompress to the original three lines of each part. The `Write` card offers `Coding` (gzip / none) and
+`Existing` (fail / replace / skip) as selects; `Read part`'s `Format` picker is the BE1 one.
+
+Client behaviour worth knowing for the next walk-through: while a Job's trailing Worker is a Transform (a
+card just dropped, its downstream not yet placed) the pipes show *Loading…* and the server logs a transient
+*Missing <empty>* on the open output; placing the next card and reloading the page clears it. A `Result`
+card also needs a result declared in the Job signature (`Result ⊕`, type Any) before the Job validates.
+
+**Finding — `Write` still needs a sink (deviation from §3.8).** `Entries → Write` alone does not start:
+*Unable to compile main/Job-1.yaml#main: Missing <empty> in main/Job-1.yaml#main.workers/Write*. `Write` is
+a `TransformWorker` with a required `output: ChannelOutput`; channel synthesis wires only adjacent pairs, so
+a trailing Transform's output stays empty and the definition fails. The §3.8 line "a Job whose last Worker
+is `Write` needs no sink" was never implemented in BE1 — every BE1 test wires `Write → Result` — and doing
+it is an engine feature, not a UI removal: an unread trailing channel would fill to `capacity` and block, so
+a terminal output needs either an optional `ChannelOutput` on `TransformWorker` or a synthesized discarding
+sink. Not built in BE4; the doc claim is withdrawn from `WriteWorker` and the walk-through used
+`Entries → Write → Result`. Recorded here as the open item for the plan-close.
+
+**Verification.** Jar build (JS + JVM compile) green; browser runs above; the BE3 test gate is unchanged
+(no JVM source changed beyond the `WriteWorker` comment). Server stopped and the tab closed afterwards; the
+scratch project stays under `%TEMP%`.
+
+**Blocker, still.** `notation/main/Job-5.yaml` (`is: EntryScope`, untracked user document) is left as is;
+it no longer loads against this tree (no `EntryScope` archetype) and needs the user's decision.
+
+**Plan-close notes.** All four sessions are ticked. Open items: the trailing-`Write` sink (above); a nested
+Job hosted by a `RunWorker` inside a Script is still not judged pre-detach (BE3); `Job-5.yaml`.
+
+### As-built BE5 (2026-09-17)
+
+**Built.** One file selector. The `Entries` Source is deleted and archive extraction is a Transform below the
+`File` selector (`kzen-auto`, staged, not committed):
+
+- `ExtractWorker` (`content/ExtractWorker.kt`): an `ExpandingTransformWorker` that is also a `BorrowingSource`.
+  Per input element it opens one `.tar.gz` and lends each member downstream as an `Entry`, advancing only when
+  the member's last hold is released. Input: a `DataUnit` (a `File` or `Read` source with Emit set to Units;
+  the path is the single `main` part's `DataRef`) or an `Entry` (a nested archive, opened from the entry's
+  borrowed content through `SequentialByteContentInputStream` while the enclosing member is held). Output lane:
+  the static `Entry` contract. `members:` globs apply at the header (`TarGzEntryCursor.reselect`, so a live
+  edit applies from the next member). Progress: `archives`, `archive`, `entries`, `skipped`, `entry`.
+- `CursorLending` (`worker/CursorLending.kt`): the lend / await-release loop, `SourceIngress` adoption,
+  `DetachedCursor` capture / adopt and both refusals, factored out of `CursorSourceWorker` (now a thin shell
+  with the same protected API and error strings) and reused by `Extract` (`drain`, `capture`, `adopt`,
+  `restoreDelivered`). `DownstreamClosedException` propagates out of `drain`; the source base swallows it,
+  `Extract` lets `ExpandingTransformWorker.drive` release the batch and close its input.
+- `TarGzEntryCursor` gained a stream constructor (`parent: ContentDescriptor, bytes: InputStream`); the path
+  constructor delegates to it.
+- Notation: `Extract` archetype (`input`, `members`, `output`; title "Extract") replaces `Entries` in
+  `job-worker.yaml`; `ExtractTool` under `JobGroup_Transforms` replaces `EntriesTool` in `job-js.yaml`. No
+  client source change: the generic `WorkerDisplayDefault` card renders *Members (one per line)*.
+- Tests: the 22 `entries-*` fixtures ported to `extract-*` (`File(units) → Extract → …`), the three test
+  classes renamed (`ExtractWorkerTest`, `ExtractReadPartTest`, `ExtractMigrationTest`); the `path` refusal row
+  became a `files` edit on the `File` Worker (same by-name refusal, `FileSourceWorker.migrationKey`), the
+  `entries` row a `members` edit on `Extract`. New rows: two selected archives flow in selection order, the
+  first cursor closed before the second opens, `Write name: "${parent.name}/${name}${extension}"` splits them;
+  nested `Extract → Extract → Write` unpacks an archive inside an archive; a `File` left in Items mode fails at
+  run time with the Units hint; a typed non-file lane upstream of `Extract` is a static validation error
+  (`JobValidatorTest.extractRejectsKnownNonFileInputWithTheUnitsHint`).
+
+**Deviation — `File` had to change (undetected files).** The plan assumed units mode over an archive already
+worked ("sniffs as gzip, falls back to plain text without error"). It did not: automatic detection runs per
+file at manifest time in every mode, and a `.tar.gz` fails as *Input contains NUL and appears to be binary*
+before any Worker runs. The resolver's rule (binary that no format claims fails as not-text; pinned by
+`ConfiguredFormatExtensibilityTest`) is kept. The change is in `FileDataSource.resolveInput`: under automatic
+selection with no per-row encoding, a `Resolution`-category detection failure resolves to
+`UndetectedFormat` — an opaque `ResolvedReadSpec` (reader `tech.kzen.auto/undetected/1`) carrying the
+detector's reason; the row shows *Automatic → Undetected* with a warning. `ConfiguredDataOpener.resolve` is the
+one choke point: any reader asked to open such a part is refused with the detector's words plus the hint *To
+pass the file on whole (to Extract), set the File source's Emit to Units*. So the selection survives, whole-file
+consumers never need a reader, and Items mode over an archive fails where it used to, at the first read, with
+the same message and the fix attached. Timeout / acquisition failures still fail the selection.
+
+**Deviation — the static Emit hint is partial.** `Extract.payloadFlow` errors when the upstream lane is a
+known non-`DataUnit` / non-`Entry` type. A `File` in Items mode over an undeclared file publishes an *unknown*
+lane (`ReadWorker.payloadFlow`, no design-time IO), and `JobLaneContext` does not name the upstream Worker, so
+the card validates clean and the hint arrives at run time (above). Confirmed in the browser: with Emit set to
+Items the `Extract` card shows no error; running fails on the `File` card with the message above.
+
+**Deviation — `Read part` refuses a mid-entry capture by name.** The `withoutDraining…` migration row exposed
+that `ReadPartWorker` never captured its entry-read position: on replay it re-opened the single-open entry
+stream and failed as *cursor-borrowed and was already opened*, racing the lender's own refusal for the run's
+message. `ReadPartState` now carries `interruptedEntry`; a capture taken inside an entry is refused on load
+(*Read part was interrupted inside entry 'X'; a live edit applies only between elements*), the same rule as
+`CursorLending.adopt`.
+
+**Browser walk-through** (jar on `127.0.0.1:8097`, scratch module root under `%TEMP%\be5-browser` with
+`first.tar.gz` = `a1.csv`, `a2.txt` and `second.tar.gz` = `b1.csv`, `b2.csv`). The document was seeded on
+disk; the cards rendered as `File ▸ Opaque` (file table with both rows, *Automatic → Undetected · text
+fallback*), `Extract ▸ Entry (Record)` with *Members (one per line)*, `Write`, `Result`. Run: File
+`units=2 emitted=2 Done`, Extract `archives=2 entries=3 skipped=1 Done`, Write `written=3 skipped=0 Done`,
+Result `collected=3`; on disk `out/first.tar.gz/a1.csv.gz`, `out/second.tar.gz/b1.csv.gz`,
+`out/second.tar.gz/b2.csv.gz`, contents intact. Without the `Result` card the run deadlocked after the first
+member (Write's unread output; the BE4 finding, unchanged). Saved document:
+
+```yaml
+main:
+  is: Job
+  results:
+    main: {class: kotlin.Any, generics: [], nullable: true}
+
+main.channels/files: {is: Channel}
+main.channels/entries: {is: Channel}
+main.channels/written: {is: Channel}
+
+main.workers/File:
+  is: FileSourceWorker
+  files:
+    - location: C:/…/be5-browser/in/first.tar.gz
+    - location: C:/…/be5-browser/in/second.tar.gz
+  emit: units
+  output: main.channels/files
+
+main.workers/Extract:
+  is: Extract
+  input: main.channels/files
+  members: ["*.csv"]
+  output: main.channels/entries
+
+main.workers/Write:
+  is: Write
+  input: main.channels/entries
+  output: main.channels/written
+  directory: C:/…/be5-browser/out
+  name: "${parent.name}/${name}${extension}"
+
+main.workers/Result:
+  is: ResultSinkWorker
+  input: main.channels/written
+  keep: all
+```
+
+**Verification.** `:kzen-auto-jvm:test --tests "*content*" --tests "*Migration*" --tests "*JobValidatorTest*"
+--tests "*JobRun*" --tests "*datasource*" --tests "*Format*" --tests "*Read*"`: 175 tests, the one
+pre-existing `JobRunWorkerTest.perUnitChildBindsNamedDateAndYieldsOrderedFingerprintedRefs` failure only.
+`:kzen-auto-js:compileKotlinJs` and `:kzen-auto-jvm:jar` green. Browser run above; my JVM stopped (command
+line checked), tab closed. The user's `notation/main/Job-1.yaml` (`is: Entries`, untracked) was aliased to
+`Extract` for the test runs only; the alias is removed and the document is untouched — it no longer loads.
+
+**Follow-ups.** Trailing `Write` sink (BE4, still open); `Emit` sits under the `File` card's Advanced
+disclosure — promote it, or select Units automatically when the downstream is `Extract`; the static hint
+needs the upstream Worker in `JobLaneContext` (or `File` publishing an *undetected* lane in Items mode);
+`TarGzEntryCursor` is gzip+tar only (`container:` / `coding:` from analysis §7 remain deferred); the file
+table's *text fallback* caption for an undetected row is the generic basis label and could say *undetected*.
 
 ## Appendix A. What the spike built and found
 
