@@ -752,6 +752,8 @@ disclosure — promote it, or select Units automatically when the downstream is 
 needs the upstream Worker in `JobLaneContext` (or `File` publishing an *undetected* lane in Items mode);
 `TarGzEntryCursor` is gzip+tar only (`container:` / `coding:` from analysis §7 remain deferred); the file
 table's *text fallback* caption for an undetected row is the generic basis label and could say *undetected*.
+The `Emit` / vocabulary items are taken up in
+[files and items](../analysis/2026-09-18_job-files-and-items.md) (§3, §8).
 
 ## Appendix A. What the spike built and found
 
