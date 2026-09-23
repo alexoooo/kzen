@@ -215,12 +215,16 @@ resolver. HS13 lowered enums to plain `Text` pending this layer.
   title, and nested constraints by path in the details. `ContractTreeNode` is unchanged.
 - **Known weakening sites (Decision 4):** `RecordOutputBuilder.Schema.of` and `JobLaneDescriptor.fromLegacy` build
   from bare fields and drop per-field constraints.
-- **Found, not fixed:** `DataValueAlgebra.validate` on a natively lifted record with an `Int` field reports
-  `data.invalid-value` ("Scalar 40 does not conform to Integer"): native access yields a number where
-  `validateScalar` expects integers as canonical text. It predates DM14 and does not touch constraints.
-- **Pre-existing red test:** `JobRunWorkerTest.perUnitChildBindsNamedDateAndYieldsOrderedFingerprintedRefs` fails
-  the same way with both kzen-lib and kzen-auto at HEAD (a `SingletonList` reaches the child's `String`
-  `flatDate` argument). Every other kzen-auto test passes with DM14.
-- **Verification:** kzen-lib `build publishToMavenLocal` green; kzen-auto `build` green apart from the red test
-  above (the `FormulaStepTest` canary passes); kzen-project `build` green. Not run: the manual Job-1 contract-tree
-  check.
+- **Follow-up fix — native integers validate.** `validate` rejected every natively lifted `Int` field
+  ("Scalar 40 does not conform to Integer"): native access yields a `LongExecutionValue`, which the snapshot
+  already normalizes to canonical text, but `validateScalar` accepted only text. `Integer` and `Decimal` now accept
+  either.
+- **Follow-up fix — the `units` lane describes `DataUnit`.**
+  `JobRunWorkerTest.perUnitChildBindsNamedDateAndYieldsOrderedFingerprintedRefs` failed before DM14 too.
+  `ReadWorker` published the units lane as bare `DataUnit` metadata (an opaque contract), so Formula validated
+  through its synthetic `[value, …]` projection while each emitted unit lifts as the described
+  `[attributes, parts, …]` record; the ordinal accessor compiled for `flatDate` then read `parts` at run time.
+  The lane now publishes `JobDataValues.describe(typeOf<DataUnit>())`, and `ReadPartWorker` / `ExtractWorker`
+  recognise a unit lane by its native root type rather than by an `Opaque` structure.
+- **Verification:** kzen-lib `build publishToMavenLocal` green; kzen-auto `build` green (the `FormulaStepTest`
+  canary passes); kzen-project `build` green. Not run: the manual Job-1 contract-tree check.
