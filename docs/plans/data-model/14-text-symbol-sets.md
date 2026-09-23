@@ -1,6 +1,6 @@
 # DM14 — constraint layer, first constraint: text symbol sets
 
-> **Status: open (drafted 2026-09-22).** Authority:
+> **Status: complete 2026-09-23 (drafted 2026-09-22).** Authority:
 > [`docs/analysis/2026-08-27_data-model.md`](../../analysis/2026-08-27_data-model.md) §4.4 ("A constraint layer
 > owns value restrictions"; "Enum is deliberately not a scalar kind"), §13.14, and §17 open questions 3 and 6.
 > This session opens the deferred constraint layer because a declaring schema now supplies its first constraint,
@@ -77,8 +77,8 @@ resolver. HS13 lowered enums to plain `Text` pending this layer.
   - `validateNativeMetadata()`, `typeAt`, `walk`.
 - kzen-lib `exec/data/value/DataValueAlgebra.kt`: `validate` / `validateNode` / `validateScalar`.
 - kzen-lib `exec/data/problem/DataProblem.kt`: the code vocabulary.
-- kzen-lib jvmMain `exec/data/type/DefaultNativeTypeResolver.kt` (~line 225): the enum branch, plus the
-  definition/`definitionNatives` emission for recursive classes. `NativeObjectValueAccess.kt` (~line 385)
+- kzen-lib jvmMain `exec/data/type/DefaultNativeTypeResolver.kt`: the enum branch, plus the
+  definition/`definitionNatives` emission for recursive classes. `NativeObjectValueAccess.kt` (`scalarValue`)
   already lifts an enum as its constant name.
 - kzen-auto `data/read/archive/ArchiveListingCursor.kt`: `kindFile` / `kindDirectory` / `kindLink` /
   `kindOther` and `contract`.
@@ -86,7 +86,7 @@ resolver. HS13 lowered enums to plain `Text` pending this layer.
   - `objects/job/value/RecordOverlay.kt`: `compose`, `recordContract`;
   - `objects/job/worker/data/DataReadCore.kt`: `combineContract`, which also drops `definitions` today;
   - `objects/job/value/RecordOutputBuilder.kt`: `Schema.of`, root native only;
-  - `objects/job/worker/JobLaneDescriptor.kt:49`.
+  - `objects/job/worker/JobLaneDescriptor.kt`: `fromLegacy`.
 - kzen-auto-js `objects/document/job/display/DataContractPresentation.kt` (`typeLabel`, `typeTitle`, `contract`
   details) and `display/contract/ContractTreeNode.kt`.
 
@@ -120,8 +120,8 @@ resolver. HS13 lowered enums to plain `Text` pending this layer.
    - Replace the hand-rolled rebasing in `RecordOverlay.compose` / `recordContract` and
      `DataReadCore.combineContract` with the step-2 primitive. `DataReadCore` stops dropping `definitions` as a
      side effect; record that in the as-built.
-   - `RecordOutputBuilder.Schema.of` and `JobLaneDescriptor:49` build from bare fields and keep dropping per-field
-     metadata (Decision 4). List them in the as-built as known weakening sites rather than widening scope.
+   - `RecordOutputBuilder.Schema.of` and `JobLaneDescriptor.fromLegacy` build from bare fields and keep dropping
+     per-field metadata (Decision 4). List them in the as-built as known weakening sites rather than widening scope.
 5. **kzen-auto-js: presentation.**
    - `DataContractPresentation.typeLabel` / `typeTitle` render the root constraint (Decision 7).
    - `contract()` details list any nested constraints by path, as it does for JVM natives.
@@ -182,3 +182,45 @@ resolver. HS13 lowered enums to plain `Text` pending this layer.
 - **Constraints inside recursive definitions** (`definitionConstraints`).
 - **Other constraint kinds** (length, range, precision/scale), and representation metadata.
 - **Enum identity in `join`** (§17 Q6), which reopens only with a carried-schema format that needs it.
+
+## As built — 2026-09-23
+
+- **Container and vocabulary as planned.** `DataConstraint` (sealed, one case `SymbolSet`) and
+  `DataContract.constraintsByPath` in kzen-lib `exec/data/type`. The three pre-change goldens (scalar, record with
+  natives, recursive with definitions) encode and digest identically (`DataContractConstraintTest`). Symbols are
+  canonical scalar text, so a later non-text set needs no wire change.
+- **Enforcement covers both sides.** `validate` walks the value's own contract, so it enforces the value's
+  constraints *and*, alongside, the expected contract's (`declared`). A plain `Text` value validated against a
+  constrained expectation is still checked. `LiteralDataValues.lift(value, expected)` now adopts `expected`'s
+  constraints along with its structure.
+- **Correction — snapshots do not carry constraints.** `DataSnapshot` is `{DataType, value}`, so a decoded
+  snapshot has an unconstrained contract; Decision 5's "persisted values are checked for free" was wrong, and the
+  proof item "a snapshot round trip rejects an out-of-set value" was dropped. Validating a decoded snapshot
+  against a constrained expected contract does enforce the set.
+- **Composition primitive is an instance method**, `DataContract.withFields(additions)`, not a companion builder:
+  every caller already holds a base record. Collisions are `DataException(invalidRecord)` (was
+  `IllegalArgumentException` in `RecordOverlay`); conflicting definitions are `invalidContract`.
+  `RecordOverlay` (append, carry, scalar-to-record) and `DataReadCore.combineContract` delegate to it, so
+  `DataReadCore` now carries `definitions`/`definitionNatives` it used to drop. No dedicated end-to-end test for
+  the `attributes=columns` path; it is the same delegation.
+- **JVM producer.** `DefaultNativeTypeResolver` attaches the ordinal-order set at every expanded enum position,
+  including list elements and map keys; behind a recursive `Reference` it is dropped (sound). The runtime lift
+  matches `describe`. Fixing that exposed a pre-existing gap: an enum-keyed `Map` fell back to the star-projected
+  map description at runtime. `DefaultDataAdapterRegistry` now accepts enum keys as text, as design time already
+  did.
+- **Archive listing.** `ArchiveListingCursor.contract` declares `{file, directory, link, other}` on `kind`. Its
+  tar-fixture test (directory, file, symlink, hard link, FIFO) exposed a pre-existing misclassification:
+  commons-compress's `isFile` holds for FIFOs and devices, which were listed as `file`. They are now `other`.
+- **Client.** `DataContractPresentation` renders `Text ∈ {…}` (first five plus `…` beyond six), the full set in the
+  title, and nested constraints by path in the details. `ContractTreeNode` is unchanged.
+- **Known weakening sites (Decision 4):** `RecordOutputBuilder.Schema.of` and `JobLaneDescriptor.fromLegacy` build
+  from bare fields and drop per-field constraints.
+- **Found, not fixed:** `DataValueAlgebra.validate` on a natively lifted record with an `Int` field reports
+  `data.invalid-value` ("Scalar 40 does not conform to Integer"): native access yields a number where
+  `validateScalar` expects integers as canonical text. It predates DM14 and does not touch constraints.
+- **Pre-existing red test:** `JobRunWorkerTest.perUnitChildBindsNamedDateAndYieldsOrderedFingerprintedRefs` fails
+  the same way with both kzen-lib and kzen-auto at HEAD (a `SingletonList` reaches the child's `String`
+  `flatDate` argument). Every other kzen-auto test passes with DM14.
+- **Verification:** kzen-lib `build publishToMavenLocal` green; kzen-auto `build` green apart from the red test
+  above (the `FormulaStepTest` canary passes); kzen-project `build` green. Not run: the manual Job-1 contract-tree
+  check.

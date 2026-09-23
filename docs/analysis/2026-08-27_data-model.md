@@ -471,16 +471,21 @@ Provider-native details that change neither access nor validation — temporal p
 column's affinity — are representation metadata in the same container, used for lossless round-trip or migration
 and never consulted by generic access.
 
-**The whole constraint layer is deferred, with its container, until the first declaring schema supplies a
-constraint** — nothing in v1 needs one, and the layer's shape is open question 3 (§17). Until then `validate`
-checks structure and presence only, and precision and scale are neither in the type nor anywhere else.
+**The constraint layer opened with DM14, for text symbol sets only.** Its container is
+`DataContract.constraintsByPath`: a list of `DataConstraint`s aligned by path beside `nativeByPath`, part of
+declaration identity (equality, declaration digest, encoding) but not of the structural digest, and invisible to
+`isAssignable`, `join` and variant selection. `validate` enforces the constraints of both the value's own
+contract and the expected one. A path cannot cross a `Reference`, so nothing constrains a recursive definition's
+members yet. Every other constraint (precision/scale, length, ranges, defaults) and all representation metadata
+stay deferred until a declaring schema supplies them; they join the same container as new `DataConstraint`
+cases or a sibling map. Precision and scale are therefore still neither in the type nor anywhere else.
 
 **Enum is deliberately not a scalar kind**, a change from the project-data analysis's scalar list, and it is the
 constraint layer's clearest case: a closed symbol set does not change how a generic consumer *accesses* the
 value — it is text — and treating membership as type compatibility would make `isAssignable` and `join` reason
-about symbol sets before any consumer needs it. An enum is `Scalar(Text)`; the symbol-set constraint arrives
-with the layer, and the decision reopens with the first carried-schema format (Avro) whose union or default
-semantics depend on enum identity.
+about symbol sets before any consumer needs it. An enum is `Scalar(Text)` carrying a `SymbolSet` of its
+constant names in ordinal order (DM14); the decision reopens with the first carried-schema format (Avro) whose
+union or default semantics depend on enum identity.
 
 The temporal meanings are deliberately small and explicit:
 
@@ -2255,7 +2260,8 @@ Before an execution plan is approved, the following need prototypes or explicit 
    without allocation, and how a backing built outside kzen-lib mints tokens safely.
 3. **Constraint-layer and representation-metadata container.** Which provider-specific details (enum symbols,
    precision/scale, temporal precision, numeric IDs, affinities) live beside `DataContract` for validation,
-   migrations and structured writers, and in what container. Deferred with the layer; not needed for v1.
+   migrations and structured writers, and in what container. *Answered for constraints by DM14:*
+   path-aligned `constraintsByPath` beside `nativeByPath` (§4.4). Representation metadata stays open.
 4. **Tabular projection policy.** Exact duplicate-label, nested-field and mapping-key rules for
    `ColumnProjection`, and where the `<missing>` rendering is configured.
 5. **Append builder surface.** How the channel proves the exclusive transfer on dequeue, how `FlatFileRecord`
