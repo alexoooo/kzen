@@ -1,6 +1,6 @@
 # Unified data model — constituent implementation plan
 
-> **Status: DM1–DM11 complete; DM12/DM13 remain consumer/design gated.** Design authority:
+> **Status: DM1–DM11 complete; DM12/DM13 remain consumer/design gated; DM14 open.** Design authority:
 > [`docs/analysis/2026-08-27_data-model.md`](../../analysis/2026-08-27_data-model.md). Review record:
 > [`review.md`](review.md). This README owns sequencing, tracking, and arc-wide as-built coordination; each numbered
 > file owns exactly one implementation session and its detailed proof.
@@ -39,6 +39,7 @@ Session files persist as the execution record for this standalone multi-session 
 | DM11 | `11-flow-generic-boundary-cutover.md` | Flow port/message cutover and consolidated gate | ☑ 2026-08-28 |
 | DM12 | `12-first-structured-reader.md` | First tape-backed structured reader | ◇ consumer-gated |
 | DM13 | `13-first-durable-row-source.md` | First real durable row and constraint/lifetime verdict | ◇ design-gated |
+| DM14 | `14-text-symbol-sets.md` | Constraint layer opened with text symbol sets (archive `kind`, JVM enums) | ☐ |
 
 ## Authoritative execution order
 
