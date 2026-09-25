@@ -154,6 +154,11 @@ Consumer-side close propagates through `TransformWorker` today. BE2 adds it to `
 The `content/` substrate (`Content`, `ContentDescriptor`, `ContentLifetime`, `Entry`, `Written`,
 `TarGzEntryCursor`, `TarEntryContent`, `EntryGlob`) stays as built.
 
+> **2026-09-25:** `Extract`'s `members` glob (`EntryGlob`, `TarGzEntryCursor.reselect`, the `skipped` counter) was
+> removed. It duplicated `Filter` over member metadata (`name`, `path`, `size`, …), which already runs without
+> opening dropped members. Under gzip, skipping at the header saves nothing because the stream is decompressed
+> either way. `Extract` now lends every file member. The `members` mentions below are the as-built history.
+
 ### 3.9 UI
 
 Deletions only: `ScopeBodyEditor`, `EntryScopeWorkerDisplay`, the `display:` line and `body` meta, the

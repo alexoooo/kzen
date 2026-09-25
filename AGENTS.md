@@ -152,7 +152,7 @@ Treat the working tree as the user's. Never delete, move, or overwrite a file th
 Other working notes:
 
 - Editing source: navigate into the relevant sibling directory (`cd ../kzen-auto` etc.) — the files under `kzen/` itself are only Gradle glue and `.gitignore`d build artifacts.
-- Build from the sibling you changed: `cd ../<sibling> && ./gradlew build` (multi-minute — scope it to what you touched, e.g. `./gradlew :kzen-auto-js:compileKotlinJs` for a fast JS gate).
+- Build from the sibling you changed: `cd ../<sibling> && ./gradlew build` (multi-minute — kzen-auto's full build is ~5 min, most of it real Kotlin script compilation in `:kzen-auto-jvm:test`). While iterating, scope it to what you touched — e.g. `./gradlew :kzen-auto-js:compileKotlinJs` for a fast JS gate, or `./gradlew :kzen-auto-jvm:test --tests "*ExtractWorkerTest"` (~1 min) — and run the full build once before handing back.
 - Logs from running launcher/project processes land under each sibling's `logs/` directory, not under `kzen/`.
 - The user's own dev servers are usually running — kzen-auto on `127.0.0.1:8080` (`BackendDevelopment`) and often an interactive tester on `18081`. Never kill, restart, or reuse them: boot your own instance on a spare port for any verification (per-sibling recipes in each AGENTS.md's Headless verification section), and before stopping any JVM verify its command line is one you started. If a port you need is occupied, surface the owning PID and ask — a squatter may well be the user's own process.
 
