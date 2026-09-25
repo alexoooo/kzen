@@ -74,3 +74,11 @@ session changes release-train versions.
 - DM9c does not delete tuple APIs until DM9b proves every kzen-auto production caller migrated.
 - Richer wire grammar, graph provenance/exposure, recursive named types, and public retention/leases remain outside
   this arc until their named consumer gate opens.
+
+## Later contract changes
+
+- **Value metadata (2026-09-24, VM1 of [`../2026-09-24_values-metadata-and-design-time-types.md`](../2026-09-24_values-metadata-and-design-time-types.md)).**
+  `DataContract` and `DataValue` gained an optional metadata part beside the payload: a plain-data record that
+  describes the whole value (never a part inside it), snapshots and serializes with it, and is paired with the
+  payload lazily by `DataOverlay`. Consumers that read only the payload are unaffected; this arc's sessions predate
+  it and are not amended.
