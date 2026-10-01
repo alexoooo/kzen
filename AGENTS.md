@@ -4,7 +4,7 @@ Guidance for AI agents working in the kzen composite-build umbrella.
 
 ## Repository purpose
 
-This is a **Gradle composite-build umbrella** with no source of its own. `settings.gradle.kts` pulls in six sibling directories under `..` via `includeBuild` — five with Kotlin source, plus one artifact-only include:
+This is a **Gradle composite-build umbrella** with no source of its own. `settings.gradle.kts` pulls in seven sibling directories under `..` via `includeBuild` — five with Kotlin source, plus two build-less roots included only so they are visible in the umbrella project:
 
 - `../kzen-lib` — context-management core + execution abstractions (Logic/Task/Trace, `ObjectStableMapper`) (Kotlin Multiplatform: common/jvm/js) → [docs](../kzen-lib/AGENTS.md), [architecture concept map](../kzen-lib/docs/architecture.md)
 - `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module, blackbox e2e self-test subproject) → [docs](../kzen-auto/AGENTS.md), [architecture](../kzen-auto/docs/architecture.md)
@@ -12,7 +12,7 @@ This is a **Gradle composite-build umbrella** with no source of its own. `settin
 - `../kzen-launcher` — UI for selecting / launching a project (KMP) → [docs](../kzen-launcher/AGENTS.md)
 - `../kzen-shell` — JVM-only desktop shell that boots the launcher and reverse-proxies child processes → [docs](../kzen-shell/AGENTS.md)
 - `../kzen-repo` (forked-artifact mirror, no Kotlin source) is also `includeBuild`d as an artifact-only root.
-- `../kzen-sample` lives alongside and is NOT in the composite — sample integrations, one independent template-like sample per directory, each made of separately built Maven / Gradle parts that consume kzen (and each other) only through Maven Local: `itch-plugin` (Maven sample plugin over ITCH data) and `spring-embed` (Spring Boot host embedding kzen-auto workspaces, plugin zero over the sample; a Gradle KMP `frontend/` part that must track Kzen's Kotlin/KSP/wrappers pins) → [docs](../kzen-sample/AGENTS.md)
+- `../kzen-sample` is `includeBuild`d as a **visibility-only root**: it has no root Gradle build, so the include is an empty build that substitutes nothing — it only puts the files and git changes in the umbrella project. Never include one of its parts (e.g. `spring-embed/frontend`, a real Gradle build) — that would route its kzen deps through the composite instead of Maven Local. Sample integrations, one independent template-like sample per directory, each made of separately built Maven / Gradle parts that consume kzen (and each other) only through Maven Local: `itch-plugin` (Maven sample plugin over ITCH data) and `spring-embed` (Spring Boot host embedding kzen-auto workspaces, plugin zero over the sample; a Gradle KMP `frontend/` part that must track Kzen's Kotlin/KSP/wrappers pins) → [docs](../kzen-sample/AGENTS.md)
 - `../kzen-proj` lives alongside and is NOT in the composite — it is the interactive launcher's default project home (`--project.home`, CWD-relative `../kzen-proj`); a kzen-shell-spawned launcher is pointed at `work/kzen-proj` instead
 
 Cloning just `kzen` is not enough — every sibling listed above must exist at `../<name>` for Gradle to resolve the build. The point of the composite is to let changes in `kzen-lib` flow into `kzen-auto`/`kzen-project`/`kzen-launcher`/`kzen-shell` without going through Maven Local.
