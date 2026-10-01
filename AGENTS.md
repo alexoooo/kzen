@@ -4,14 +4,15 @@ Guidance for AI agents working in the kzen composite-build umbrella.
 
 ## Repository purpose
 
-This is a **Gradle composite-build umbrella** with no source of its own. `settings.gradle.kts` pulls in eight sibling directories under `..` via `includeBuild` — five with Kotlin source, plus three artifact-only includes:
+This is a **Gradle composite-build umbrella** with no source of its own. `settings.gradle.kts` pulls in six sibling directories under `..` via `includeBuild` — five with Kotlin source, plus one artifact-only include:
 
 - `../kzen-lib` — context-management core + execution abstractions (Logic/Task/Trace, `ObjectStableMapper`) (Kotlin Multiplatform: common/jvm/js) → [docs](../kzen-lib/AGENTS.md), [architecture concept map](../kzen-lib/docs/architecture.md)
 - `../kzen-auto` — robotic process / office automation (KMP + React JS frontend, Ktor JVM backend, plugin module, blackbox e2e self-test subproject) → [docs](../kzen-auto/AGENTS.md), [architecture](../kzen-auto/docs/architecture.md)
 - `../kzen-project` — office automation project (KMP) → [docs](../kzen-project/AGENTS.md)
 - `../kzen-launcher` — UI for selecting / launching a project (KMP) → [docs](../kzen-launcher/AGENTS.md)
 - `../kzen-shell` — JVM-only desktop shell that boots the launcher and reverse-proxies child processes → [docs](../kzen-shell/AGENTS.md)
-- `../kzen-repo` (forked-artifact mirror, no Kotlin source), `../kzen-sample-plugin` (Maven sample plugin) and `../kzen-sample-embed-spring` (Maven Spring Boot host embedding kzen-auto workspaces, plugin zero over the sample) → [docs](../kzen-sample-embed-spring/AGENTS.md) are also `includeBuild`d as artifact-only roots. The Spring sample's `frontend/` is a separate Gradle KMP build, outside this composite; it owns the sample catalog models and UI, composes the published Kzen client, and must track Kzen's Kotlin/KSP/wrappers pins.
+- `../kzen-repo` (forked-artifact mirror, no Kotlin source) is also `includeBuild`d as an artifact-only root.
+- `../kzen-sample` lives alongside and is NOT in the composite — sample integrations, one independent template-like sample per directory, each made of separately built Maven / Gradle parts that consume kzen (and each other) only through Maven Local: `itch-plugin` (Maven sample plugin over ITCH data) and `spring-embed` (Spring Boot host embedding kzen-auto workspaces, plugin zero over the sample; a Gradle KMP `frontend/` part that must track Kzen's Kotlin/KSP/wrappers pins) → [docs](../kzen-sample/AGENTS.md)
 - `../kzen-proj` lives alongside and is NOT in the composite — it is the interactive launcher's default project home (`--project.home`, CWD-relative `../kzen-proj`); a kzen-shell-spawned launcher is pointed at `work/kzen-proj` instead
 
 Cloning just `kzen` is not enough — every sibling listed above must exist at `../<name>` for Gradle to resolve the build. The point of the composite is to let changes in `kzen-lib` flow into `kzen-auto`/`kzen-project`/`kzen-launcher`/`kzen-shell` without going through Maven Local.
@@ -114,7 +115,7 @@ What a refresh cannot reach is pinned in the `=== npm supply-chain pins ===` blo
 
 ### Embedding kzen-auto in a foreign JVM
 
-`../kzen-sample-embed-spring` is the reference: one process-global `KzenAutoRuntime` (plugin root pinned once), one `KzenAutoContext` + loopback Ktor server per workspace under the host's lifecycle (start context-then-server, stop server-then-context, work roots claimed per context), a synchronous flush-per-chunk reverse proxy under `/kzen/{workspace}/**`, host objects handed to `@Service` Worker parameters through `KzenAutoHost`, and a host-owned memory budget over the sample core's `MaterializationBudget`. The in-process hosting arc that produced it is `docs/plans/in-process-hosting/` (25 session as-builts) with the design in `docs/analysis/2026-09-03_in-process-hosting.md`; the Java 25 runtime baseline is a consequence.
+`../kzen-sample/spring-embed` is the reference: one process-global `KzenAutoRuntime` (plugin root pinned once), one `KzenAutoContext` + loopback Ktor server per workspace under the host's lifecycle (start context-then-server, stop server-then-context, work roots claimed per context), a synchronous flush-per-chunk reverse proxy under `/kzen/{workspace}/**`, host objects handed to `@Service` Worker parameters through `KzenAutoHost`, and a host-owned memory budget over the sample core's `MaterializationBudget`. The in-process hosting arc that produced it is `docs/plans/in-process-hosting/` (25 session as-builts) with the design in `docs/analysis/2026-09-03_in-process-hosting.md`; the Java 25 runtime baseline is a consequence.
 
 ### Multiplatform structure (kzen-lib / kzen-auto / kzen-project / kzen-launcher)
 

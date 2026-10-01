@@ -234,7 +234,7 @@ from it in 2018; app zips ship as GitHub *release* assets — do not revive kzen
   LF→CRLF warnings on `.module`/`.pom`/`.json` are the usual autocrlf and harmless; jars/klibs are binary
   and copied byte-faithfully — spot-check one `md5sum` against `~\.m2` if unsure.)
 
-Verify: from a clean local Maven cache, `kzen-sample-plugin` (`pom.xml` `kzen.version=<VERSION>`) resolves
+Verify: from a clean local Maven cache, `kzen-sample/itch-plugin/plugin` (`pom.xml` `kzen.version=<VERSION>`) resolves
 `tech.kzen.auto:kzen-auto-plugin:<VERSION>` from the mirror.
 
 ## Phase 8 — Reopen development [AI → OPERATOR authorizes]
