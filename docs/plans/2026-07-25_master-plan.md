@@ -29,6 +29,7 @@
 | **CX** | `2026-07-31_context-improvements.md` | Context generalization — a **design-space exploration**, added mid-sprint on the first sustained use of CTX/CTX2 | CX1–CX8 |
 | **CS / BE** | `2026-09-16_borrowed-elements.md` | Content streaming: the CS spike (explicit `EntryScope` over tar.gz, `ReadPart` in scope, migration under backpressure; landed 2026-09-15, as-builts in the plan's Appendix A) proved the lifecycle rules; BE replaces the nested scope with borrowed elements over flat pipelines — one Worker vocabulary, cursor-owned advance-on-release. Spike plan folded in and deleted 2026-09-16 | CS1–CS3 ☑; BE1–BE4 |
 | **VM** | `2026-09-24_values-metadata-and-design-time-types.md` | Value metadata (payload + typed metadata, like message headers) in the unified data model; `File` selects only and a separate `Parse` reads; data-derived types before Run through one bounded design-time reading service. Problem definition agreed 2026-09-24; VM1–VM3 landed 2026-09-24 | VM1–VM3 |
+| **WR** | `2026-10-07_format-and-write.md` | Records to bytes as a chain of Workers: delimited write capability (CSV/TSV presets), `Format` (records → recycled `Bytes`, output boundary = consecutive `name`), `Write` over `Bytes`; lightweight recyclable values; Parse per-row allocation, then row reuse. Takes over J5b's reuse half. Added 2026-10-07 | WR1–WR7 |
 
 Detailed elaborations and their current ready/blocked status live under `docs/plans/next/` — see its README.
 
@@ -183,6 +184,13 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 | VM1 | **VM1** — value metadata | Design first (plan §4), then implement: metadata part of `DataContract`/`DataValue` in kzen-lib (publish before consumers), overlay view moved to kzen-lib, Job keep/chain rules, Formula = payload + metadata (`carry` removed), expression scope (payload `this`, metadata host properties, `meta.`), writer column selection; touches `RecordOverlay`/`FormulaWorker`: do not overlap a spine session editing them | VM · VM1 | [VM plan](2026-09-24_values-metadata-and-design-time-types.md#4-solution-shape-value-metadata-vm1) | ☑ 2026-09-24 |
 | VM2 | **VM2** — `File` selects, `Parse` reads | Design first (plan §5): `emit`/`FileConsumer`/`WholeFile` leave `File`; `Read part` becomes `Parse` owning the format; one file value for `File` and `Extract`; lifetime-based lending; touches `ReadWorker`/`ReadPartWorker`/`DataReadCore` | VM · VM2 | [VM plan](2026-09-24_values-metadata-and-design-time-types.md#5-solution-shape-file--parse-vm2-and-design-time-reading-vm3) | ☑ 2026-09-24 |
 | VM3 | **VM3** — types before Run | Design first (plan §5, §6): bounded, cached, evidence-recording design-time reading; lane samples; `Parse` typed from data; run keeps its validated types | VM · VM3 | [VM plan](2026-09-24_values-metadata-and-design-time-types.md#5-solution-shape-file--parse-vm2-and-design-time-reading-vm3) | ☑ 2026-09-24 |
+| WR1 | **WR1** — delimited write capability | `writerCapabilityIdentity` on configured formats, `RecordWriterCapability` registry, delimited encoder under the round-trip rule; `ConfiguredCsv` byte-identical to Report's CSV | WR · WR1 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR2 | **WR2** — recyclable values (design first) | Design §4.6 for review, then: non-ledger hold count on pooled objects, holds at channel send / drive-loop callback / `retain` / `snapshot` / carryover, recyclables batch normally, growing pool; full Worker retention audit. Touches `JobChannel` and the drive loops: serialize with J5b/J7 | WR · WR2 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR3 | **WR3** — `Bytes` and `Format` | Pooled `Bytes` native, `Format` Worker (header from input contract, `name` template grouping), benchmark scenario S4 | WR · WR3 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR4 | **WR4** — `Write` over `Bytes` | Input-type dispatch before Run, one output per run of equal `name`, returning name refused, validation error naming `Format` | WR · WR4 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR5 | **WR5** — UI and browser verification | `FormatTool`, writable-format picker, browser smoke of the two-file combine, docs | WR · WR5 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR6 | **WR6** — Parse allocates less | Reusable parser buffer, per-file header/access/projection mapping; Epsilon bytes/row before and after. Touches `DataReadCore`: do not overlap J5b | WR · WR6 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR7 | **WR7** — reuse rows | Pooled rows on WR2's mechanism — **measurement-gated** on WR6's table (J5b's rule) | WR · WR7 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
 
 **~40 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
@@ -303,6 +311,10 @@ disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
 13. **CX1 is independent; CX2 → CX3 → CX4 is the engine/declaration spine.** CX5 needs CX4; CX6
     needs CX3+CX4; CX7 needs CX3+CX4 and should follow CX6 to avoid a second notation sweep. CX8 is
     a design gate after CX7, not authorization to lift `context` mechanically onto every Logic flavour.
+14. **WR1 → WR2 → WR3 → WR4 → WR5; WR6 → WR7 after WR2.** WR1 is independent and can start any time. WR2 changes
+    `JobChannel` and the drive loops, and WR6 changes `ConfiguredDelimitedReader` / `DataReadCore`: serialize both with
+    J5b and J7. **J5b's reuse item moves to WR** (WR2/WR7); J5b keeps IO batching and headless mode. Rule 3's
+    constraints bind WR: reuse is benchmark-convicted (WR7's gate) and carryover transfers holds, never recycles.
 
 ## Carried over from Sprint 2
 

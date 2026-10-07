@@ -241,6 +241,8 @@ carrier baseline; J5b starts only after DM11 and rewrites every optimization aga
   alias/copy rules are authoritative. Migration carryover (`JobChannel.drainBuffered`) transfers ownership of live
   values and never licenses recycling an aliased or retained backing. The old message-arena/`FlatView` sketch is
   explicitly non-executable after DM7c.
+- **Reuse is executed by the WR plan** (`2026-10-07_format-and-write.md`, WR2/WR6/WR7, added 2026-10-07) under the
+  constraints above; J5b keeps IO batching, presizing and headless mode.
 - **Self-managed workers stay a live future direction, gated on benchmark evidence.** The raw
   `Worker` SPI deliberately keeps `suspend` out of the worker-*logic* contract, and `WorkerBase`'s
   hooks mirror an AsyncWorker lifecycle precisely so a hot stage could later be hosted by a
