@@ -1,6 +1,6 @@
 # Format and Write: records to bytes as a chain of Workers — constituent plan (WR)
 
-> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR13 landed; WR14–WR15 queued.** Written with the user after combining two flat files in a Job
+> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR13 landed; WR14–WR16 queued.** Written with the user after combining two flat files in a Job
 > (`File → Parse → Write`) failed with *Write expects file content; received java.util.LinkedHashMap*.
 >
 > **Relation to other documents:**
@@ -541,6 +541,21 @@ pair already in progress — and audit the other recursive walks over definition
 mutual recursion through a list, a map and a nullable field; a genuinely incompatible recursive pair is still
 rejected, not accepted by the guard.
 
+**WR16 — dynamic-expression class loaders stay releasable** (user-approved 2026-10-08, from WR13's finding 3).
+*Problem:* `CachedKotlinCompiler` gives each compiled expression its own `URLClassLoader` in a size-capped cache
+that closes the loader on eviction, so expression code is meant to be releasable; plugin loaders, by contrast, load
+once and stay until a project restart (by design). The process-wide `JobDataValues.adapters` registry's
+`DefaultNativeTypeResolver` defeats this: `descriptionCache` (keyed by `KType`) and `resolutionCache` (keyed by the
+value's class loader) hold strong references for the process's life, so lifting a value whose class an expression
+or script defines (anonymous object, lambda, script-declared class) pins that class and its loader after eviction —
+a Metaspace leak (found by reading, not yet reproduced). *Fix:* first reproduce it; then key the caches so an entry
+dies with its class loader — per-class `ClassValue` (as WR12's `NativeClasses` / `BeanShape` already do) or weak
+keys — without changing WR13's concurrency guarantees or adding a lock or allocation to the hot hit path; audit the
+other process-wide caches reachable from the registry (adapters' `exactByClass`, `JobDataValues.flatHeaders`, WR12's
+per-class plans) for the same retention. *Tests:* a value of a class defined in a throwaway `URLClassLoader` is lifted
+and described, the loader is dropped, and a `WeakReference` to it clears after GC (fails on the old code); a plugin-
+or application-loaded class still hits the cache; WR13's concurrency tests stay green.
+
 ## 6. Measurement
 
 `JobReportBenchmark` (`kzen-auto-jvm/src/test/kotlin/tech/kzen/auto/server/exec/job/bench/`), `benchJob` and
@@ -581,6 +596,7 @@ bytes/row and GC counts, and treats wall time as a secondary record.
 - [x] WR13 — thread-safe native type resolution (2026-10-08)
 - [ ] WR14 — shared readers of one native value
 - [ ] WR15 — mutually recursive types
+- [ ] WR16 — dynamic-expression class loaders stay releasable
 
 ## 9. As-built
 
@@ -1062,5 +1078,5 @@ compiles.
   reference against an inline record forever, its guard recording only reference-against-reference pairs
   (reproduced lifting Java records `Right(String, List<Left>)` / `Left(String, List<Right>)`); (3) the process-wide
   resolver never evicts, retaining plugin / script class loaders and `KType`s for the process's life. (1) and (2)
-  queued as WR14 / WR15. On (3) the user settled 2026-10-08: plugin class loaders load once and stay until a project
+  queued as WR14 / WR15, (3)'s dynamic-loader part as WR16. On (3) the user settled 2026-10-08: plugin class loaders load once and stay until a project
   restart, by design; dynamic-expression loaders must stay releasable, otherwise memory leaks.

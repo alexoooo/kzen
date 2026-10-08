@@ -199,6 +199,7 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 | WR13 | **WR13** — thread-safe native type resolution | Unsynchronized caches in kzen-lib's process-wide adapter registry (`DefaultNativeTypeResolver` et al.) made safe for concurrent Workers; concurrent stress test | WR · WR13 | [WR plan](2026-10-07_format-and-write.md) | ☑ 2026-10-08 |
 | WR14 | **WR14** — shared readers of one native value | Lazy node interning in kzen-lib's `NativeObjectValueAccess` / `TaggedUnionValueAccess` made safe for concurrent readers; threading contract on `DataValueAccess`; republish kzen-lib | WR · WR14 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
 | WR15 | **WR15** — mutually recursive types | `DataTypeAlgebra.accepts` guard covers reference-against-inline pairs (stack overflow on mutually recursive types); audit the other recursive walks; republish kzen-lib | WR · WR15 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR16 | **WR16** — dynamic-expression class loaders stay releasable | The shared native type resolver's caches stop pinning expression / script class loaders (per-class `ClassValue` or weak keys); GC test; plugin loaders unaffected; republish kzen-lib | WR · WR16 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
 
 **~40 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
@@ -321,7 +322,7 @@ disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
     a design gate after CX7, not authorization to lift `context` mechanically onto every Logic flavour.
 14. **WR1 → WR2 → WR3 → WR4 → WR5; WR6 → WR7 after WR2.** WR1 is independent and can start any time. WR2 changes
     `JobChannel` and the drive loops, and WR6 changes `ConfiguredDelimitedReader` / `DataReadCore`: serialize both with
-    J5b and J7. WR8 → WR9 after the flaky-test fix (same files as WR3/WR4); WR10 is independent. WR12 → WR11 → WR13 (all build kzen-auto and republish kzen-lib); WR14 → WR15 after WR13 (same kzen-lib data layer). **J5b's reuse item moves to WR** (WR2/WR7); J5b keeps IO batching and headless mode. Rule 3's
+    J5b and J7. WR8 → WR9 after the flaky-test fix (same files as WR3/WR4); WR10 is independent. WR12 → WR11 → WR13 (all build kzen-auto and republish kzen-lib); WR14 → WR15 → WR16 after WR13 (same kzen-lib data layer; WR16 rewrites WR13's resolver caches). **J5b's reuse item moves to WR** (WR2/WR7); J5b keeps IO batching and headless mode. Rule 3's
     constraints bind WR: reuse is benchmark-convicted (WR7's gate) and carryover transfers holds, never recycles.
 
 ## Carried over from Sprint 2
