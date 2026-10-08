@@ -1,6 +1,6 @@
 # Format and Write: records to bytes as a chain of Workers — constituent plan (WR)
 
-> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed.** Written with the user after combining two flat files in a Job
+> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR13 landed; WR14–WR15 queued.** Written with the user after combining two flat files in a Job
 > (`File → Parse → Write`) failed with *Write expects file content; received java.util.LinkedHashMap*.
 >
 > **Relation to other documents:**
@@ -473,6 +473,74 @@ headerless (`c0, c1, c2`) while reporting "Detected: CSV · UTF-8"; explicit CSV
 detection fails on a small sample and fix it without regressing headerless detection; also correct the stale
 "Default" comment on `SelectDataFormatEditor` in `job-js.yaml`.
 
+**WR11 — metadata shapes: contract work once per shape, not per row** (user-approved 2026-10-08, from WR9's
+profile). *Problem:* a row's metadata values are new per row but its contract is the same for a whole file, and
+kzen-lib re-derives and re-validates that contract per row — ≈ 40% of S4's sampled allocation after WR9 (≈ 6–7
+KB/row). Sites: (1) `FormulaWorker.kt:107` — `DataOverlay.record` builds three validated `DataContract`s per row
+(`DataOverlay.contract`: kept fields, `withFields`, reordered), each copying its maps and walking the type in
+`validateNativeMetadata`; plus `requireDistinct` / `toSet` / `associateBy`, a `LinkedHashMap` of bindings with a
+`Lazy` per base field (`bindingsOf`), eager `OverlayAccess.nodes` / `tokens`; then `ValueMetadata.of` →
+`MetadataContract.of` (another walk and a validated `DataContract`). (2) `ChunkMetadata.Shape.metadata` — the
+contract is shared since WR9, but `ValueMetadata`'s constructor always runs `MetadataContract.of(access.contract(root))`.
+(3) `ValueMetadata.combine` caches per instance, so a new instance per row misses for any reader of `value.contract`.
+*Fix (kzen-lib, then kzen-auto):* a prepared `DataOverlay` shape (base metadata contract + field ids / contracts)
+computing the composed `DataContract` and `MetadataContract` once and producing per-row metadata as only an overlay
+access over positional bindings (no `Lazy` map; `OverlayAccess` state created on first navigation); a `ValueMetadata`
+factory taking a precomputed `MetadataContract`, with the combine cache moved to an object the shape owns;
+`ValueMetadata.of(record)` unchanged for one-off callers. `FormulaWorker` keeps one shape, rebuilt when the input
+metadata contract changes (identity, then equality); `ChunkMetadata.Shape` passes its `MetadataContract` through.
+*Risks:* public kzen-lib API, republished to Maven Local (kzen-auto's `jvmMain` resolves kzen-lib from there; no
+version bump); the precomputed-contract factory is trusted, so keep it narrow and assert equality in tests.
+*Fallback* if the API change is unwelcome: single-entry identity caches inside `DataOverlay.contract` /
+`MetadataContract.of`. *Measure* S3 / S4 Epsilon slopes before and after (as WR6); allocation pins for a Formula row
+with fresh metadata and a chunk with fresh parent metadata.
+
+**WR12 — cold-start Preview truncation** (user-approved 2026-10-08, found by the flaky-test fix). *Problem:* on a
+freshly started server the first Preview row can show "Preview limit reached" or "N more omitted": `PreviewCapture`
+gives each item a 50 ms wall-clock budget, and the first structural read of a native's class spends it in
+kotlin-reflect's first-use initialization. Flow trace snapshots (`FlowRun.snapshotMessage`, 100 ms) and Script trace
+displays (`ScriptRunContext.displayOf`, 100 ms) have the same exposure. The flaky-test fix made the budgets
+injectable for content tests (`PreviewWorker.captureNanos`, `FlowRun.snapshotMillis`), which hides the bug in tests.
+*Fix:* keep one-time per-class setup out of the timed region — the budget bounds traversing a value, not preparing a
+class's reader — for all three sites, preferably in one shared place. *Tests:* a deterministic cold-class case (a
+class whose first structural read is slow) previews in full while a genuinely large value is still cut at its
+budget; then decide whether the test seams are still needed (remove them if the content tests pass under load
+without them).
+
+**WR13 — thread-safe native type resolution** (user-approved 2026-10-08, found in WR12). *Problem:* kzen-lib's
+`DefaultNativeTypeResolver` keeps `descriptionCache` / `resolutionCache` in plain `mutableMapOf` / `IdentityHashMap`,
+but `JobDataValues.adapters` is one process-wide registry used from concurrent Worker threads, so concurrent misses
+can corrupt the maps (lost entries, infinite loops on resize, inconsistent reads). *Fix:* audit every mutable cache
+reachable from the shared registry (`DefaultNativeTypeResolver`, `DefaultDataAdapterRegistry`, WR12's
+`NativeClasses`, `NativePropertyPlans`, `BeanShape`, any `by lazy` / memo maps) and make each safe for concurrent
+use without a global lock on the hot path (`ClassValue`, `ConcurrentHashMap` with identity-keyed wrappers where
+identity matters, or immutable copy-on-write snapshots), keeping WR12's `ReadPreparation.prepare` accounting intact.
+*Tests:* a multi-threaded stress test resolving many fresh types concurrently against one registry (results equal to
+single-threaded resolution, no exceptions), run on the old code first to show it can fail.
+
+**WR14 — shared readers of one native value** (user-approved 2026-10-08, found in WR13). *Problem:* kzen-lib's
+`NativeObjectValueAccess` (node table, per-node field / element / entry maps) and `TaggedUnionValueAccess` intern
+nodes lazily without synchronization. Today each such value appears to be read by one thread at a time, but a value
+can reach several readers at once — fan-out to several consumers, live inspectors (`JobTransferConditions`), and
+reads through WR11's `OverlayAccess` to a native base — and two threads interning the same node can corrupt the
+table or hand out different node ids for one path. *Fix:* make lazy interning safe for concurrent readers without a
+lock on the hot read path (publish-once node slots, or `ConcurrentHashMap` with compute-outside-then-`putIfAbsent`
+as in WR13), keeping a node's id stable once any reader has seen it; first confirm which carriers really can be
+shared, and document the threading contract on `DataValueAccess` either way. *Tests:* gated deterministic tests
+forcing two readers into the same first read, plus a multi-threaded stress read of one value equal to a
+single-threaded read; run on the old code first to show it can fail. Re-check the Epsilon bytes/row slope (S3, S4)
+— the read path is per row.
+
+**WR15 — mutually recursive types** (user-approved 2026-10-08, found in WR13). *Problem:* lifting two types that
+refer to each other (Java records `Right(String, List<Left>)` / `Left(String, List<Right>)`) overflows the stack
+single-threaded: `DataTypeAlgebra.accepts` (`DataTypeAlgebra.kt:112`) expands a named reference against an inline
+record forever, because its guard records only reference-against-reference pairs. *Fix:* make the guard
+coinductive over every (expected, actual) pair in which either side is a named reference — assume acceptance for a
+pair already in progress — and audit the other recursive walks over definitions (`isAssignable`, validation,
+`DataContract` equality / hashing, describe) for the same gap. *Tests:* the record pair above lifts and validates;
+mutual recursion through a list, a map and a nullable field; a genuinely incompatible recursive pair is still
+rejected, not accepted by the guard.
+
 ## 6. Measurement
 
 `JobReportBenchmark` (`kzen-auto-jvm/src/test/kotlin/tech/kzen/auto/server/exec/job/bench/`), `benchJob` and
@@ -508,6 +576,11 @@ bytes/row and GC counts, and treats wall time as a secondary record.
 - [x] WR8 — live edit keeps the open output (§7 Q5) (2026-10-07)
 - [x] WR9 — per-row allocation found by WR6's profile (2026-10-08)
 - [x] WR10 — Automatic reads a small file's header (2026-10-08)
+- [x] WR11 — metadata shapes: contract work once per shape, not per row (2026-10-08)
+- [x] WR12 — cold-start Preview truncation (2026-10-08)
+- [x] WR13 — thread-safe native type resolution (2026-10-08)
+- [ ] WR14 — shared readers of one native value
+- [ ] WR15 — mutually recursive types
 
 ## 9. As-built
 
@@ -875,3 +948,119 @@ Full `./gradlew build` green (8m39s; 1239 kzen-auto-jvm tests, 0 failed, 1 skipp
   The detection cache (`SuccessfulFormatResolutionCache`) is in-memory, so nothing stored needs invalidating.
 - **Still read as data under Automatic (by design, rule 2):** labels with edge spaces (`station, date`) or symbols
   (`temp (°C)`, `humidity%`).
+
+### WR12 — cold-start Preview truncation (2026-10-08)
+
+kzen-lib `./gradlew build publishToMavenLocal` green (JVM + browser JS; same version, no bump); kzen-auto `build -x
+:kzen-auto-jvm:test` green, `:kzen-auto-jvm:test` 1260 tests, 0 failed, 1 skipped.
+
+- **Root cause (kzen-lib):** the structural reader prepares each class lazily on its first read, inside the timed
+  traversal — `NativeObjectValueAccess.kt` (`NativePropertyPlans.computeValue`: `declaredMemberProperties`,
+  `primaryConstructor`, `isAccessible`, `BeanShape`; `NativeTypeTokens` → `starProjectedType` per new child) and
+  `DefaultDataAdapterRegistry.kt` (re-lifting a Dynamic / listing child: `value::class.isData`, `starProjectedType`,
+  `DefaultNativeTypeResolver.describe(KType)` on a miss) — while both budget clocks were plain wall time from the
+  capture's start (`PreviewCapture.Writer.started`, kzen-auto; `DataSnapshot`'s `SnapshotWriter.started` /
+  `checkBounds`, serving `FlowRun.snapshotMessage` and `ScriptRunContext.displayOf`). Fresh JVM: first snapshot of a
+  fresh native 39 ms wall, 27 ms of it class setup; ≈ 1–3 ms per later fresh class.
+- **Fix:** kzen-lib `exec/data/value/budget/` — `ReadPreparation.prepare { }` runs one-time per-type setup and adds
+  its time to a per-thread total (nested counted once, correct on throw; new `platformThreadLocal` common / jvm /
+  js); `ReadBudget(maximum)` is the one shared clock, `exhausted()` = wall time since start minus that thread's setup
+  time since. Inside `prepare`: `NativePropertyPlans`, `BeanShape`, `DefaultNativeTypeResolver.describe` misses, and
+  a new `NativeClasses` per-class cache (star-projected type, token, `isData`) replacing `NativeTypeTokens` and the
+  registry's per-lift reflection. `DataSnapshot` (Flow, Script) and kzen-auto `PreviewCapture.Writer` use
+  `ReadBudget`; budget values unchanged.
+- **Tests:** kzen-lib `ReadBudgetTest` (common, JVM + JS), `DataSnapshotTest.durationLimitChargesReadingButNotTypePreparation`
+  (150 ms setup inside a 50 ms limit completes; the same delay outside setup is rejected), `NativeObjectValueAccessTest`
+  (fresh classes charge setup; a second read charges zero); kzen-auto `PreviewCaptureTest`
+  `preparingATypesReaderIsNotChargedToTheTimeBudget` and `slowReadingIsStillCutAtTheTimeBudget` (a 150 ms getter is
+  still cut). The cold class is made deterministic by fake readers that delay inside `ReadPreparation.prepare`.
+- **Seams kept** (`PreviewWorker.captureNanos`, `FlowRun.snapshotMillis`), comments corrected: with them removed,
+  the content tests still truncated under 24 CPU hogs in 4 of 4 completed runs; logged at exhaustion — wall 50–68
+  ms, CPU 0–31 ms, setup 0–10 ms — i.e. the thread waiting for a CPU, inherent to a wall-clock budget.
+- **Findings, not fixed:** `DefaultNativeTypeResolver.descriptionCache` / `resolutionCache` are plain
+  `mutableMapOf` / `IdentityHashMap` while `JobDataValues.adapters` is one process-wide registry used from
+  concurrent Worker threads — a data race; first-ever snapshot in a JVM still pays ≈ 16 ms of non-per-class code
+  loading (kotlin-reflect's own ≈ 400–480 ms startup normally happens earlier, at lift); wall-clock budgets still
+  cut Previews on a CPU-starved machine (thread CPU time would not bound blocking getters and ticks at 15.6 ms on
+  Windows — a design choice); `ScriptRunContext.displayOf` inlines `maximumDurationMillis = 100` (CC-01).
+
+### WR11 — metadata shapes (2026-10-08)
+
+kzen-lib `./gradlew build` green (JS `MetadataShapeTest` 9/9) and republished to Maven Local (all four artifacts,
+0.30.0-SNAPSHOT, no bump); kzen-auto `build -x :kzen-auto-jvm:test` green, `:kzen-auto-jvm:test` 1262 tests, 0
+failed, 1 skipped; kzen-project compiles unchanged.
+
+- **API (kzen-lib `exec/data/value/overlay/`):** public `MetadataShape(base: MetadataContract?, fields:
+  List<Pair<FieldId, DataContract>>)` with `fields`, `contract`, `fits(base, values)`, `metadata(base, values)`;
+  internal `OverlayLayout` (composed contract, ids, positions, which value sets each) and `OverlayAccess` (reads by
+  position, interning state created lazily under `platformSynchronized`). `ValueMetadata` holds its contract and the
+  single-entry combine cache in a shared `internal class Contracts`; `internal fun shaped(access, root, contracts)` is
+  the trusted factory, called only by `MetadataShape.metadata` after checking the base's contract and each value's
+  `payloadContract` against the shape (identity, then equality) and the count — so records of one shape share the
+  combined contract (pinned with `assertSame`). The public `ValueMetadata(access, root)` and `ValueMetadata.of` are
+  unchanged. `DataOverlay.record` now runs through `OverlayLayout` (no per-row `LinkedHashMap` / `Lazy`), though it
+  still builds its contract.
+- **Mismatch fails by name** (`invalidContract`: base / count / field value does not fit) rather than falling back,
+  so a stale shape cannot silently bring the per-row cost back; callers check `fits` and rebuild. Contract errors
+  (duplicates, opaque or native members, non-record base) surface when the shape is built.
+- **kzen-auto:** `FormulaWorker` keeps one shape (calculated-field contracts built once per compile), rebuilt when it
+  no longer `fits`; `ChunkMetadata` is now `shape(parent)` / `name(name)` / `values(name, parent)` over a
+  `MetadataShape` that `FormatChunker` keeps. Not converted (once per file or unit): `FileValues.metadata`,
+  `ParseWorker.itemMetadata`, `ReadWorker.unitValue`, test / benchmark `withMetadataFields`.
+- **`LiteralDataValues.lift`** reuses `expected` as the literal's contract when it carries nothing beyond structure
+  and constraints, so the shape's identity check hits. As delivered the condition omitted `nativeByPath`, which would
+  have carried an expected root native or specific opaque classes onto a plain literal (the old path builds only
+  `kotlin.Any` for opaque members); corrected in review to require `nativeByPath.isEmpty()`, making reuse exactly the
+  case where the old construction is equal. After the correction: kzen-lib `jvmTest` green and republished; kzen-auto
+  Formula / Format / chunk / allocation / benchmark-smoke tests (50) green; full kzen-auto suite to rerun with WR13.
+- **Epsilon slope** (as WR6, two passes each, noise ≈ ±60–90 B/row): S3 ≈ 17,700 → ≈ 5,850 B/row (−67%); S4 ≈
+  17,280 → ≈ 4,070 B/row (−76%); Report unchanged. Wall time indicative only (CPU capped).
+- **Allocation pins** (each fails on the old code): kzen-lib `MetadataShapeAllocationTest` 175 B/record (budget
+  400; old compose ≈ 13.7–15.5 KB); `FormulaWorkerAllocationTest` 1,351 B/row (budget 2,000; old 14,944);
+  `FormatAllocationTest` fresh equal-contract parent 551 B (budget tightened 6,000 → 1,000; was 3,711) and fresh
+  parent of one shape 312 B (budget 500, new). WR3's steady state still 0 B.
+- **What dominates now** (JFR, S3 / S4 at 100k): Parse's `FlatFileRecord` construction and growth ≈ 25–40%;
+  coroutine / IO plumbing (`RunEngine.blocking`, drive loops, `Emitter.send`, leases) ≈ 15%; Formula's native
+  projection ≈ 4–6%; `DataContract.equals` / `hashCode` ≈ 4% (they allocate through `constraintSets`, from
+  `ColumnProjectionDescriptor.from`). Metadata composition no longer appears near the top.
+- **Findings, not fixed:** `DataContract.equals` / `hashCode` allocate per call; `LiteralDataValues.lift` always runs
+  `inferType`, even with `expected`; `DataOverlay` could move into `value/overlay` (CC-15); the public
+  `ValueMetadata(access, root)` constructor has no kzen-auto callers left.
+
+### WR13 — thread-safe native type resolution (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 434, jsBrowserTest 384, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (0.30.0-SNAPSHOT, no bump); kzen-auto `build -x :kzen-auto-jvm:test` green,
+`:kzen-auto-jvm:test` 1262 tests, 0 failed, 1 skipped — the first full run after WR11's `lift` correction; kzen-project
+compiles.
+
+- **Fix, one file** (`DefaultNativeTypeResolver`): `descriptionCache` → `ConcurrentHashMap`, a miss computed
+  outside the map and stored with `putIfAbsent`, every caller getting the stored instance (so WR11's identity-first
+  `fits` stays reliable); `resolutionCache`'s outer loader map copy-on-write (`@Volatile`, loader identity), a
+  `ConcurrentHashMap` per loader, same miss pattern; `released` `@Volatile`, set before `close()` clears. No lock is
+  held while describing or resolving and no `computeIfAbsent`, so re-entry (custom describers, `resolveCustom`, a
+  loader's `loadClass`) cannot deadlock; the only lock copies the small loader map when a loader is first seen. Hits
+  take no lock and allocate nothing. WR12's `ReadPreparation.prepare` still wraps description.
+- **Audit, safe as-is:** `DefaultDataAdapterRegistry` (immutable, delegates); `NativeClasses` / `NativePropertyPlans`
+  / `BeanShape` (`ClassValue`, no same-key recursion); `ReadPreparation` (thread-local); `DataContract` lazies
+  (synchronized `by lazy`, acyclic); `ValueMetadata.Contracts.combined` (final-field publication — a race only
+  recomputes); `OverlayAccess` own state (locked, lock order follows construction); `OverlayLayout` /
+  `MetadataShape` (construction-only); kzen-auto `JobDataValues.flatHeaders`, `ColumnProjection.defaultCache`
+  (non-recursive `computeIfAbsent`), `FlowRun.nativeTypeResolver` (per run).
+- **Tests** (`NativeTypeResolverConcurrencyTest`, kzen-lib jvmTest): two gated, deterministic — concurrent misses of
+  one type share one description; concurrent resolutions in a new loader share one result (both would also time out
+  if a lock were held while computing); and a stress test — 28 runtime-compiled Java types (enum, self-recursive
+  record, mutually recursive pair, nested records with collections and maps, beans) × 12 fresh loaders × 3 rounds,
+  8 threads describing / resolving / lifting / snapshotting through one registry, compared with a single-threaded
+  run, one description and resolution instance per (loader, type), 120 s hang guard. Old code: gated tests fail
+  `assertSame`; stress 6 / 6 failed (59–80 of 336 keys with more than one result). New code: 8 / 8 passed.
+- **Findings, not fixed:** (1) `NativeObjectValueAccess` (node table, per-node field / element / entry maps) and
+  `TaggedUnionValueAccess` intern nodes lazily without synchronization — today each such value appears to be read by
+  one thread at a time, but fan-out and live inspectors (`JobTransferConditions`) and reads through WR11's
+  `OverlayAccess` to a native base are unprotected if shared readers are intended; (2) mutually recursive types
+  overflow the stack single-threaded — `DataTypeAlgebra.accepts` (`DataTypeAlgebra.kt:112`) expands a named
+  reference against an inline record forever, its guard recording only reference-against-reference pairs
+  (reproduced lifting Java records `Right(String, List<Left>)` / `Left(String, List<Right>)`); (3) the process-wide
+  resolver never evicts, retaining plugin / script class loaders and `KType`s for the process's life. (1) and (2)
+  queued as WR14 / WR15. On (3) the user settled 2026-10-08: plugin class loaders load once and stay until a project
+  restart, by design; dynamic-expression loaders must stay releasable, otherwise memory leaks.
