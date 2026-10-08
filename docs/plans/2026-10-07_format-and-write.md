@@ -1,6 +1,6 @@
 # Format and Write: records to bytes as a chain of Workers — constituent plan (WR)
 
-> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR13 landed; WR14–WR16 queued.** Written with the user after combining two flat files in a Job
+> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR22 landed.** Written with the user after combining two flat files in a Job
 > (`File → Parse → Write`) failed with *Write expects file content; received java.util.LinkedHashMap*.
 >
 > **Relation to other documents:**
@@ -556,6 +556,60 @@ per-class plans) for the same retention. *Tests:* a value of a class defined in 
 and described, the loader is dropped, and a `WeakReference` to it clears after GC (fails on the old code); a plugin-
 or application-loaded class still hits the cache; WR13's concurrency tests stay green.
 
+**WR17 — one definition per class, whichever is described first** (user-approved 2026-10-08, WR15 finding 1).
+*Problem:* the native describer names only a class that recurs while it is still open and inlines the rest, so for
+`X(a: Y?)` / `Y(x: X?, y: Y?)` describe(X) and describe(Y) carry different `def[Y]`. Assignability accepts the pair
+(WR15), but `DataContract.withFields` / `DataOverlay.contract` throw a false "Conflicting carried definition 'Y'",
+and equality-keyed caches (`compiledForContract`, `MetadataShape.fits`, `conformExpected`'s fast path) miss.
+*Fix:* make the definition of a class canonical — independent of the entry point — in `DefaultNativeTypeResolver`
+(e.g. name every class on a cycle, computed per strongly connected component, or describe each recursive class
+from its own root and reuse that definition), keeping WR13's concurrency and WR16's releasability; fall back to a
+mutual-assignability conflict test in `withFields` only if canonical definitions prove impossible. *Tests:* the
+`X` / `Y` pair described from either side yields equal definitions; carrying fields from both into one contract
+succeeds; self- and mutual recursion from WR15 unchanged.
+
+**WR18 — run-time tokens of generic collections** (user-approved 2026-10-08, WR15 finding 2). *Problem:*
+`resolver.isAssignable(describe(T), lift(t))` on native tokens rejects any `T` with a non-empty generic collection
+field — even non-recursive `Box(items: List<String>)` — because the run-time token is star-projected while the
+design-time one carries arguments. *Fix:* compare a star-projected run-time token against an argument-bearing
+expected one by checking the elements present (the structural contract already does), or give the run-time node the
+expected argument when its contents conform; decide which with the callers of native-token acceptance (Opaque
+`lift`, `FlowRun`'s check). *Tests:* `Box(items: List<String>)`, nested and map-valued generics, and a genuinely
+mismatched element still rejected.
+
+**WR19 — recursive metadata in Formula compilation** (user-approved 2026-10-08, WR15 finding 3). *Problem:*
+kzen-auto's `JobExpressionCompiler.metadataClasses` (`visit`) recurses through `expanded()` with no guard, so a
+recursive metadata contract would overflow (found by reading). *Fix:* reproduce, then guard the walk by definition id
+(a recursive definition maps to one generated class referenced from itself). *Tests:* a Formula over a value whose
+metadata is recursive compiles and evaluates `meta[...]` through two levels.
+
+**WR20 — definition natives through runtime contracts** (user-approved 2026-10-08, WR15 finding 4). *Problem:*
+`DefaultDataAdapterRegistry.runtimeContract`'s listing and non-empty-mapping paths drop `definitionNatives`, so
+navigating a recursive value with opaque members past one expansion may fail (found by reasoning). *Fix:* reproduce,
+then carry `definitionNatives` (and definitions) through every runtime-contract path, as the empty-mapping path now
+does after WR15. *Tests:* a recursive value with an opaque member at depth ≥ 2, lifted as a list element and as a map
+value, navigates and validates.
+
+**WR21 — empty collections into typed inputs** (user-approved 2026-10-08, WR18 finding 3). *Problem:* a Flow
+input typed with a collection (`of: {is: List, of: String}`, likewise Set / Map) rejects an **empty** run argument:
+lifted without an expected contract, an empty collection becomes `Listing(Dynamic?)` (or `Mapping(Dynamic, Dynamic?)`)
+and the type algebra has no bottom element type, so `Listing(Dynamic?)` is not assignable to `Listing(Text)`.
+*Fix:* reproduce through `FlowRun.validatePort`, then let an empty run-time collection be accepted by any collection
+type of the same kind — e.g. an explicit empty / bottom element type for collections lifted empty, or an
+emptiness-aware rule in the run-time acceptance — without loosening design-time assignability (a design-time
+`List<Dynamic?>` must still not satisfy `List<Text>`). Check every other place an empty collection meets an expected
+contract (`conformExpected`, Opaque lift, `JobDataValues.lift` with an expected contract, WR15's empty-mapping path).
+*Tests:* empty List / Set / Map into typed Flow inputs (kzen-auto `FlowTypedPortTest`), a non-empty mismatched one
+still rejected, design-time assignability unchanged.
+
+**WR22 — run-time arrays keep their element type** (user-approved 2026-10-08, WR18 finding 4). *Problem:* a
+run-time array lifts as `Listing(Dynamic?)` because the component type is dropped, so a record such as
+`Coded(codes: Array<String>)` fails when its field is lifted against the described contract. *Fix:* reproduce, then
+derive the element contract from the array's component class (`String[]` → `Listing(Text)`, object arrays of a
+described class → that class's contract, primitive arrays per the existing refusal / scalar rules), consistent with
+how the describer treats `Array<T>` at design time. *Tests:* `Coded(codes: Array<String>)` lifts, validates and
+navigates; nested arrays; an array of a recursive class; an empty array.
+
 ## 6. Measurement
 
 `JobReportBenchmark` (`kzen-auto-jvm/src/test/kotlin/tech/kzen/auto/server/exec/job/bench/`), `benchJob` and
@@ -594,9 +648,15 @@ bytes/row and GC counts, and treats wall time as a secondary record.
 - [x] WR11 — metadata shapes: contract work once per shape, not per row (2026-10-08)
 - [x] WR12 — cold-start Preview truncation (2026-10-08)
 - [x] WR13 — thread-safe native type resolution (2026-10-08)
-- [ ] WR14 — shared readers of one native value
-- [ ] WR15 — mutually recursive types
-- [ ] WR16 — dynamic-expression class loaders stay releasable
+- [x] WR14 — shared readers of one native value (2026-10-08)
+- [x] WR15 — mutually recursive types (2026-10-08)
+- [x] WR16 — dynamic-expression class loaders stay releasable (2026-10-08)
+- [x] WR17 — one definition per class, whichever is described first (2026-10-08)
+- [x] WR18 — run-time tokens of generic collections (2026-10-08)
+- [x] WR19 — recursive metadata in Formula compilation (2026-10-08)
+- [x] WR20 — definition natives through runtime contracts (2026-10-08)
+- [x] WR21 — empty collections into typed inputs (2026-10-08)
+- [x] WR22 — run-time arrays keep their element type (2026-10-08)
 
 ## 9. As-built
 
@@ -1080,3 +1140,638 @@ compiles.
   resolver never evicts, retaining plugin / script class loaders and `KType`s for the process's life. (1) and (2)
   queued as WR14 / WR15, (3)'s dynamic-loader part as WR16. On (3) the user settled 2026-10-08: plugin class loaders load once and stay until a project
   restart, by design; dynamic-expression loaders must stay releasable, otherwise memory leaks.
+
+### WR14 — shared readers of one native value (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 443, jsBrowserTest 384, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1262 tests, 0 failed, 1 skipped; kzen-project
+compiles (`kzen-project-common:compileKotlinJvm`, `kzen-project-jvm:compileKotlin`).
+
+- **Which carriers really are shared** (read from kzen-auto's Job runtime): (a) a run's parameter inputs — every
+  Worker gets the same `execution.inputs` bindings (`JobRun.kt:317`) and Workers run concurrently on the RunEngine
+  pool, reading them through `EngineJobControl.parameter` → `JobDataValues.boundary`; native-backed when a hosted
+  child Job (Script, Flow, `RunWorker`) passes native arguments; (b) metadata attached to many values — Parse's
+  `itemMetadata` (every row of a file), Extract's archive parent metadata (`FileValues.metadata`),
+  `PathProjectionWorker` (one element's metadata on N rows), `FormatChunker`'s chunk metadata — read at once by
+  Formula `meta[...]`, Format and Write's `FileNameTemplate` on different Workers; an `OverlayAccess` over literals and
+  sometimes native children. Handed off one reader at a time only: settled results, Flow, Script, Preview, Sort.
+  `JobTransferConditions` (the "live inspectors" of the problem) has no callers, and fan-out (J6) is not built.
+- **Fix, kzen-lib** (`NativeObjectValueAccess`, `TaggedUnionValueAccess`): a node's token stays its index into a
+  `@Volatile` table array, written under the view's lock and replaced by a doubled copy when full, so a reader holding
+  a token finds its entry in whichever table it sees. Each node's three child maps become one `ConcurrentHashMap`
+  keyed by field id, index or mapping key (a node is one of record / listing / mapping), created only for a non-null
+  structural node. A hit is a map `get` plus a volatile read — no lock, no allocation. A miss reads the native (user
+  getters) outside any lock, then takes the lock only to re-check and store, so every reader of one child gets the
+  node stored first and the loser's entry is dropped. `TaggedUnionValueAccess` does the same for delegate → token
+  (`ConcurrentHashMap`, check, then lock and re-check). A dense table over a lock-free append because tokens are
+  indexes and a miss happens once per node; the unreachable "Union node has no selected backing position" error
+  folds into "requires the selected union node". Scalar leaves no longer allocate three empty maps.
+- **Contract** (KDoc on `ValueAccess`, the interface the plan calls `DataValueAccess`): safe for concurrent readers;
+  lazy nodes give every reader of one child the same node and keep their meaning once handed out; a value reaches
+  another thread through a happens-before edge; the backing object must not change while shared, and a native's
+  getters run on whichever thread reads.
+- **Audit, safe as-is:** `LiteralValueAccess` (built up front, immutable); `OverlayAccess` (own interning under
+  `platformSynchronized`); `NodeEntry.setSnapshot` (synchronized `by lazy`); kzen-auto `FlatRecordValueAccess`
+  (`FlatFileRecord`, `DelimitedRecord`), `RecordProjection`'s projected access and `PooledBytes` (fixed tokens, no
+  lazy nodes) — no kzen-auto change.
+- **Tests** (`NativeValueAccessConcurrencyTest`, kzen-lib jvmTest, new): five gated, deterministic — two readers
+  inside one first read of a field, an element, a mapping entry, a field through an expected union, and an element
+  through an overlay over a native base, released in arrival order (the later resumes only after the earlier
+  finished), asserting one node, also for a later read; four stress — one value (native, union over native, union
+  over a literal, overlay over native) × 8 threads × 100 fresh rounds, walks rotated per thread, each walk equal to a
+  single-threaded one, one token per path across threads, no token shared by two paths, 120 s hang guard. Old code:
+  9 / 9 failed in each of 3 runs (stress in round 0 — "Data node N does not belong to this native backing", NPE,
+  "field is valid only for record nodes", divergent content); a first gate releasing both racers at once let the old
+  code pass 1–2 of 8 per run (a lost list append can hand both the same index), hence the ordered gate. New code: 9 /
+  9 passed in each of 3 runs; stress ≈ 1.5–4 s each, gated < 0.4 s.
+- **Epsilon slope** (as WR6, two passes, one JVM per point): S3 ≈ 5,815 / 5,907 B/row (WR11 ≈ 5,850); S4 ≈ 3,777 /
+  3,986 B/row (WR11 ≈ 4,070); Report unchanged. No regression: both within the passes' spread (≈ ±100 B/row), and a
+  hit now allocates nothing while a scalar leaf drops its three empty maps. Wall time indicative only (CPU capped).
+- **Findings, not fixed:** (1) `OverlayAccess` takes its monitor on hit paths (`plainBaseFieldNode`, `nestedBound`)
+  and holds it while calling a native base's `field` (user getters) — correct, but shared metadata serializes its
+  readers; lock-free needs common atomics (expect / actual); (2) `FlatFileRecord.cachedHash` can be seen before its
+  hash is written if a row were shared (Jobs don't share rows); (3) Explore / Pivot comments claim single-threaded
+  access that `WorkerBase.kt:78` contradicts (tables, not `DataValue`s); (4) `JobTransferConditions` and its
+  sender / delivery / claim classes are dead code; (5) pre-existing "No cast needed" warning at
+  `DefaultDataAdapterRegistry.kt:142`.
+
+### WR15 — mutually recursive types (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 450, jsBrowserTest 389, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1262 tests, 0 failed, 1 skipped, and
+`:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`).
+
+- **Why it overflowed:** the native describer names only a class that recurs on its open stack and inlines the
+  partner, so the contract rooted at `Right` holds `def[Right]` with `Left` inline, while the run-time contract of a
+  nested `Left` (rooted at `Left`) holds `def[Left]` with `Right` inline. The two unroll the cycle out of phase, so
+  the comparison only ever meets reference-against-inline pairs, which the old guard never recorded.
+- **Fix** (`DataTypeAlgebra`): every (expected, actual) pair with a reference on either side goes through one
+  `acceptsReference`. Each side expands through its own table (`Definitions.expected` / `.actual`; the same id may
+  name different types in each), and a pair of references missing either definition stays nominal as before. The
+  pair is recorded in a private `Assumptions` log, keyed by value, before its expansions are compared: met again
+  while in progress it is accepted (the coinductive rule), and it stays accepted once its comparison succeeds. On
+  failure everything recorded since the pair started is dropped, because such a pair can have succeeded only through
+  an assumption now known to be false; a failed union branch therefore leaves nothing behind for the next branch,
+  and the verdict stays the conjunction of every check (a mismatch after the recursive field still rejects). It ends
+  because contracts hold finitely many such pairs and every unbounded walk expands a reference infinitely often.
+  That relies on contractiveness, which `DataContract` now enforces: a definition must not reach itself through
+  union variants alone (`Loop = Loop? | Text` describes no value, and the coinductive rule would accept anything for
+  it). The log is created at the first reference, so a comparison that meets none allocates one small object where
+  the old code allocated an empty `LinkedHashSet`.
+- **Fix** (`DefaultDataAdapterRegistry.runtimeMappingContract`): an empty map lifted against an expected mapping
+  kept the expected shape but dropped its definitions, so an out-of-phase reference inside it could not be expanded
+  (validation failed at an empty `Map<String, MappedLeft>`). It now keeps them, as a non-empty map's contract does.
+- **Audit, safe as-is:** `NativeTypeResolver`'s `resolvedAcceptance` (recurses through union variants only, finite
+  given contractiveness; delegates to the fixed algebra; `replaceOpaque` stops at references); `DataContract`
+  equality, hash, digest, `walk`, `typeAt`, `references` / `unresolvedReferences` (references are leaves); describe
+  (the open-class guard); `LiteralDataValues` (`inferType` keeps an open list; build / decode follow the value and
+  expand one level); `selectVariant` (no definitions); `DataValueAlgebra.validate` (follows the value, one
+  `isAssignable` per node); `DataSnapshot` (identity cycle guard); `MetadataShape`, `OverlayLayout`, `DataOverlay`
+  (no recursive type walks); `DataTypeExecutionValue`, `join` (finite); nothing in `jsMain`.
+- **Tests:** `DataTypeAlgebraTest` — mutual recursion out of phase through a list, a map and a nullable field (both
+  directions, and against a required field); self-recursion out of phase (`Chain` against an unrolled chain, both
+  ways); an incompatible recursive pair (a partner's field after the recursive one differs) still rejected; an
+  assumption made inside a failed union branch does not decide a later branch. `DataContractReferenceTest` — a
+  definition reaching itself through union variants, directly or through another union, is invalid; through a
+  listing it is valid. `RecursiveContractTest` — runtime-compiled Java records `Right(String, List<Left>)` /
+  `Left(String, List<Right>)` lift, snapshot and validate, a nested `Left` lifts against its enclosing contract's
+  child and validates against both contracts, and the resolved enclosing contract accepts `Left`'s description;
+  Kotlin pairs through a list, a map and a nullable field lift, snapshot and validate.
+  `NativeTypeResolverConcurrencyTest` — the WR13 stress test now also lifts the mutual pair. Old code: 7 of 25
+  failed — `StackOverflowError` in both algebra recursion tests (`DataTypeAlgebra.kt:112`), both lift tests and the
+  stress test; the failed-branch test wrongly accepted; the contractiveness test threw nothing. New code: all pass.
+- **Epsilon slope** (as WR6, two passes, one JVM per point): S3 ≈ 5,933 / 5,931 B/row (WR14 ≈ 5,815 / 5,907, WR11 ≈ 5,850); S4 ≈ 3,961 / 3,782 B/row (WR14 ≈ 3,777 / 3,986, WR11 ≈ 4,070); Report unchanged. No regression: S3 sits within the noise band (≈ ±100 B/row) above WR11, the passes agree to within 2 B/row, and S4 lies inside WR14's spread; a comparison that meets no reference now allocates one small object instead of a `LinkedHashSet`. Wall time indicative only (CPU capped).
+- **Findings, not fixed:** (1) definitions are not canonical per describing root: for `X(a: Y?)` /
+  `Y(x: X?, y: Y?)`, describe(X) and describe(Y) give different `def[Y]`. Assignability accepts them now, but
+  `DataContract.withFields` / `DataOverlay.contract` throws a false "Conflicting carried definition 'Y'" (confirmed
+  by a probe), and equality-keyed caches and `conformExpected`'s equality fast path miss. Fix options: canonical
+  definitions in the describer, or a mutual-assignability conflict test in `withFields`. (2)
+  `NativeTypeResolver.isAssignable(describe(T), lift(t))` on native tokens rejects any `T` with a non-empty generic
+  collection field (`java.util.ImmutableCollections.List12<*>` is not assignable to `List<Right>`; likewise a
+  non-recursive `Box(items: List<String>)`), because the run-time token is star-projected; the test compares resolved
+  contracts instead. (3) kzen-auto `JobExpressionCompiler.metadataClasses` (`visit`) recurses through `expanded()`
+  child records without a guard, so a recursive metadata contract (e.g. Formula calculated metadata from a recursive
+  native) would overflow; found by reading, not reproduced. (4) `runtimeContract`'s list and non-empty map paths
+  drop `definitionNatives`, so navigating a list of recursive values past one expansion of a definition with opaque
+  members may fail; found by reasoning, not reproduced. (5) pre-existing "No cast needed" warning at
+  `DefaultDataAdapterRegistry.kt:142`.
+
+### WR16 — dynamic-expression class loaders stay releasable (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 456, jsBrowserTest 389, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1262 tests, 0 failed, 1 skipped, and
+`:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`).
+
+- **Reproduced:** `NativeTypeResolverCacheTest` compiles Java fixtures into a throwaway `URLClassLoader`, describes
+  `List<Item>`, lifts and snapshots a record and a bean through a `DefaultDataAdapterRegistry`, drops the loader and
+  waits for a `WeakReference` to it to clear. On the old code it never clears (30 s timeout), nor does it for an
+  opaque value lifted against a contract naming its class, while the harness's control (a loader classes were only
+  loaded from) is collected; kotlin-reflect itself does not pin the loader.
+- **Fix** (`DefaultNativeTypeResolver`): an entry lives where it cannot outlive the loaders its key names. A key
+  naming only classes of a *lasting* loader (the resolver's own loader, its parents, the bootstrap) stays in the
+  resolver's own maps, which `close` clears. Any other key is *anchored* in a per-class `ClassValue` map: a
+  description on the class its type names from the youngest other loader (the one whose parent chain holds every
+  other loader the type names), a resolution on its owner class. Everything an entry holds was reached through the
+  anchor's loader or that loader's parents, which the anchor keeps alive anyway, so the entry dies with the anchor's
+  loader: no value reaches back to a key (the `WeakHashMap`-value trap), and anchoring on the youngest class rather
+  than, say, `List` avoids the `ClassValue`-on-a-parent-class trap. A type over loaders on unrelated chains (neither
+  keeps the other alive) or naming a type parameter is not cached, only computed. WR13's guarantees are unchanged: a
+  miss computes outside any lock and stores with `putIfAbsent`, the first stored result wins. The hit path is a walk
+  of the type's classifier and arguments (plain field reads) and one `ClassValue.get` or array index, with no lock;
+  the copy-on-write `IdentityHashMap` of per-loader resolution maps and its lock are gone.
+- **API change** (kzen-lib, not `kzen-auto-plugin`): `NativeTypeResolver.resolve(contract, owner)` takes the owner
+  `Class<*>` instead of its `ClassLoader`, because a loader cannot anchor an entry (it has no `ClassValue`, and a
+  weak loader-keyed map leaks through its values). Callers moved: `DefaultDataAdapterRegistry.lift`'s Opaque path,
+  `resolveCustom`, and kzen-auto `FlowRun.validatePort` (the port object's class). A kzen-auto jar built against the
+  old signature fails with `NoSuchMethodError` on the new kzen-lib, so the two publish together.
+- **Audit, safe as-is:** `NativeClasses`, `BeanShape`, `NativePropertyPlans` (static `ClassValue`s whose values reach
+  only the class and its member types, i.e. already anchored); the registry's `exactByClass` / fallbacks (immutable,
+  from constructor arguments; `JobDataValues` passes none); `JobDataValues.flatHeaders` and
+  `ColumnProjectionDescriptor.defaultCache` (keyed by header listings / contracts, which hold names, never a
+  `Class`); `NativeIdentityRegistry.global` (weak references); `JobExpressionCompiler` (no cache of its own; its
+  `describe(inferredType)` goes through the fixed resolver); `CachedKotlinCompiler` (closes the loader on eviction);
+  `ScriptKotlinCompiler.classloaderClasspaths` (weak loader keys, `File` values);
+  `RunOwnershipLedger.closeableByClass` (per run, class names); `ReadPreparation` (a thread-local tally). The path
+  from an evicted expression to the registry holds nothing after the fix.
+- **Tests:** `NativeTypeResolverCacheTest` (new, 6): the loader of a described and lifted record / bean is
+  collectable; likewise of an opaque value lifted against its own native, and of a directly resolved owner; a type
+  over sibling loaders (`Map<kept.Item, dropped.Item>`) describes as opaque and keeps neither alive; application,
+  `List<String>` and live-loader types and resolutions return the same cached instance (application and `String`
+  owners share one map); describe hits allocate nothing and a resolve hit allocates no more than a contract-keyed
+  `ConcurrentHashMap.get` (minimum of three measured rounds, after warm-up). `NativeTypeResolverConcurrencyTest`'s
+  gated loader now defines its own copy of the owner class (a resolution anchors on a class, not a loader);
+  `DefaultNativeTypeResolverTest` and `RecursiveContractTest` moved to class owners. Old code: the
+  described-and-lifted and opaque tests time out with the loader reachable; the other four need the new signature, so
+  a mutation stands in (anchoring unrelated chains on their first class and keeping resolutions in a lasting map
+  fails the opaque, resolved-owner and sibling tests). New code: all pass; WR13 / WR14 / WR15 tests green. No
+  kzen-auto-level test: evicting a compiled expression needs the code cache's delete path or 10,000 entries, and what
+  K2 infers for an expression-declared type is not stable ground; the kzen-lib tests cover the same registry path
+  with an equivalent throwaway loader.
+- **Epsilon slope** (as WR6, two passes, one JVM per point): S3 ≈ 5,904 / 5,817 B/row (WR15 ≈ 5,933 / 5,931); S4 ≈
+  3,834 / 3,819 B/row (WR15 ≈ 3,961 / 3,782); Report ≈ 1,952 unchanged. No regression: both inside the noise band (≈
+  ±100 B/row).
+- **Findings, not fixed:** (1) `DataContract.hashCode` / `equals` allocate per call (through `constraintSets`), so
+  every resolution hit allocates that much, before and after (the allocation test subtracts it). (2)
+  `describe(Pair<A, B>)`, or of any class with a type-parameter member, throws "Native nullability at <root> (true)
+  does not agree with structural nullability (false)": `unresolvedKType` makes the member non-null while
+  `toMetadata()` writes `anyNullable`; met while writing the sibling-loader test, which uses `Map` instead. (3)
+  Unbounded growth, not class retention: `JobDataValues.flatHeaders` per distinct header listing,
+  `ColumnProjectionDescriptor.defaultCache` per distinct contract, and `NativeIdentityRegistry.global`'s emptied
+  identity-hash buckets (never removed). (4) A dropped resolver's `ClassValue` entries on anchored classes outside
+  its lasting loaders (plugin classes) linger until the JDK expunges them on a later `ClassValue` access to that
+  class; `FlowRun` makes one resolver per run, so a plugin port class may carry a few dead entries between runs. (5)
+  Five jvmTest suites each carry their own javac-to-a-temp-dir helper, now including `NativeTypeResolverCacheTest`'s.
+
+### WR17 — one definition per class, whichever is described first (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 458, jsBrowserTest 389, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1262 tests, 0 failed, 1 skipped, and
+`:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`).
+
+- **Reproduced:** for `Outer(inner: Inner?)` / `Inner(outer: Outer?, self: Inner?)`, describe(Outer) defined
+  `Inner` from the unrolling inside Outer (`outer` a reference to Outer) while describe(Inner) defined it from Inner
+  itself (`outer` an inline Outer), and `withFields` of the two lifted values threw "Conflicting carried definition".
+- **Fix, one file** (`DefaultNativeTypeResolver`): a definition is its class's own description — unrolled from that
+  class alone, up to each class's first recurrence, exactly what describing the class as a root gives. An unrolling
+  is recorded as the definition only when no class is open around it (the root, or a class reached through
+  collections only); after the root walk, `defineReferenced` describes every still-undefined referenced class from
+  itself in the same session, until the references of the new definitions are defined too. A definition depends
+  only on the class's declared members (never on the type arguments it was reached with), so it is canonical per
+  class and per resolver configuration, and any two contracts carrying it agree, structurally and in
+  `definitionNatives`. Chosen over naming every class of a strongly connected component: that turns a recursive
+  class's every non-root occurrence into a reference, which changes the shape of non-recursive roots holding one
+  (`Holder(chain: Chain)`) and moves their constraints and paths behind a reference. The `withFields` equality test
+  stays; no mutual-assignability fallback was needed.
+- **Effect on existing contracts:** the structural tree, natives, constraints and tokens of every description are
+  unchanged — only definitions of non-root classes change, and only where the old unrolling stopped at a class open
+  around it (the `Outer` / `Inner` shape). Non-recursive types, self-recursion, and WR15's pairs (only the root
+  recurs, so its one definition is the root) describe exactly as before. Nothing persists native-described
+  contracts: `JobLaneDescriptor`'s digests are in memory, and the decoded contracts (reader configuration,
+  `DataShape` over the wire) never come from the native describer. The work is on a description cache miss only,
+  inside `ReadPreparation`, with no lock and no new cache: WR13's concurrency and WR16's anchoring are untouched,
+  and the per-row lift path is not touched (no Epsilon run).
+- **Tests:** `DefaultNativeTypeResolverTest.aRecursiveClassHasOneDefinitionWhicheverTypeIsDescribedFirst` — Outer
+  and Inner described in either order (fresh resolvers) give equal contracts and the same `Inner` definition and
+  natives, Outer's root unrolls as before, each definition equals its class's own description; `Ping` / `Pong`, each
+  recurring in the other's own description, carry equal definition maps (exercises `defineReferenced`'s closure); a
+  non-recursive `Holder(outer, inner)` carries the union of both. `RecursiveContractTest` — values lifted from
+  either side compose into one record through `withFields`, `DataOverlay.contract` and `DataOverlay.record`, which
+  validates and navigates two levels through each field. Old code: both fail (`Inner`'s definition differs; "Conflicting
+  carried definition"). New code: pass; WR13–WR16 tests unchanged and green.
+- **Findings, not fixed:** (1) `conformExpected`'s equality fast path still misses for a nested recursive value
+  lifted against its enclosing contract's child: the root unrolling depends on where a class sits, and `child`
+  keeps all the parent's definitions, so such a pair is equal only after assignability (correct, slower) — making it
+  hit needs references at every non-root recursive occurrence plus definition pruning in `child`, a contract-shape
+  change. (2) `DataSnapshot.capture` of a composed record (`DataOverlay.record`) whose fields are native-backed is
+  rejected ("A composed record does not support native access"): `containerIdentity` asks the overlay root for its
+  native because the contract has native metadata somewhere below, not at the root; not specific to recursion, met
+  while writing the composition test. (3) The map describer describes a key and value before refusing a non-scalar
+  key as opaque, so a recursive class met only in the discarded value still becomes a carried (unused) definition.
+
+### WR18 — run-time tokens of generic collections (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 462, jsBrowserTest 389, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1266 tests (1262 + 4 new), 0 failed, 1 skipped,
+and `:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`).
+
+- **Who hit it:** of the callers of native-token acceptance, only kzen-auto `FlowRun.validatePort` met it. A Flow
+  vertex input typed in notation with a collection (`meta: input: {is: RequiredInput, of: {is: List, of: String}}`,
+  likewise `Set` / `Map`) rejected every native-backed message ("Flow input 'input' is incompatible: Native type
+  java.util.Arrays.ArrayList<*> is not assignable to kotlin.collections.List<kotlin.String> at <root>"), and an
+  empty collection or null member inside a typed message threw instead of answering. No in-tree notation (kzen-auto,
+  kzen-project, kzen-sample) declares a typed port, so only third-party / user vertices were affected.
+  `DefaultDataAdapterRegistry.lift`'s Opaque path compares the root token only and a collection never lifts as
+  Opaque, so it is not affected (a generic opaque class is; finding 2). `selectVariant` / `validateVariant` have
+  test callers only.
+- **Fix, comparison-time** (`DefaultNativeTypeResolver`; `DataType.typeAt` in `DataContract.kt` made `internal`):
+  - *Run-time values* (`isAssignable(expected, DataValue)` over `JvmNativeValueAccess`): the expected tokens are
+    checked against the objects the value holds at the expected paths (`heldAcceptance`), whatever native metadata
+    the value's own contract carries, so the outcome does not depend on how the value was lifted. Each collection is
+    sampled at its first element or entry, as `describe(value)` already did; below a null, in an empty collection or
+    in an inactive variant nothing is held, so nothing is checked; a null satisfies only a nullable token. An object
+    that does not conform as its parent lifts it (a heap-polluted element, a null Java record component) answers
+    `Rejected` with the lift's problem instead of throwing.
+  - *Erased collections:* where a strict subtype check fails at a built-in collection (`List` / `Set` / `Map` /
+    array classifier on a `Listing` / `Mapping` node of the expected contract), a held token that is star-projected
+    (`ArrayList<*>`), or any held empty collection (`EmptyMap` is a `Map<Any?, Nothing>`), is compared by class
+    only — its elements are checked at their own paths. Resolved actuals (`describe(value)` into `selectVariant` /
+    `validateVariant` / `isAssignable`) get the same rule for star-projected tokens; ancestor coverage stays strict.
+  - The class check compares boxed classes: a held `Integer` against a declared `Int` element token failed on the
+    primitive `int` (reachable only once nested tokens are compared at all).
+  - Chosen over giving the run-time node the expected argument when its contents conform: that resolves a `KType`
+    on the lift (per row), states an argument the JVM object does not carry, and still fails for a value lifted
+    without the expected contract (a Flow message is lifted against its source's own contract). The comparison-time
+    rule touches only acceptance.
+- **Erasure kept honest:** a `List<Any>` holding Strings is accepted at run time (the JVM cannot tell it from a
+  `List<String>`; what it holds decides), while design-time `describe(List<Any>)` vs `List<String>` stays rejected;
+  `MutableList<CharSequence>` vs `MutableList<String>` stays rejected (no star projection); a mismatched element
+  (`List<Token>` holding `OtherToken`, a nested `Map<String, List<Token>>`, `Set<Token>`) is rejected by its own
+  token, a mismatched scalar (`List<String>` of Ints, `Map<String, List<Int>>` of Strings) by the structural
+  contract. `describe(value)` now reaches its nodes through the same walk and throws one "holds no native object"
+  message where it threw three (code unchanged).
+- **Cost:** one walk from the root per expected token, each step lifting the child as navigation always has —
+  bounded by the token count, not the collection size; full-collection checking was not adopted (finding 1). The
+  per-row Opaque lift shares only the strict check, unchanged on success. **Epsilon slope** (as WR6, two passes, one
+  JVM per point): S3 ≈ 5,861 / 5,855 B/row (WR16 ≈ 5,904 / 5,817); S4 ≈ 3,873 / 3,873 B/row (WR16 ≈ 3,834 /
+  3,819); Report ≈ 2,007 (unchanged code). No regression: both inside the noise band (≈ ±100 B/row).
+- **Tests:** `DefaultNativeTypeResolverTest` (4 new): `Box(items: List<String>)`, `Grouped(List<List<String>>)`,
+  `Indexed(Map<String, List<Int>>)`, `Maybe(List<String>?)`, `Tokens(Set<Token>)`, `List<String>`,
+  `Map<String, List<Int>>`, `List<Token>` and a `MutableList<out Token>` holding a subclass accepted at run time;
+  empty and nested-empty collections, a null member and a null nullable root accepted; mismatched elements, a
+  heap-polluted `Box` and a null Java record component rejected; a union of `List<String>` / `List<Token>` selects
+  and validates by its run-time contents. kzen-auto `FlowTypedPortTest` (new, 4) with `TypedPassVertex` and two
+  fixtures: a `List<String>` port and a `Map<String, List<Int>>` port accept matching run arguments and fail the
+  vertex for mismatched ones. Old code: `Box` rejected at `/field:items` (the run-time token message above); `Box`
+  with an empty list threw "Empty listing has no runtime element token"; the polluted `Box` threw
+  `DataAccessException` out of `isAssignable`; the union answered `NoMatch`; both accepting Flow tests failed the
+  run with "Flow input 'input' is incompatible: Native type … is not assignable … at <root>"; the rejecting tests
+  already passed (everything was rejected). New code: all pass.
+- **Findings, not fixed:** (1) Sampling the first element leaves a gap: a structurally uniform collection whose
+  later elements hold another class (`listOf(Token(), OtherToken())` lifted untyped, element contract `Opaque`) is
+  checked natively at element 0 only. Checking every element is O(n) per listing and O(n²) per mapping through
+  `ValueAccess` (`entry` / `keyAt` scan); on `FlowRun` that is per message, not per row. (2) A generic opaque class
+  is still rejected by the Opaque lift (`Optional<String>` expected vs `Optional<*>` held): its argument has no path
+  to check, so accepting it would be a decision, not a fix. (3) An empty collection lifted without an expected
+  contract is `Listing(Dynamic?)` / `Mapping(Dynamic, Dynamic?)`, which no typed listing accepts structurally, so a
+  typed Flow port still rejects an empty run argument ("Actual type Listing(element=Dynamic(nullable=true)) is not
+  assignable to expected type Listing(element=Scalar(kind=Text))"); a different cause (the structural algebra has no
+  bottom element type). (4) A run-time array lifts as `Listing(Dynamic?)` (`NativeClasses.starProjectedType` drops
+  the reified component), so `Coded(codes: Array<String>)` fails as its field is lifted against `Listing(Text)`.
+  (5) `resolve(contract, owner)` cannot load Kotlin-mapped names (`kotlin.CharSequence`), so a contract naming one
+  fails to resolve. (6) WR16 finding 2 (`describe(Pair<A, B>)`) has a different root cause (`unresolvedKType`
+  nullability vs `toMetadata()`'s `anyNullable`), not fixed. (7) A design-time star projection passes the erased
+  rule too: `describe(MutableList<*>)` is accepted where `MutableList<Any?>` is expected (its element is `Dynamic`,
+  so nothing narrower is ever accepted). (8) `describe(value)` is no longer used by `isAssignable`; it remains public
+  API for resolved-contract callers.
+
+### WR19 — recursive metadata in Formula compilation (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 463, jsBrowserTest 390, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1272 tests (1266 + 6 new), 0 failed, 1 skipped,
+`FormulaStepTest` canary 10 / 10, and `:kzen-auto-js:compileKotlinJs` green; kzen-project compiles
+(`kzen-project-common:compileKotlinJvm`, `kzen-project-jvm:compileKotlin`).
+
+- **Reproduced** with metadata `origin: Node`, `Node(name: String, parent: Node?)`, a plain-data contract with one
+  definition. Metadata can never hold a native (`MetadataContract` refuses native metadata), so a native recursive
+  class reaches metadata only as such a contract. `JobExpressionCompiler.generate` overflowed in
+  `metadataClasses$visit` (≈ 1,010 frames per trace, each `child` building a fresh `DataContract`), both at design
+  time (`FormulaWorker.payloadFlow`) and at run time (`compileFormulas`). Every `JobExpressionCompiler` caller
+  (Formula, Formula source, Filter, Run) shares the walk. The run-time path was blocked by a second gap at first:
+  `LiteralDataValues.lift` dropped the expected contract's definitions, so a literal over a recursive contract failed
+  at its first reference ("Type reference 'test.Node' has no definition in this contract"). No in-tree producer could
+  build a recursive plain-data value.
+- **Fix** (kzen-auto `JobExpressionCompiler.metadataClasses`): a field whose own type is a `Reference` maps its
+  definition id to one generated class. The mapping is recorded before the class's fields are visited, so a later
+  occurrence reuses the class: the definition's own recursive field, or another definition's field. The walk ends
+  because every unbounded path through a contract crosses reference fields, and each id is visited once. A class
+  depends only on its definition; a property's nullability comes from the field that references it. For `Node` the
+  generated source is `class Meta0` (the root, `val origin: Meta1 get() = Meta1(…)`) and `class Meta1(private val
+  node: DataValue?)`, whose `val parent: Meta1? get() = JobExpressionValues.metadataRecord(node, "parent", 0,
+  true)?.let { Meta1(it) }` names its own class. Kotlin compiles a self-referential nested class as is. Mutual
+  recursion gives one class per definition. An inline record still gets a class of its own, so non-recursive
+  metadata generates byte-identical source; an inline unrolling of a definition, if a contract had one, would add
+  one class.
+- **Fix** (kzen-lib `LiteralDataValues.lift`): a literal lifted against an expected contract keeps that contract's
+  definitions, as WR15 made `runtimeMappingContract` keep them. The branch that reuses `expected` (which Formula's
+  calculated scalars take per row) is untouched.
+- **Compile cache key:** `KotlinCode.signature()` digests the source. Generation is deterministic: a wire-decoded
+  copy of the recursive contract generates the same signature (test), and a non-recursive `parent.parent.name`
+  contract's signature is the same before and after (`JobExpression_names_y43jns3jvou7o25e5wvpzjehoi`).
+- **Audit, safe as-is:** `JobExpressionValues` (`metadataField` / `metadataKeyed` / `metadataRecord`, `keyed`,
+  `projected`: one step per call); `JobDataValues.boundaryNode`, which `meta["x"]` returns for a record (follows the
+  value, and literal values are acyclic); `accessors` and `ColumnProjectionDescriptor.create` / `select` (one level,
+  or path-driven); `metadataNames` / `shadowWarnings` (root only); `unsupportedBoundary` (references are leaves);
+  editor side: `ContractPathTree` and `PathBinding.resolve` (expanded one level per request, or path-driven),
+  `ContractTreeNode` (expands on click), `DataContractPresentation` (no recursion), `FileNameTemplateEditor.scalarPaths`
+  (bounded by `maximumDepth = 3`); server `FileNameTemplate` (path-driven), `PreviewCapture` (value-driven, with
+  depth). No other gap found.
+- **Tests:** `JobExpressionCompilerTest` (4 new): recursive metadata generates two classes, `Meta1` referring to
+  itself, with a stable signature across a wire round trip; a Formula over it compiles and evaluates typed and keyed
+  reads through two levels and past the end (`origin.name`, `origin.parent?.name`, `meta.origin.parent?.parent?.name`,
+  `origin.parent?.parent?.get("name")` → `"c/b/a/a/-"`); mutually recursive `File` / `Folder` gives one class per
+  definition and compiles; nested non-recursive records keep a class each. `FormulaWorkerContractTest` (2 new):
+  design-time `payloadFlow` keeps the `origin` reference and its definition and types the calculated field as
+  `Text`; at run time a Formula reads a grandparent through recursive metadata (`"a"`, and `"none"` one level short).
+  kzen-lib `DataValueTest` (1 new): a literal lifted against a recursive contract keeps its definitions, validates,
+  navigates three levels, and rejects a mismatched nested value. Old code: all five recursive kzen-auto tests overflow
+  (`StackOverflowError`, run against the fixed kzen-lib so the run-time literal can be built; against the old one the
+  run-time test fails earlier, at the literal); the non-recursive test passes on both. The kzen-lib test fails on the
+  old lift ("no definition"). New code: all pass.
+- **Allocation:** the per-row path is unchanged (both fixes run at compile or contract-building time, and Formula's
+  per-row literal lift takes the untouched reuse branch), so no Epsilon run.
+- **Findings, not fixed:** (1) A metadata field named `node` fails to compile ("Overload resolution ambiguity
+  between candidates: val node: DataValue? / val node: …Meta1"). The cause is the generated metadata class's
+  constructor property `node`, not recursion; met while writing the tests, which use `origin`. Renaming the property
+  changes every metadata-bearing expression's source, so each recompiles once. (2) `FileNameTemplateEditor`'s
+  `maximumDepth` comment says a metadata record is "never cyclic"; a recursive definition makes it so, but the bound
+  still holds. (3) Before the `lift` fix, a recursive plain-data value could only come from a custom `ValueAccess`;
+  `DataSnapshot` / `MetadataSnapshot` carry a bare `DataType` without definitions, not examined further.
+
+### WR20 — definition natives through runtime contracts (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 465, jsBrowserTest 390, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1272 tests, 0 failed, 1 skipped, and
+`:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`).
+
+- **Reproduced, through contract walks rather than navigation:** `Held(name, handle: AtomicInteger?, children:
+  List<Held>)` and a map-valued `MappedHeld`. Reading the value never failed: `NativeObjectValueAccess` lifts every
+  present record from its own class, whose description carries the definition natives, so the handle (its object
+  and native token) is read at any depth on the old code too, and snapshots behave (refused only for the opaque
+  handle; a handle-free copy completes). What failed was any walk over a *collection's* runtime contract past one
+  expansion: the listing (List / Set) and non-empty mapping contracts were built without `definitionNatives`, so
+  expanding the element's `Held` reference built a child contract whose opaque `handle` had no native metadata
+  ("Opaque path /field:handle#0 requires native metadata"). `DataValueAlgebra.validate` walks the value's root
+  contract beside the value, so a list, set or map of `Held` — untyped or lifted against its description — failed
+  validation at `[0]/children`, already at depth 1 and even when that inner collection was empty. A record lifted
+  directly validated (its root contract is its own description), but the contract of its `children` node did not
+  reach past one more expansion; for `MappedHeld` the empty-mapping path, which WR15 made keep definitions, still
+  dropped the definition natives, so `child(MappingValue)` of an empty `children` threw. Same path, not recursive: an
+  empty `Map<String, AtomicInteger>` lifted against its own description threw at the lift ("Opaque path
+  /mapping-value requires native metadata"), because the empty-mapping path dropped the expected native metadata
+  that an empty listing keeps.
+- **Fix, one file** (`DefaultDataAdapterRegistry`): the listing and non-empty mapping contracts carry the joined
+  element / value contract's `definitionNatives` plus the expected contract's, as they already did definitions; the
+  empty-mapping path keeps the expected contract's native metadata, definitions and definition natives (what the
+  non-empty path's guided natives give). A collection lifted against its description now equals it (`List<Held>`,
+  `Set<Held>`, `Map<String, MappedHeld>`, and the empty opaque list and map), so `conformExpected`'s equality fast
+  path hits where it missed before.
+- **Audit, safe as-is:** `joinedRuntimeContract` (carried both already); the record, data class, bean, enum and
+  scalar paths (the resolver's whole description); the null and Opaque paths (the expected contract itself); arrays
+  (described by type, WR22); `conformExpected` (returns the actual, or a `TaggedUnionValueAccess` whose selected
+  contract is the expected union's `child`); `validateAdapterResult` (the adapter's own contract, then
+  `conformExpected`); `childValue` / `actualChildContract` (the lift's contract, or the expected child for an
+  opaque); `DataContract.child` / `expanded` / `withMetadata` (pass both maps), `withFields` (merges them,
+  conflict-checked); `DataOverlay.contract` (the base's, then `withFields`); `MetadataContract` (refuses
+  definition natives).
+- **Tests:** `RecursiveContractTest` (2 new): `Held` lifted directly, as a list and as a set element (untyped and
+  against `List<Held>` / `Set<Held>`), and `MappedHeld` directly and as a map value (untyped and against
+  `Map<String, MappedHeld>`): three levels down, the handle reads as its object with an `AtomicInteger` native token;
+  the value's contract and each `children` node's contract reach the handle's native metadata past one more
+  expansion; a typed lift equals its expected contract; the value validates against its own and the expected
+  contract; the snapshot is refused only as `snapshotOpaque`, a handle-free copy completes.
+  `DefaultDataAdapterRegistryTest.expectedNativeCollectionMetadataSurvivesRuntimeShapeInference` (extended): an
+  empty list and an empty map of an opaque class lifted against their descriptions equal them. Old code: both
+  recursive tests fail ("Opaque path /field:handle#0 requires native metadata", in every variant, the directly lifted
+  record included through its `children` node's contract), and the registry test fails at the empty map's lift. New
+  code: all pass; WR15 / WR17 recursion and the non-recursive tests unchanged and green.
+- **Epsilon slope** (as WR6, two passes, one JVM per point): S3 ≈ 5,907 / 5,884 B/row (WR18 ≈ 5,861 / 5,855); S4 ≈
+  3,728 / 3,820 B/row (WR18 ≈ 3,873 / 3,873); Report ≈ 1,954 (unchanged code). No regression: both inside the noise
+  band (≈ ±100 B/row); a collection lift gains one map merge.
+- **Findings, not fixed:** (1) `ResolvedDataContract.child` rebases only the parent's tokens while
+  `DataContract.child` adds an expanded reference's definition natives, so a resolved union whose variant is a
+  reference to a definition with native members would fail "Native token paths must exactly match metadata paths";
+  found by reading — the native describer emits no unions (a sealed class describes as Opaque), so only a custom
+  adapter's contract could reach it. (2) `LiteralDataValues.lift` refuses an expected contract with root native
+  metadata but silently drops its `definitionNatives`, so a literal against a contract whose definitions hold opaque
+  members would fail at expansion instead of being refused up front; no producer known. (3) An empty mapping lifted
+  against an expected one still keeps none of its constraints, where an empty listing keeps its element's; only
+  contract equality differs.
+
+### WR21 — empty collections into typed inputs (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 475, jsBrowserTest 398, `kzen-lib-jvm` 204, `kzen-lib-js` 1; 0
+failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1276 tests (1272 + 4 new), 0 failed, 1 skipped,
+and `:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`).
+
+- **Reproduced** through `FlowRun.validatePort` (kzen-auto `FlowTypedPortTest`). Each of these failed the run:
+  - an empty `ArrayList<String>` / `emptyList()` into a `List<String>` port ("Flow input 'input' is incompatible:
+    Actual type Listing(element=Dynamic(nullable=true)) is not assignable to expected type
+    Listing(element=Scalar(kind=Text))");
+  - an empty `LinkedHashMap` / `emptyMap()` into a `Map<String, List<Int>>` port (`Mapping(Dynamic, Dynamic?)`);
+  - beyond the root, `mapOf("a" to emptyList<Int>(), "b" to listOf(1))`, whose values join to `Listing(Dynamic?)`.
+    So a nested empty collection failed the value holding it.
+- **Where else an empty collection meets an expected contract.** These rejected the same way and are fixed by the
+  same rule:
+  - `DefaultDataAdapterRegistry.conformExpected`, which re-lifts an already-lifted `DataValue` against an expected
+    contract (`JobDataValues.lift` of a value, an adapter's result);
+  - `validateBindingValue`, behind `DataBindings.bind` and `ProducedBindingsBuilder` (Job, Script and Flow child
+    inputs and outputs, and a Worker's `yieldResult` binding a value lifted untyped);
+  - `DataValueAlgebra.validate`, which starts with the same check.
+
+  These are safe as-is:
+  - A raw native lifted against the expected contract. `runtimeContract` takes an empty list's or set's element from
+    the expected contract, and WR15 / WR20's empty-mapping path returns the expected contract. That covers Script step
+    results, Script and Flow child inputs, outputs and results (`boundary(...)` re-lifts against the definition
+    contract), `JobDataValues.lift` of a native, and `ResultSinkWorker`.
+  - The Opaque lift: WR18's erased rule already accepts any held empty collection.
+  - Flow signatures, which are `Dynamic`.
+- **Fix: run-time acceptance** (kzen-lib `DataValueAlgebra.isAssignable(expected, value)`, new, commonMain).
+  - The contract comparison runs first. Where it rejects, what the value holds decides:
+    - a listing, through each element it holds (none when it is empty);
+    - a mapping, through each entry where the keys agree (any key when it is empty);
+    - a record, field by field, in order and with DataTypeAlgebra's optional rules;
+    - an expected union, by any of its variants;
+    - a null, by the expected nullability.
+  - Every other node keeps its contract's verdict (scalar, opaque, `Dynamic`), and so does each node's own
+    nullability. Metadata is checked the same way.
+  - A rejection is still the contract comparison's, so the messages are unchanged.
+  - **Callers:**
+    - `validate`;
+    - `DefaultNativeTypeResolver.isAssignable(ResolvedDataContract, DataValue)`, in its structural part and in
+      `heldAcceptance`'s union branch;
+    - `conformExpected`;
+    - `validateBindingValue`, through an internal `holdsStructurally`. It compares types only, as that check always
+      did, so an opaque type never accepts another.
+  - **`validate`'s constraint walk** follows the value's own contract, which is `Dynamic` where the held elements
+    disagree. A test caught the gap. At a `Dynamic` node the walk now continues through the node's own contract when
+    the expectation declares constraints below it, so a constraint on a held element is still enforced.
+- **Chosen over a bottom element type** (`Listing(Nothing)` for a collection lifted empty):
+  - A new `DataType` variant reaches the wire codec, JS, the UI's contract presentation and every exhaustive `when`.
+  - Element joins would have to treat it as an identity to cover the nested case.
+  - At design time it would be a type no signature can state.
+
+  The run-time rule touches only acceptance; `DataType` and `DataTypeAlgebra` are untouched.
+- **Design-time unchanged.** These are still rejected, at contract level and type level (tests):
+  - `Listing(Dynamic?)` vs `Listing(Text)`;
+  - `Mapping(Dynamic, Dynamic?)` vs a typed mapping;
+  - `describe(List<Any?>)` vs `List<String>`.
+- **Beyond strict emptiness,** consistent with WR18's "what it holds decides":
+  - A non-empty collection whose declared element is wider than what it holds (a heterogeneous join widened to
+    `Dynamic`) is accepted by its elements' own contracts.
+  - A null held where the expectation allows null is accepted.
+  - A mismatched element is still rejected, with or without empty siblings.
+- **Cost:**
+  - The walk runs only where the contract comparison rejects, i.e. where the old code threw.
+  - An accepted value takes the same comparison and returns, so the per-row path is unchanged on success
+    (`conformExpected` gains one call frame). No Epsilon run.
+  - The walk is O(n) per listing and O(n²) per mapping through `keyAt` / `entry`, as `validate` already is.
+- **Tests (new code: all pass):**
+  - **kzen-lib `DataValueAlgebraTest`** (new, 7):
+    - an empty list and map are accepted by typed collections of their kind; the other kind and a scalar are
+      rejected;
+    - design-time rejections are unchanged;
+    - a nested empty collection beside conforming siblings is accepted in a list, a map and a record field;
+    - these are rejected with the contract comparison's message: mismatched elements beside empty ones, a null
+      element, a wrong key kind, a missing record field;
+    - a null nullable listing is accepted;
+    - `validate` accepts an empty list and enforces a nested `SymbolSet` on held elements;
+    - metadata holding an empty list is accepted.
+  - **`DataBindingsTest`** (1 new): an empty list binds to `Listing(Text)` through `bind` and
+    `ProducedBindingsBuilder`; `listOf(1)` still fails `incompatibleType`.
+  - **`DefaultNativeTypeResolverTest`** (1 new):
+    - Accepted, lifted untyped:
+      - `List<String>` and `List<String>?` ← `emptyList()` / `ArrayList()`;
+      - `Set<Token>` ← `emptySet()` / `HashSet()`;
+      - `Map<String, List<Int>>` ← `emptyMap()` / `LinkedHashMap()` / `mapOf("a" to emptyList(), "b" to listOf(1))`;
+      - `List<List<String>>` ← `listOf(emptyList(), listOf("a"))`.
+    - Rejected: the other kind, and mismatched siblings of an empty collection.
+    - Design-time rejections are unchanged.
+  - **`DefaultDataAdapterRegistryTest`** (1 new): a lifted empty list conforms to `Listing(Text)` as is; `listOf(1)`
+    and an empty map are refused.
+  - **kzen-auto `FlowTypedPortTest`** (4 new): an empty list, an empty map, and empty lists beside int lists are
+    accepted; string lists beside an empty one are rejected.
+- **Old code:**
+  - kzen-auto, against the published WR20 kzen-lib: the three accepting tests failed with the messages above. A
+    fourth test, for a `Set<String>` port, also failed and was dropped (finding 1). The rejecting tests passed.
+  - kzen-lib, with the two new functions neutered to the old contract comparison: 8 of the 10 new tests fail
+    (`DataValueAlgebraTest` 5, plus the `DataBindingsTest`, `DefaultNativeTypeResolverTest` and
+    `DefaultDataAdapterRegistryTest` tests). The design-time and still-rejected tests pass.
+- **Findings, not fixed:**
+  1. **A `Set`-typed Flow port rejects every set, empty or not.**
+     - Cause: `TypeMetadata.toDataContract` maps only `List` / `Array` / `MutableList` and `Map` / `MutableMap` to
+       collections, so `Set` / `MutableSet` become `Opaque` (old run: "…not assignable to expected type
+       Opaque(nullable=false)").
+     - By reading, a Script or binding typed `Set<…>` likewise fails its Opaque lift.
+     - Adding `Set` to that collection branch would change the design-time contract and UI of every `Set`-typed
+       signature, so it needs a decision.
+     - The resolver path (`describe(Set<…>)`) already treats a set as a listing and is covered.
+  2. **An expected union is still selected by type.** `conformExpected`'s union branch and
+     `LiteralDataValues.buildInferredUnion` use `selectVariant`, so an untyped empty collection into a union contract
+     still answers `NoMatch`.
+  3. **`validateBindingValue`'s native-presence check is unchanged.** An untyped empty list bound where the definition
+     requires element natives (`List<SomeOpaqueClass>`) still fails with "requires native metadata at
+     [ListingElement]".
+  4. **`BindingDefinition`'s default-snapshot check stays type-level**, because a snapshot carries a bare `DataType`.
+  5. **`FlowRun.edgeValue` checks a vertex's `DataValue` output type-level** (`DataTypeAlgebra.isAssignable` on
+     `structural`). Only a third-party vertex that emits an untyped empty `DataValue` into a typed output could hit
+     this.
+  6. **A cyclic native object under a rejecting contract** could make the walk recurse, as `validate` can.
+
+### WR22 — run-time arrays keep their element type (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 481 (475 + 6 new), jsBrowserTest 398, `kzen-lib-jvm` 204,
+`kzen-lib-js` 1; 0 failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1276 tests, 0 failed, 1 skipped,
+and `:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`). No kzen-auto change.
+
+- **Reproduced in kzen-lib; WR21 masks part of it.** Lifting `Coded(codes: Array<String>)` and reading its codes
+  succeed, and so does the snapshot; the resolver's run-time `isAssignable` accepts the value (WR18 / WR21's held
+  walk). What fails is the array node's contract: `runtimeContract` described an array by its class's star
+  projection (`Array<*>`), so it lifted as `Listing(Dynamic?)` (root metadata `kotlin.Array<kotlin.Any?>`), where the
+  described field is `Listing(Text)`. As a result:
+  - `DataValueAlgebra.validate` rejects `Coded` against its description, and even against its own contract
+    ("Node type Listing(element=Dynamic(nullable=true)) is not assignable to Listing(element=Scalar(Text))" at
+    `/field:codes`), because `validateNode`'s per-node check is contract-level (finding 4). The same for a recursive
+    class's array of children and a Java record's `String[]` / `JavaReading[]` components;
+  - an untyped array lifts as `Listing(Dynamic?)`, unequal to `describe(Array<String>)`;
+  - a typed array lift misses `conformExpected`'s equality fast path and takes WR21's O(n) walk;
+  - an expected union with a typed listing variant answers NoMatch ("No variant in Union(…) accepts actual").
+
+  No kzen-auto production caller of `validate` was found, so no kzen-auto-level failure was reproduced.
+- **Fix** (kzen-lib `NativeClasses.heldType`, used by `runtimeContract`'s described branch in place of the star
+  projection): an object array's type is its component class reified, as the describer reads a declared `Array<T>`:
+  - `String[]` → `Array<String>` → `Listing(Text)`; `String[][]` → `Array<Array<String>>`;
+  - `Tree[]` → `Array<Tree>`, with WR17 / WR20's definitions and definition natives;
+  - `int[][]` → `Array<IntArray>` → `Listing(Listing(Int32))`.
+
+  Other classes keep the star projection; primitive arrays keep the describer's rules (`IntArray` a listing of
+  scalars, `ByteArray` Binary, `CharArray` Opaque). The Opaque, adapter and mapping paths are unchanged.
+  - **Element nullability from what is held.** The JVM lets any element be null, so each nesting level is nullable
+    where an array of that level holds a null (`arrayOf("a", null)` is `Array<String?>`, `arrayOf(arrayOf("a"), null)`
+    is `Array<Array<String>?>`), as a collection's elements are typed by what it holds. A null held against a
+    non-null `Array<String>` is rejected (`incompatibleType`), consistent with WR18's Java-record rule.
+  - **Element-type honesty kept:** the component class decides, not the content, so `arrayOf<Any>("a")` stays
+    `Listing(Dynamic)` and is still rejected by `Array<String>` (WR18's erased-token rule: `Object[]` is no
+    `String[]`).
+  - **Tokens stay star-projected** (`Array<*>`): arrays are invariant in Kotlin, so an exact `Array<String?>` token
+    would reject a declared `Array<String>`; WR18's class comparison already decides.
+  - **WR16 anchoring:** `heldType` builds the type from the value's own `Class` objects, and the per-class facts
+    (the two flat-array types, with non-null and with nullable elements) live in the `ClassValue`, so an expression
+    loader's component class is cached on that loader's class and stays releasable (`NativeTypeResolverCacheTest`
+    now describes and lifts a record holding `Item[]` and `Item[][]` from a collectable loader).
+- **Tests (new code: all pass):**
+  - **`DefaultDataAdapterRegistryTest`** (5 new):
+    - `Coded` with codes and empty: the field's contract equals the described child, the codes read, it validates
+      against its description and its own contract, the snapshot completes; the Java record `JavaCoded(String[],
+      JavaReading[])` (new fixture) likewise; untyped, typed and empty `Array<String>` lifts equal
+      `describe(Array<String>)`; an expected union selects its `Listing(Text)` variant;
+    - nested arrays and held nulls, level by level (`Grid(Array<Array<String>>)`, `Sparse(Array<String?>)`, an array
+      holding an empty array, nulls at each level), and a null into `Array<String>` rejected;
+    - a recursive `Tree(name, children: Array<Tree>)` three levels deep, directly and as `Array<Tree>`: contracts equal
+      their descriptions; it validates, snapshots and navigates;
+    - `Array<Any>` holding Strings stays `Listing(Dynamic)`, `Array<CharSequence>` lifts as its own description, and
+      `arrayOf<Any>("a", 1)` is rejected by `Array<String>`;
+    - primitive arrays keep their scalar / Binary / Opaque rules, `Array<IntArray>` included.
+  - **`DefaultNativeTypeResolverTest`** (1 new): run-time `isAssignable` accepts `Coded`, `Array<String?>` holding a
+    null, nested arrays and a `SubToken[]` as `Array<Token>`; it rejects `Object[]` holding Strings, a null into
+    `Array<String>`, `String[]` into `Array<Int>`, and an unrelated element class.
+  - **`NativeTypeResolverCacheTest`** (extended): the collectable-loader fixture gains `release.Coded(Item[] items,
+    Item[][] grid)`.
+- **Old code** (the one `runtimeContract` line reverted): all 5 new registry tests fail (contract equality or
+  `validate`; the union assertion, probed separately, with NoMatch). The resolver and cache tests pass, as WR18 /
+  WR21 already accepted arrays by what they hold.
+- **Epsilon slope** (as WR6, two passes, one JVM per point): S3 ≈ 5,936 / 5,692 B/row; S4 ≈ 3,941 / 3,952 (two more
+  passes: 3,960 / 3,971); Report ≈ 2,010 / 1,958. S4 sits ≈ 170 above WR20's ≈ 3,770, so a baseline was taken with
+  only the WR22 line reverted and republished: S4 ≈ 3,924 / 3,943. WR22 adds nothing measurable (a non-array allocates
+  nothing new: one cached-facts read and a class check); the S4 shift predates it (finding 6).
+- **Findings, not fixed:**
+  1. `describe(value: DataValue)` throws "Value holds no native object at /listing-element" for an empty array, as
+     it already did for an empty list lifted against a typed contract; no downstream caller.
+  2. An `Array<Pair<…>>` now throws at lift ("Native nullability at <root> (true) does not agree…", WR16 finding 2),
+     as a `List<Pair<…>>` already did; before, it threw only when an element was navigated.
+  3. An array whose component is abstract or an interface without a description (`Array<Number>`) now lifts as
+     `Listing(Opaque)`, its design-time description, where it lifted as `Listing(Dynamic?)` with scalar-readable
+     elements. Consistent with the describer, but a behaviour change for any caller reading such elements as
+     scalars; needs a decision if one exists.
+  4. `DataValueAlgebra.validateNode`'s nested per-node check is contract-level, not WR21's run-time rule; arrays no
+     longer reach it, but other `Dynamic`-joined nodes can.
+  5. A nested object array's held type is built per lift (`createType` per level; only flat arrays are cached per
+     class), and every array lift scans its elements for nulls (O(n), as the list join already is).
+  6. S4's Epsilon slope rose from ≈ 3,770 (WR20) to ≈ 3,930 before WR22, most likely in WR21, which shipped without
+     a measurement; not bisected.
