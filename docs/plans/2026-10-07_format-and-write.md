@@ -1,6 +1,6 @@
 # Format and Write: records to bytes as a chain of Workers — constituent plan (WR)
 
-> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR22 landed.** Written with the user after combining two flat files in a Job
+> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR22 landed; WR23 queued.** Written with the user after combining two flat files in a Job
 > (`File → Parse → Write`) failed with *Write expects file content; received java.util.LinkedHashMap*.
 >
 > **Relation to other documents:**
@@ -610,6 +610,19 @@ described class → that class's contract, primitive arrays per the existing ref
 how the describer treats `Array<T>` at design time. *Tests:* `Coded(codes: Array<String>)` lifts, validates and
 navigates; nested arrays; an array of a recursive class; an empty array.
 
+**WR23 — contract equality without allocation** (user-approved 2026-10-08, found by the S4 allocation bisect).
+*Problem:* `DataContract.equals` / `hashCode` allocate on every call — `equals` builds two `constraintSets` maps
+through `mapValues` even when both contracts carry no constraints. Per-row contract lookups pay it:
+`ColumnProjectionDescriptor.from`'s `computeIfAbsent` cache keyed by contract (Filter's `ValueSetFilterWorker`,
+`FormulaWorker`), ≈ 100–170 B/row sampled in both S3 and S4, plus every resolver resolution hit (WR16 finding 1).
+*Fix:* make `equals` / `hashCode` allocation-free on the common path — identity first, compare `constraintsByPath`
+directly when both are empty or sizes differ, build order-insensitive sets only when it matters (or cache a
+normalized form / the hash once per contract, contracts being immutable) — and check identity before the per-row
+cache lookups where the same contract instance recurs. Equality semantics must not change. *Tests:* equality /
+hash unchanged across constraint orderings and definitions (existing contract tests plus new ones); an allocation
+test that a hit on an equal-but-not-identical contract allocates nothing; Epsilon slope A/B for S3 and S4 against
+a worktree of the previous state in the same session, 6+ passes per side (per the bisect's noise rules).
+
 ## 6. Measurement
 
 `JobReportBenchmark` (`kzen-auto-jvm/src/test/kotlin/tech/kzen/auto/server/exec/job/bench/`), `benchJob` and
@@ -657,6 +670,7 @@ bytes/row and GC counts, and treats wall time as a secondary record.
 - [x] WR20 — definition natives through runtime contracts (2026-10-08)
 - [x] WR21 — empty collections into typed inputs (2026-10-08)
 - [x] WR22 — run-time arrays keep their element type (2026-10-08)
+- [ ] WR23 — contract equality without allocation
 
 ## 9. As-built
 
@@ -1775,3 +1789,66 @@ and `:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-
      class), and every array lift scans its elements for nulls (O(n), as the list join already is).
   6. S4's Epsilon slope rose from ≈ 3,770 (WR20) to ≈ 3,930 before WR22, most likely in WR21, which shipped without
      a measurement; not bisected.
+
+### S4 allocation bisect (2026-10-08)
+
+*Question:* WR22's finding 6 — S4's Epsilon slope read ≈ 3,941–3,971 B/row after WR22 (≈ 3,924 / 3,943 with WR22's
+line reverted) against ≈ 3,770 after WR20 (3,728 / 3,820). Real, and if so which phase?
+
+- **Method.** A/B of the two committed states, each in its own scratch worktree under `$TEMP`: *old* = kzen-lib
+  `8807fac` + kzen-auto `725b75d1` (after WR13, before WR14–WR22), *new* = kzen-lib `1836acf` + kzen-auto `8ae589b5`
+  (HEAD). Each state's kzen-lib was published to Maven Local, its kzen-auto `:kzen-auto-jvm:testClasses` compiled
+  against it, and the two kzen-lib jars on the test runtime classpath copied aside, so both states then ran straight
+  from `java` with no republishing between points: the `benchJob -PbenchEpsilon` JVM (`-XX:+UseEpsilonGC -Xmx16g`,
+  JDK 25.0.4.1), `-DbenchScenarios=S4`, `-DbenchRows=25000` / `100000`, default 1 warm-up + 3 runs. The benchmark
+  (identical in both states) got one scratch line printing every run's heap delta, not only the median's. Six
+  passes, one JVM per point, old and new interleaved and their order alternated per pass; slope = (total at 100k −
+  total at 25k) / 75k, from the mean of each JVM's 3 runs (the as-builts' reading, the run of median wall time, in
+  brackets).
+
+  | Pass | Old (B/row) | New (B/row) |
+  |---|---:|---:|
+  | 1 | 3,829 [3,884] | 4,025 [4,017] |
+  | 2 | 3,998 [4,004] | 3,734 [3,721] |
+  | 3 | 3,901 [3,860] | 3,914 [3,908] |
+  | 4 | 3,901 [3,868] | 3,902 [3,959] |
+  | 5 | 3,834 [3,822] | 3,795 [3,678] |
+  | 6 | 3,955 [3,926] | 3,951 [3,880] |
+  | Mean (sd) | **3,903 (66)** [3,894 (64)] | **3,887 (106)** [3,861 (134)] |
+
+  Totals per run, all 18 per state: at 100k old 502.5 MB (sd 6.6, 491.7–517.9), new 502.0 MB (sd 7.7, 488.9–512.9);
+  at 25k old 209.8 MB (sd 4.0), new 210.5 MB (sd 3.5).
+- **Verdict: no regression.** New − old = −16 B/row (−33 by median run), standard error ≈ 50; a real +170 would sit
+  ≈ 3.5 σ away. The WR13 state itself measures ≈ 3,900, so WR20's 3,728 / 3,820 were low draws and WR22's
+  3,941–3,971 ordinary ones; every S4 pass recorded from WR11 to WR22 (3,728–4,070) lies inside one distribution
+  of ≈ 3,900 ± 130. WR21 needs no fix; finding 6 of WR22 is closed.
+- **JFR cross-check** (one JVM per state at 100k, `jdk.ObjectAllocationSample#throttle=3000/s`, ≈ 6,700 samples on
+  the engine threads each): the engine threads (the per-row path) differ by +69 of ≈ 5.9 KB per row, inside the
+  sampling noise (unchanged code such as `FlatFileRecord.<init>`'s `long[]` reads 81 vs 143 B/row between the two
+  JVMs). No per-row allocation site appears or disappears in WR14–WR22's code. The one site present only in the new
+  JVM (`PersistentMap.entries` iterator → `Maps.immutableEntry`) is graph definition at each run's setup
+  (`AttributeObjectDefiner.define`, `ObjectLocationMap.filterDocumentNestings`), code WR14–WR22 did not touch: a
+  fixed cost per run that cancels in the slope, scalar-replaced in one JVM and not in the other.
+- **The noise, for future thresholds.** It is per JVM, not per run: one JVM's three runs agree to a few MB, while two
+  JVMs of identical code differ by up to ≈ 20 MB at 100k. The JFR samples point at JIT outcomes (escape analysis of
+  per-row temporaries, e.g. `DataContract.equals`'s `constraintSets` maps read 65 vs 123 B/row) and at continuation
+  allocations that depend on thread interleaving (`Emitter.send`, `TransformWorker.drive`), plus Epsilon's TLAB tails
+  in the heap-used reading. One pass's slope has sd ≈ 65–135 B/row (range ≈ 350); a two-pass mean ≈ ± 70, so two
+  two-pass means differ by ≈ 100 B/row (1 σ) by chance, and a 170 B/row gap between phases is < 2 σ. Rules:
+  - Do not compare against a past phase's recorded number. Measure A/B in one session against a worktree of the
+    previous state (both published to Maven Local in turn, classpaths frozen as above), interleaved.
+  - A shift of ≈ 100 B/row needs ≈ 6–8 passes per side to clear 2 σ; with 2 passes per side, treat anything under
+    ≈ 250 B/row as noise. Read the mean of each JVM's runs, not the median-wall run.
+  - A longer span shrinks the per-row noise (25k → 250k, the `-PbenchEpsilon` default, divides it over 225k rows
+    instead of 75k; ≈ 5 GB per JVM at 250k, inside the 16 GB heap) — expected to roughly halve it, not measured.
+  - For attribution, JFR at this sampling rate resolves ≈ ± 50 B/row per site at best; a suspected site needs a
+    focused allocation test (as WR6), not a slope.
+- **Finding, not fixed (pre-existing, both states):** `JobDataValues.projection` → `ColumnProjectionDescriptor.from`'s
+  `ConcurrentHashMap.computeIfAbsent` compares each row's contract by `DataContract.equals`, which builds two
+  `constraintSets` maps (`mapValues` allocates even when empty) per comparison; `ValueSetFilterWorker` and
+  `FormulaWorker` each pay it per row (≈ 100–170 B/row sampled, S3 and S4 alike). Comparing `constraintsByPath`
+  directly when both are empty (or sizes differ) before building sets, or keying the cache by identity first, would
+  remove it.
+- **Restored:** HEAD republished from the user's trees (kzen-lib `publishToMavenLocal`, kzen-auto `publishToMavenLocal
+  -x test`; every jar re-stamped, the kzen-lib JVM jars byte-equal to the tree's builds); scratch worktrees removed
+  and pruned; kzen-lib and kzen-auto trees clean.
