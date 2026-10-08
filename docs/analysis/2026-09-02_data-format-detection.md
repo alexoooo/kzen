@@ -480,8 +480,10 @@ A schema-free, content-only delimited match consumes row one as a header only wh
 
 1. every first-row value is non-empty and unique;
 2. every value is an identifier-like label (`[A-Za-z_][A-Za-z0-9 _.-]*`); and
-3. at least one column has a stable Boolean, integer or decimal classification in subsequent non-empty rows while
-   its first-row value does not have that classification.
+3. at least one column has a stable Boolean, number (integer and decimal are one class) or ISO date/time
+   (`LocalDate`, `LocalDateTime`, `OffsetDateTime`) classification in subsequent non-empty rows while its first-row
+   value does not have that classification. *(Widened 2026-10-08, WR10: integer and decimal had been separate
+   classes, so a small numeric column mixing `14` and `12.5` gave no evidence, and dates gave none at all.)*
 
 Otherwise the resolved config uses positional labels (`c0`, `c1`, …) and emits the first row as data. All-text
 tables therefore prefer retention over guessing. A user who knows row one is a header can select or author the
