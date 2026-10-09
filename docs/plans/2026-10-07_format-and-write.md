@@ -1,6 +1,6 @@
 # Format and Write: records to bytes as a chain of Workers — constituent plan (WR)
 
-> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR22 landed; WR23 queued.** Written with the user after combining two flat files in a Job
+> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR23 landed; WR24 queued.** Written with the user after combining two flat files in a Job
 > (`File → Parse → Write`) failed with *Write expects file content; received java.util.LinkedHashMap*.
 >
 > **Relation to other documents:**
@@ -623,6 +623,17 @@ hash unchanged across constraint orderings and definitions (existing contract te
 test that a hit on an equal-but-not-identical contract allocates nothing; Epsilon slope A/B for S3 and S4 against
 a worktree of the previous state in the same session, 6+ passes per side (per the bisect's noise rules).
 
+**WR24 — test work roots left in the temp directory** (user-approved 2026-10-08, found in WR23). *Problem:* a full
+`:kzen-auto-jvm:test` run leaves `kzen-auto-test-work*` directories in `%TEMP%` (23 accumulated so far, some empty,
+some holding `code-cache` / `index` / `build`). `KzenAutoContext.forTest()` creates one per test context and
+`close()` deletes it best-effort, so a leftover means either a test context that is never closed, or a delete that
+fails silently (on Windows, typically a file still open — a jar held by an unclosed `URLClassLoader`, an index or
+log handle). *Fix:* find which tests leave roots and why (log the creating test and the swallowed delete failure);
+close every test context (shared fixtures / `@AfterAll`, or a test-scoped registry that closes stragglers), and
+release whatever handle blocks deletion at its owner rather than retrying the delete. Don't delete the existing
+leftovers from the user's `%TEMP%` — report them. *Tests:* a full suite run leaves no new `kzen-auto-test-work*`
+directory; a guard (e.g. a JUnit extension or a shutdown check in test mode) that names a test context left open.
+
 ## 6. Measurement
 
 `JobReportBenchmark` (`kzen-auto-jvm/src/test/kotlin/tech/kzen/auto/server/exec/job/bench/`), `benchJob` and
@@ -670,7 +681,8 @@ bytes/row and GC counts, and treats wall time as a secondary record.
 - [x] WR20 — definition natives through runtime contracts (2026-10-08)
 - [x] WR21 — empty collections into typed inputs (2026-10-08)
 - [x] WR22 — run-time arrays keep their element type (2026-10-08)
-- [ ] WR23 — contract equality without allocation
+- [x] WR23 — contract equality without allocation (2026-10-08)
+- [ ] WR24 — test work roots left in the temp directory
 
 ## 9. As-built
 
@@ -1852,3 +1864,82 @@ line reverted) against ≈ 3,770 after WR20 (3,728 / 3,820). Real, and if so whi
 - **Restored:** HEAD republished from the user's trees (kzen-lib `publishToMavenLocal`, kzen-auto `publishToMavenLocal
   -x test`; every jar re-stamped, the kzen-lib JVM jars byte-equal to the tree's builds); scratch worktrees removed
   and pruned; kzen-lib and kzen-auto trees clean.
+
+### WR23 — contract equality without allocation (2026-10-08)
+
+kzen-lib `./gradlew build` green (common jvmTest 488 (481 + 7 new), jsBrowserTest 402 (398 + 4 new), `kzen-lib-jvm`
+204, `kzen-lib-js` 1; 0 failed) and republished (no bump); kzen-auto `:kzen-auto-jvm:test` 1276 tests, 0 failed,
+1 skipped, and `:kzen-auto-js:compileKotlinJs` green; kzen-project compiles (`kzen-project-common:compileKotlinJvm`,
+`kzen-project-jvm:compileKotlin`). No kzen-auto change.
+
+- **Fix** (kzen-lib `DataContract`; the `constraintSets` getter is gone):
+  - `equals` stays identity first, then compares part by part; an empty map is compared by `isEmpty` alone (a JVM
+    map's `equals` / `hashCode` iterate `entrySet()`, which allocates even when empty), a non-empty one as a map;
+  - constraints compare per path without building sets: equal map sizes, then for each path the other side's list of
+    the same size containing all of them;
+  - `hashCode` is computed once and cached with `String.hashCode`'s racy single-check idiom (`cachedHash` plus a
+    `hashIsZero` flag, each written alone, no synchronization); an empty part hashes 0 without iterating, and the
+    constraints hash as the map of sets they were (per path, path hash xor the sum of its constraints' hashes).
+- **Semantics unchanged.** Every map is still compared as a map (an empty one equals only an empty one). Constraints
+  remain a map of sets: validation admits at most one constraint per kind per path and equal constraints share a
+  kind, so a list never repeats and equal size plus `containsAll` is set equality; equal map sizes plus each path
+  present is equal key sets. The hash value is bit-identical to the old one (an empty map hashes 0, a set the sum of
+  its elements). Caching is sound because a contract is immutable: its maps are defensive copies, `DataType`,
+  `TypeMetadata` (copies its generics), `ClassName`, `ScalarKind`, `SymbolSet` and `MetadataContract` are immutable,
+  and `DataContract` is final.
+- **Per-row lookups: no caller change needed.** Kotlin's `==` / `!=` go through `equals`, which already starts with
+  `this === other`, so `FormulaWorker` / `FilterWorker` / `RunWorker.compiledForContract`, `MetadataShape.fits`
+  (explicitly `!==` first) and `conformExpected`'s fast path already check identity first. The contract-keyed
+  `ConcurrentHashMap`s (`ColumnProjectionDescriptor.from`'s `computeIfAbsent`, reached from `ValueSetFilterWorker`,
+  `FormulaWorker` and `PivotWorker` through `JobDataValues.projection`; `WriterColumns` / `PathProjectionWorker`
+  `boundFor`; the resolver's `lastingResolutions` / `anchoredResolutions`) check identity only after `hashCode`,
+  which was the allocating part and is now cached. `JobDataValues.flatHeaders` is keyed by `HeaderListing` (cached
+  digest), not a contract. `DataType.Record` / `SingletonList` equality measured 0 B under C2, so `DataType` is
+  unchanged.
+- **Tests:**
+  - **`DataContractEqualityTest`** (commonTest, 4 new, JVM and JS): equal parts in any insertion order (and an
+    `ofExecutionValue` round trip) are equal with equal hashes; each of 11 single-part variants (structure, a native,
+    a missing native, a definition, a definition native, a missing definition native, symbol order, a missing
+    constraint, no constraints, no metadata, metadata constraints) is unequal; a 15-contract matrix agrees pairwise
+    with a reference built on `mapValues { it.value.toSet() }`, hashes included (a child equals the same contract
+    built directly; an empty constraint list is no constraint); metadata contracts compare by their contract.
+  - **`DataContractAllocationTest`** (jvmTest, 3 new), over a parsed row (8 Text fields, metadata `parent{name,
+    path}`) and a native record (natives at the root and each field): comparing two equal, distinct contracts; the
+    first hash of freshly built contracts; a contract-keyed `ConcurrentHashMap` `get` and `computeIfAbsent` on an
+    equal, distinct contract. Each under 1 B per operation (min of 3 rounds of 50,000 after warm-up).
+  - **`NativeTypeResolverCacheTest.cacheHitsAllocateNothing`** now asserts a resolve hit directly, no longer
+    subtracting a contract-keyed map lookup's cost.
+- **Old code** (kzen-lib `1836acf` in a scratch worktree, the new tests copied in): the equality tests pass; all 3
+  allocation tests fail: per comparison 240 B (parsed row) / 152 B (native record), per first hash 224 / 112, per
+  map `get` 416 / 240; the tightened resolve hit fails at 168 B per hit. **New code:** 0 B in all of them.
+- **Epsilon slope A/B** (per the bisect's rules, one session): *old* = kzen-lib `1836acf`, *new* = the working tree;
+  both against one kzen-auto `8ae589b5` worktree's `:kzen-auto-jvm:testClasses` classpath, frozen per state (the two
+  kzen-lib jars swapped), run straight from `java` (`-XX:+UseEpsilonGC -Xmx16g`, JDK 25.0.4.1), `-DbenchRows=25000`
+  / `100000`, 1 warm-up + 3 runs; six passes, order alternated per pass, 48 JVMs; slope from each JVM's mean (median
+  wall-time run in brackets).
+
+  | Pass | S3 old | S3 new | S4 old | S4 new |
+  |---|---:|---:|---:|---:|
+  | 1 | 5,650 [5,630] | 5,360 [5,375] | 3,860 [3,859] | 3,691 [3,737] |
+  | 2 | 5,870 [5,968] | 5,289 [5,296] | 3,878 [3,911] | 3,714 [3,777] |
+  | 3 | 5,919 [6,110] | 5,377 [5,376] | 3,918 [3,933] | 3,608 [3,655] |
+  | 4 | 5,833 [5,825] | 5,358 [5,341] | 3,896 [3,946] | 3,609 [3,620] |
+  | 5 | 5,847 [5,834] | 5,324 [5,406] | 3,906 [3,982] | 3,631 [3,626] |
+  | 6 | 5,889 [5,885] | 5,466 [5,450] | 3,932 [4,066] | 3,652 [3,650] |
+  | Mean (sd) | **5,835 (95)** | **5,362 (60)** | **3,898 (26)** | **3,651 (44)** |
+
+  - S3: new − old = **−472 B/row, SE 46** (≈ 10 σ). Totals per run (18 per state): at 25k 258.6 → 245.7 MB, at 100k
+    696.2 → 647.9 MB.
+  - S4: new − old = **−247 B/row, SE 21** (≈ 12 σ). At 25k 211.4 → 203.5 MB, at 100k 503.8 → 477.3 MB.
+  - Report (same JVMs, a control): S3's 1,988 → 2,006 (+18, SE 11), S4's 2,006 → 2,011 (+4, SE 3); unchanged.
+  - Both gains exceed the bisect's ≈ 100–170 B/row JFR sample, S3's most; per site not attributed.
+- **Findings, not fixed:**
+  1. Two equal, distinct contracts with non-empty maps still compare them through `Map.equals`, whose iterators
+     measured 0 B under C2 (escape analysis), not guaranteed under another JIT outcome.
+  2. `DataType` / `TypeMetadata` hashes are not cached; only the contract's is, so a freshly built contract walks its
+     structure once on its first hash.
+  3. The `:kzen-auto-jvm:test` run left two empty `kzen-auto-test-work*` dirs in `%TEMP%` (older ones from earlier
+     dates exist too): a `forTest()` context some test does not close; not traced.
+  4. WR16 finding 3 (the resolver's unbounded contract-keyed caches) stands.
+- **Restored:** kzen-lib republished from the user's tree with WR23 (the published jars byte-equal to `build/libs`);
+  kzen-auto unchanged, Maven Local holding its HEAD build; scratch worktrees removed and pruned.
