@@ -1,6 +1,6 @@
 # Format and Write: records to bytes as a chain of Workers — constituent plan (WR)
 
-> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR23 landed; WR24 queued.** Written with the user after combining two flat files in a Job
+> **Status: planned 2026-10-07; WR1–WR6 landed 2026-10-07; WR7 closed by its gate; follow-ups WR8–WR10 landed; WR11–WR26 landed.** Written with the user after combining two flat files in a Job
 > (`File → Parse → Write`) failed with *Write expects file content; received java.util.LinkedHashMap*.
 >
 > **Relation to other documents:**
@@ -634,6 +634,23 @@ release whatever handle blocks deletion at its owner rather than retrying the de
 leftovers from the user's `%TEMP%` — report them. *Tests:* a full suite run leaves no new `kzen-auto-test-work*`
 directory; a guard (e.g. a JUnit extension or a shutdown check in test mode) that names a test context left open.
 
+**WR25 — kit verify leaves its temp module root** (user-approved 2026-10-08, WR24 finding 3). *Problem:* production
+code — `PluginCompatibilityKit.verify` creates a `kzen-kit-module*` temp module root and never deletes it, so every
+plugin verify (and `CompatibilityKitBootTest`) leaves one in the temp directory (109 accumulated). *Fix:* the verify
+owns the root: delete it when verification ends (success or failure), after closing whatever holds files in it (the
+module's `URLClassLoader`, scopes); log a failed delete rather than failing verification. *Tests:* a verify — passing
+and failing — leaves no `kzen-kit-module*` directory.
+
+**WR26 — tests clean up their temp files** (user-approved 2026-10-08, WR24 finding 2). *Problem:* besides the
+work roots WR24 fixed, a full `:kzen-auto-jvm:test` run leaves ≈ 59 temp entries (`file-source-*`,
+`read-worker-file-cache*`, `universe*`, `schema-cache-*`, …), `pluginUniverseTest` ≈ 35 (`module*`, `universe*`,
+`work-*`, `kit-verify*`), and kzen-lib's JVM tests (`kzen-native-types-*`, `kzen-bean-shape-*`, `kzen-recursive-*`,
+`origin*`, `aggregate*`) and the kzen-auto-test self-test (`kzen-sut-*`) leave more. *Fix:* each test deletes what it
+creates (JUnit `TemporaryFolder` / `@TempDir`-style ownership, `use {}` / `finally`), releasing open handles first;
+fix any main-code owner that leaks on a test's behalf at the owner, as WR25 does. Not by redirecting the test temp
+directory, which would hide leaks. *Tests:* before/after temp-directory listings for each suite show no new entries;
+extend WR24's guard only if a cheap general check exists.
+
 ## 6. Measurement
 
 `JobReportBenchmark` (`kzen-auto-jvm/src/test/kotlin/tech/kzen/auto/server/exec/job/bench/`), `benchJob` and
@@ -682,7 +699,9 @@ bytes/row and GC counts, and treats wall time as a secondary record.
 - [x] WR21 — empty collections into typed inputs (2026-10-08)
 - [x] WR22 — run-time arrays keep their element type (2026-10-08)
 - [x] WR23 — contract equality without allocation (2026-10-08)
-- [ ] WR24 — test work roots left in the temp directory
+- [x] WR24 — test work roots left in the temp directory (2026-10-08)
+- [x] WR25 — kit verify leaves its temp module root (2026-10-08)
+- [x] WR26 — tests clean up their temp files (2026-10-08)
 
 ## 9. As-built
 
@@ -1943,3 +1962,192 @@ kzen-lib `./gradlew build` green (common jvmTest 488 (481 + 7 new), jsBrowserTes
   4. WR16 finding 3 (the resolver's unbounded contract-keyed caches) stands.
 - **Restored:** kzen-lib republished from the user's tree with WR23 (the published jars byte-equal to `build/libs`);
   kzen-auto unchanged, Maven Local holding its HEAD build; scratch worktrees removed and pruned.
+
+### WR24 — test work roots left in the temp directory (2026-10-08)
+
+kzen-auto `:kzen-auto-jvm:test` 1276 tests, 0 failed, 1 skipped (12m34s on a loaded machine; the instrumented
+diagnosis run of the same suite took 3m53s, the guard adds one stack capture per `forTest()` context, ≈ 490 per run);
+`:kzen-auto-jvm:pluginUniverseTest` 8 green; kzen-auto republished (`publishToMavenLocal -x test`, no bump); kzen-project
+compiles (`kzen-project-common:compileKotlinJvm`, `kzen-project-jvm:compileKotlin`). No common code changed.
+
+- **Diagnosis.** Temporary instrumentation in `KzenAutoContext` recorded each `forTest()` root with its creating stack,
+  dropped it on `close()`, logged every swallowed delete failure and any root still on disk after close, and listed
+  the roots still open at JVM exit; an init script pointed the test JVMs' `java.io.tmpdir` at a scratch directory, so
+  everything the suite left behind was attributable to it. Six forks, 492 contexts: 490 closed and deleted, **no
+  delete failed**; **2 never closed**, `FlowTypedPortTest.listPortAcceptsAnEmptyList` and `mapPortAcceptsAnEmptyMap`
+  (WR21). Each runs its flow twice, and `engineFor` reassigned the `lateinit` context, so `@AfterTest` closed only the
+  second; the first one's root stays empty because the flow writes nothing to it. That is the pair of empty dirs
+  every full run has left since WR21 (2026-10-08 16:22 onward in `%TEMP%`).
+- **Held handles: not reproduced.** The shared `kzen-auto-test-code-cache` root was deleted by its shutdown hook in
+  every run here. The user's older leftovers that hold files (9 code-cache roots with `JobExpression_*` jars, 3 work
+  roots from 2026-10-07 with `index` / `build`) fit a JVM that exited while a loader or an index handle was still
+  open (a single-class or interrupted run, or an earlier state of the code); nothing in the current suite does it.
+- **Fix.** `FlowTypedPortTest.engineFor` creates the test's context once and reuses it for the second run.
+- **Guard.** `TestContextLeakGuard` (kzen-auto-jvm `server.context`, internal): `forTest()` registers its work root
+  with the creating frames (test framework, reflection and coroutine frames dropped, so the helper and the test
+  method show), `close()` removes it, and a shutdown hook logs every root still open at JVM exit. kzen-auto-jvm's
+  build sets `kzen.test.unclosedContextReportDir` (`build/unclosed-test-contexts/<task>`) on every `Test` task: the
+  hook writes its report there, the task clears the directory first and fails in `doLast` when a report exists,
+  naming each root and its creator. Keyed by work root, not by context, so a leaked context is not kept reachable.
+  Production contexts never touch it; elsewhere (IDE runs, kzen-project's tests) it only logs. Checked against the
+  unfixed test: `--tests "*FlowTypedPortTest"` failed with both roots named by
+  `FlowTypedPortTest.engineFor ← runFlowResult ← listPortAcceptsAnEmptyList` / `… ← mapPortAcceptsAnEmptyMap`. The
+  swallowed delete failure was already logged at warn (`deleteTemporaryWorkRoot`); unchanged.
+- **`%TEMP%` before / after a full run:** 32 `kzen-auto-test-*` dirs before and after, no new `kzen*` entry. The
+  user's pre-existing leftovers are untouched: 444 `kzen*` dirs (≈ 1.2 MB), among them 23 `kzen-auto-test-work*`
+  (20 holding no files, ≈ 5 KB in all), 9 `kzen-auto-test-code-cache*` (≈ 450 KB), 109 `kzen-kit-module*` (≈ 700 KB). Leftovers of
+  this phase's own runs were recorded and deleted (verified by creation time and name).
+- **Findings, not fixed:**
+  1. The same reassignment (`context = KzenAutoContext.forTest()` inside a helper, closed by `@AfterTest`) is in
+     about 20 other classes (`FlowNotationTest`, `FlowCapabilityTest`, `JobDeadlockTest`, `JobNotationTest`,
+     `JobElementModelTest`, …): sound while each test calls the helper once; the guard now fails a second call.
+  2. The suite still leaves 59 temp entries per run under other prefixes, from tests that create a temp file or dir
+     and never delete it: `file-source-*` (20), `read-worker-file-cache*` (9), `universe*` (8), `schema-cache-*` (5),
+     `inspection-*` (4), `shape-*` (3), `column-listing*` (2), `cached-kotlin-compiler-storage-test*` (2), and single
+     ones; `pluginUniverseTest` leaves about 35 more (`module*`, `universe*`, `work-*`, `kit-verify*`). Pointing the
+     test tasks' `java.io.tmpdir` into `build/` would contain them all, but hides rather than fixes; a decision.
+  3. `PluginCompatibilityKit.verify` (main code) never deletes its `kzen-kit-module*` module root: one per verify,
+     from `CompatibilityKitBootTest` in `pluginUniverseTest` and from every kit verify of a plugin.
+  4. kzen-lib's jvmTest leaves `kzen-native-types-*`, `kzen-bean-shape-*`, `kzen-recursive-*`, `origin*` and
+     `aggregate*` per run; the kzen-auto-test self-test leaves `kzen-sut-*`. Outside `:kzen-auto-jvm:test`.
+
+### WR25 — kit verify leaves its temp module root (2026-10-08)
+
+Landed with WR26, which carries the runs: `pluginUniverseTest` 8 green, `:kzen-auto-jvm:test` 1276 tests, 0 failed,
+1 skipped; kzen-auto republished (`publishToMavenLocal -x test`, no bump); kzen-project compiles.
+
+- **Fix.** `PluginCompatibilityKit.verify` deletes its `kzen-kit-module*` module root in a `finally`. It runs after an
+  inner `finally` has closed the verification context that holds files in the root, so a verify that passes, fails
+  or throws ends the same way. The delete goes through `WorkUtils.deleteDirThrowing`. If it fails, the root is logged
+  at warn and the verify does not fail. Nothing returned refers to the root: the `KitReport` carries scope, class and
+  document rows, all taken from the pinned universe.
+- **Same file, `inspect`.** Inspect pins nothing, so it owns the scopes' class loaders. Until now it closed them only
+  on the success path, after building the rows. A boot error in contribution discovery left the plugin jars open
+  until garbage collection, and on Windows an open jar cannot be deleted or replaced. Inspect now closes the loaders
+  in a `finally` through the new `PluginScopes.closeFolderLoaders()`. That function is internal and only for a
+  universe that is not pinned. The rows are now built in a new `inspectScopes`.
+- **Test.** `CompatibilityKitBootTest` records the `kzen-kit-module*` entries of `java.io.tmpdir` before its passing
+  verify and checks for the same set afterwards. It checks again after a second verify that fails because an expected
+  class is missing. Before the fix it failed on the first comparison.
+- **Production impact.** Each kit verify of a plugin left one module root in the system temp directory for good. The
+  user's `%TEMP%` holds 109 of them (≈ 700 KB). Now none are left.
+
+### WR26 — tests clean up their temp files (2026-10-08)
+
+Results:
+- kzen-auto: `:kzen-auto-jvm:test` 1276 tests, 0 failed, 1 skipped, and `:kzen-auto-jvm:pluginUniverseTest` 8 green
+  (11m15s together on a loaded machine). Republished with `publishToMavenLocal -x test`.
+- kzen-lib: `build publishToMavenLocal --rerun-tasks` green in 1m27s (jvmTest 488, jvm test 204, js 402 + 1 skipped).
+- kzen-project compiles (`kzen-project-common:compileKotlinJvm`, `kzen-project-jvm:compileKotlin`), and kzen-auto-test
+  compiles (main and test).
+- The self-test was not run, because it drives a non-headless Chrome.
+- No version bump, and no common code changed.
+
+- **Attribution.** WR24's method: a Gradle init script pointed each test task's `java.io.tmpdir` at its own scratch
+  directory for one diagnostic run (`--no-configuration-cache -I …`). Every leftover then belonged to one suite, and
+  each name was traced to the test that creates it. Baseline leftovers per suite:
+
+  | Suite | Leftovers |
+  |---|---|
+  | `:kzen-auto-jvm:test` | 59 |
+  | `pluginUniverseTest` | 35 |
+  | kzen-lib `jvmTest` | 4 |
+  | `kzen-lib-jvm:test` | 7 |
+
+  - `:kzen-auto-jvm:test`. Most leftovers are temp dirs and files that the `WorkUtils.temporary` and
+    `Files.createTempDirectory` callers create and never delete:
+    - `file-source-*`, `shape-*`, `invalid-delimiter-quote` and `2026-08-sales` (22, `FileDataSourceTest` and
+      `FileDataSourceFormatBudgetTest`)
+    - `read-worker-file-cache` (9, `ReadWorkerFileIntegrationTest`, one schema cache per instance)
+    - `schema-cache-*` (5, `SchemaCacheTest`)
+    - `inspection-*` and `*-reader-spi` (7, `ReaderCapabilityRegistryTest` and `SequentialContentStackTest`)
+    - `column-listing*` (2)
+    - `kit` and `kit-boot` (`PluginCompatibilityKitTest`)
+
+    Two groups also **held open files**, so even a delete would have failed on Windows:
+    - `universe*` (8, `PluginScopeDiscoveryTest` and `PluginContributionDiscoveryTest`): the discovered scopes'
+      `URLClassLoader`s keep their jars open.
+    - `cached-kotlin-compiler-storage-test*` (2): the compiler's loaded entries keep their jars open.
+  - `pluginUniverseTest`. Every boot test leaves its `module*`, `universe*`, `work-*` and `kit-verify*` dirs, and the
+    kit leaves its own `kzen-kit-module*` (WR25). These dirs hold the pinned universe's jars, which stay open for the
+    JVM's life for two reasons:
+    - The scope loaders keep them open.
+    - The standing Kotlin compiler environment is deliberately never disposed. Its `FastJarFileSystem` keeps every
+      jar an expression compiled against memory-mapped.
+
+    Closing the loaders alone still failed the delete in `CompatibilityKitBootTest` and
+    `AggregateExpressionBootTest`.
+  - kzen-lib:
+    - `kzen-native-types-*`, `kzen-recursive-*` and `kzen-bean-shape-*` are the compiled-class dirs of
+      `DefaultNativeTypeResolverTest`, `RecursiveContractTest` and `PlainObjectShapeTest`.
+    - `origin*` (`OriginNotationMediaTest`) and `aggregate*` (`AggregateClassLoaderTest`) also held their jars.
+      `OriginNotationMedia` read each document through a cached `jar:` connection. That parks the jar in the JDK's
+      process-wide jar file cache for good, so the jar stayed open after its loader was closed.
+  - Self-test (by reading only, not run):
+    - The 45 empty `kzen-sut-*` dirs in `%TEMP%` date from 2026-05-24 to 2026-07-28. SUT runs on 2026-08-06, 07 and
+      13 left none, which fits the identity-checked `removeAndClose` of 2026-07-29. Not reproduced.
+    - The live leak is the SUT's work root. The SUT runs with its temp dir as its cwd, so the standalone default
+      `../work` resolved to `%TEMP%\work`. That dir is shared by every SUT of every run and never deleted; it holds
+      102 code-cache dirs since 2026-05-24.
+- **Main-code owners fixed, with production impact.**
+  1. `PluginCompatibilityKit.verify` and `inspect`: see WR25.
+  2. `KzenAutoRuntime.initialize`: if contribution discovery failed, the scope loaders it had just opened were never
+     released. Scope discovery opens jars lazily, so its own boot errors hold none. In production, an embedding host
+     that failed to boot over a bad plugin folder could not replace those jars on Windows until GC. The loaders are
+     now closed before the error is rethrown.
+  3. `OriginNotationMedia` (kzen-lib) now reads with `useCaches = false`. In production, every plugin scope's
+     bundled-notation jar was held twice for the life of the process. That was harmless to a pinned universe, but the
+     hold outlived the closed loaders of kit `inspect` and of failed boots. Now only the loaders hold the jars.
+  4. kzen-auto-test: `StartKzenAutoStep` starts the SUT with `--work.root=<temp dir>/work`, so the work root is
+     deleted with the temp dir; `KzenAutoProcess.startFromJar` gained `args` for this. `KzenAutoSubprocessRegistry`
+     now prints a failed temp-dir delete instead of swallowing it. The cost: there is no warm code cache across SUT
+     runs, so SUT expressions compile cold.
+- **Test fixes.**
+  - JUnit 4 classes own their temp files through
+    `@get:Rule val temp = TemporaryFolder.builder().assureDeletion().build()`: `FileDataSourceTest`,
+    `FileDataSourceFormatBudgetTest`, `ColumnListingActionTest`, `SchemaCacheTest`, `ReaderCapabilityRegistryTest`,
+    `SequentialContentStackTest`, `PluginCompatibilityKitTest`, `PluginScopeDiscoveryTest` and
+    `PluginContributionDiscoveryTest`. If the delete fails, the test fails.
+  - The two discovery tests close every `PluginScopes` they discovered in `@After`, which runs before the rule
+    deletes.
+  - `CachedKotlinCompilerStorageTest` calls `releaseLoaded()` on each compiler, then `WorkUtils.deleteDirThrowing`.
+  - `ReadWorkerFileIntegrationTest` deletes its cache root in `@After`.
+  - The eight boot tests use the new test-side `BootTemporaryFolder`. Before deleting, it closes the pinned
+    universe's folder loaders and empties the compiler environment's open-jar cache (`cleanOpenFilesCache()`). That
+    is safe because each boot class has a JVM of its own (`forkEvery = 1`).
+  - kzen-lib's tests delete in `@AfterTest` or `finally`, using `kotlin.test` as its guide requires.
+- **Guard.** There is no suite-level diff of the temp directory. Forks run in parallel over one shared
+  `java.io.tmpdir`, and the user's own processes write there too, so such a check would be flaky. The guard is per
+  test instead: `assureDeletion()` fails any test whose files cannot be deleted, which is how the held-handle cases
+  above were found. The durable rule is in kzen-auto's and kzen-lib's AGENTS.md.
+- **`%TEMP%` before / after.**
+  - Redirected run after the fix: all four suite directories are **empty** (kzen-auto 0 + 0, kzen-lib 0 + 0).
+  - Unredirected run over the user's real `%TEMP%` (kzen-lib `jvmTest` + `jvm:test`, then kzen-auto `test` +
+    `pluginUniverseTest`, all with `--rerun`): 451 `kzen*` entries before and 451 after, with no new entry from any
+    suite.
+  - The only new names were zero-byte GUID `*.tmp` files and a `foundation-coordinate-*` dir, and most of them were
+    already gone again. They come from processes outside the test JVMs: the redirected runs catch everything a test
+    JVM writes, and they stayed empty.
+  - The user's pre-existing leftovers are untouched.
+- **Findings, not fixed:**
+  1. kzen-lib's `jsBrowserTest` (KGP's karma + webpack) leaves a `_karma_webpack_*` dir of 4–8 MB per run. The user's
+     `%TEMP%` holds 1662 of them. This is KGP tooling, outside the JVM suites. This phase's own full kzen-lib build
+     added two of them and a `chrome_chrome_url_fetcher_*` dir, which were not deleted here.
+  2. The standing Kotlin compiler environment keeps every jar an expression compiled against memory-mapped for the
+     life of the process. That is consistent with a pinned universe ("restart to upgrade"). Code-cache jars were
+     deleted fine.
+  3. `WorkUtils.temporary(name)` is main code that only tests used. The tests no longer use it; it is left in place.
+  4. The WR25 check lists the whole system temp directory (≈ 24k entries on this machine) twice per verify. That is
+     fine for one boot test.
+  5. The 45 old `kzen-sut-*` dirs and `%TEMP%\work` belong to the user and were left as they are.
+- **Follow-up (2026-10-09, user-approved): findings 1 and 4 fixed.**
+  - Finding 1: karma-webpack defaults `output.path` to a fresh `os.tmpdir()/_karma_webpack_<random>` that nothing
+    deletes. A `karma.config.d/webpack-output.js` in every module that runs browser tests (`kzen-lib-common`,
+    `kzen-lib-js`, `kzen-auto-common`, `kzen-auto-js`, `kzen-launcher-common`) points it at
+    `build/js/packages/<module>-test/karma-webpack`, emptied at the start of each run. All five `jsBrowserTest
+    --rerun` runs pass and add no `%TEMP%` entry. kzen-project has no browser tests and has no copy.
+  - Finding 4: `PluginCompatibilityKit.verify` gained an internal overload that takes the temporary parent.
+    `CompatibilityKitBootTest` passes its own folder and asserts it is empty after a passing and a failing verify.
+    `pluginUniverseTest` 8 green.
+  - With the user's approval, 1664 old `_karma_webpack_*` dirs (≈ 317 MB) and 109 old `kzen-kit-module*` dirs were
+    deleted from `%TEMP%`.

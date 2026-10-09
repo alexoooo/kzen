@@ -207,7 +207,9 @@ without execution; `◇` gated and not schedulable until its named gate opens.
 | WR21 | **WR21** — empty collections into typed inputs | An empty run-time List / Set / Map satisfies a typed Flow input; design-time assignability unchanged | WR · WR21 | [WR plan](2026-10-07_format-and-write.md) | ☑ 2026-10-08 |
 | WR22 | **WR22** — run-time arrays keep their element type | Lifted arrays carry the component type's element contract (`Array<String>` fields) | WR · WR22 | [WR plan](2026-10-07_format-and-write.md) | ☑ 2026-10-08 |
 | WR23 | **WR23** — contract equality without allocation | `DataContract.equals` / `hashCode` allocation-free on the common path; per-row contract-keyed lookups (Filter, Formula, resolver hits); same-session Epsilon A/B | WR · WR23 | [WR plan](2026-10-07_format-and-write.md) | ☑ 2026-10-08 |
-| WR24 | **WR24** — test work roots left in the temp directory | kzen-auto test contexts closed and their work roots deleted (unclosed contexts / held file handles); guard naming a context left open | WR · WR24 | [WR plan](2026-10-07_format-and-write.md) | ☐ |
+| WR24 | **WR24** — test work roots left in the temp directory | kzen-auto test contexts closed and their work roots deleted (unclosed contexts / held file handles); guard naming a context left open | WR · WR24 | [WR plan](2026-10-07_format-and-write.md) | ☑ 2026-10-08 |
+| WR25 | **WR25** — kit verify leaves its temp module root | `PluginCompatibilityKit.verify` deletes its `kzen-kit-module*` root (production leak) | WR · WR25 | [WR plan](2026-10-07_format-and-write.md) | ☑ 2026-10-08 |
+| WR26 | **WR26** — tests clean up their temp files | kzen-auto / pluginUniverse / kzen-lib JVM / self-test suites leave no temp entries | WR · WR26 | [WR plan](2026-10-07_format-and-write.md) | ☑ 2026-10-08 |
 
 **~40 sessions.** Rows 1–8 are the strategic spine and the bulk of the value; rows 9–14 unblock
 third-party extensibility; rows 15–19 ship the desktop app; the rest are close-out. Rows 30–32 are
@@ -330,7 +332,7 @@ disambiguation branch untested; only `BindStep`'s picker driven end-to-end).
     a design gate after CX7, not authorization to lift `context` mechanically onto every Logic flavour.
 14. **WR1 → WR2 → WR3 → WR4 → WR5; WR6 → WR7 after WR2.** WR1 is independent and can start any time. WR2 changes
     `JobChannel` and the drive loops, and WR6 changes `ConfiguredDelimitedReader` / `DataReadCore`: serialize both with
-    J5b and J7. WR8 → WR9 after the flaky-test fix (same files as WR3/WR4); WR10 is independent. WR12 → WR11 → WR13 (all build kzen-auto and republish kzen-lib); WR14 → WR15 → WR16 after WR13 (same kzen-lib data layer; WR16 rewrites WR13's resolver caches); WR17 → WR18 → WR19 → WR20 after WR16 (WR15's findings; WR17 and WR18 touch WR16's resolver); WR21 → WR22 after WR20 (WR18's findings); WR23 after WR22; WR24 independent (kzen-auto tests only). **J5b's reuse item moves to WR** (WR2/WR7); J5b keeps IO batching and headless mode. Rule 3's
+    J5b and J7. WR8 → WR9 after the flaky-test fix (same files as WR3/WR4); WR10 is independent. WR12 → WR11 → WR13 (all build kzen-auto and republish kzen-lib); WR14 → WR15 → WR16 after WR13 (same kzen-lib data layer; WR16 rewrites WR13's resolver caches); WR17 → WR18 → WR19 → WR20 after WR16 (WR15's findings; WR17 and WR18 touch WR16's resolver); WR21 → WR22 after WR20 (WR18's findings); WR23 after WR22; WR24 independent (kzen-auto tests only); WR25 → WR26 after WR24. **J5b's reuse item moves to WR** (WR2/WR7); J5b keeps IO batching and headless mode. Rule 3's
     constraints bind WR: reuse is benchmark-convicted (WR7's gate) and carryover transfers holds, never recycles.
 
 ## Carried over from Sprint 2
