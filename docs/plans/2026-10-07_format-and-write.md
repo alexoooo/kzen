@@ -664,8 +664,9 @@ bytes/row and GC counts, and treats wall time as a secondary record.
    the writer quotes it or refuses it.
 2. **Pool idle cap** (WR2): recommendation is none. Keeping a value forfeits it (§4.6 D5), so the pool never holds
    more than the peak in-flight count. At most, add a large defensive ceiling.
-3. **Chunk coalescing** (after WR3): whether one record per chunk measures as a cost worth the checkpoint
-   interaction.
+3. ~~**Chunk coalescing**~~ (after WR3) — **settled 2026-10-10 (J5b):** a chunk per record cost `Write` a
+   blocking trip per row; `Format` now sends a chunk per input batch and group, flushed at the batch's end
+   (`TransformWorker.onBatchEnd`), so no checkpoint finds one half-filled.
 4. ~~**`skipLeadingLines` on write**~~ — **settled 2026-10-07 (user):** the encoder writes that many empty lines
    after the BOM and before the header, so such a format round-trips.
 5. ~~**Live edit mid-output**~~ (found in WR4): a restarted `Write` drops its temporary, but chunks still in flight

@@ -1,6 +1,6 @@
 # Format groups and Write naming — constituent plan (FG)
 
-> **Status: landed 2026-10-09 (FG1–FG3); see §8.** Written with the user after running the two-file combine that
+> **Status: landed 2026-10-09 (FG1–FG3), FG4 2026-10-10; see §8.** Written with the user after running the two-file combine that
 > WR5 verified (`File → Parse → Format(CSV) → Write(gz)`) and reading its cards. Reviewed the same day for
 > needless complexity and shortcuts; six changes folded in (no transitional protocol, `""` as the ungrouped group,
 > per-output encoder state, `format` carries only its extension, template parts from the Kotlin parser, Windows
@@ -14,7 +14,7 @@
 > - **Uses** the Job expression compiler (`JobExpressionCompiler`, shared by Filter, Formula and Formula source)
 >   and the Kotlin parser `KotlinSyntaxValidator` already runs (`KtPsiFactory`). No new expression mechanism.
 >
-> The [master ledger](2026-07-25_master-plan.md) owns sequencing (rows FG1–FG3). Each landed row appends its
+> The [master ledger](2026-07-25_master-plan.md) owns sequencing (rows FG1–FG4). Each landed row appends its
 > as-built under §8.
 
 ## 1. Symptoms (observed)
@@ -263,6 +263,14 @@ One row, because the two sides are coupled: `Format`'s name carries the extensio
 - **Docs:** kzen-auto `docs/architecture.md` (WR3 / WR4 paragraphs: groups and the end mark replace names) and
   the `AGENTS.md` gotcha "Records reach a file only through `Format → Write`".
 
+### FG4 — column table, rates, written paths
+
+Added 2026-10-10 from the user's reading of the FG3 cards: the columns editor as a table like Report's Analysis
+(checkboxes, Allow / Exclude patterns, the `as` name in the row, collapsed to a summary); a rate beside each
+progress (MB/s, rows/s), and the File card's row as its own progress bar; Write saying which files it writes, by
+absolute path. Decided with the user: a checkbox writes exact-name patterns, so the patterns are the whole
+selection.
+
 ## 6. Open questions
 
 1. ~~**Card wording** for `groupEnd` (FG3)~~ — resolved in FG3: "Write each file: At the end / When the group
@@ -273,6 +281,7 @@ One row, because the two sides are coupled: `Format`'s name carries the extensio
 - [x] FG1 — progress in words (2026-10-09)
 - [x] FG2 — `Format` groups, `Write` names (2026-10-09)
 - [x] FG3 — cards and help text (2026-10-09)
+- [x] FG4 — column table, rates, written paths (2026-10-10)
 
 ## 8. As-built
 
@@ -445,3 +454,91 @@ happen) keep theirs.
      default adds the format's extension. As planned; a user who wants `a.csv.gz` writes File name
      `${group.substringBeforeLast('.')}${extension}`.
   2. The insert button is aligned with the field's top, so the type shown below the field does not push it down.
+
+### FG4 — column table, rates, written paths (2026-10-10)
+
+kzen-auto `./gradlew build`: 1,306 tests, with one failure that is a timing flake.
+`OwnershipBoundaryTest.aSourceStalledBehindASortWarnsNamingTheSortOnlyAfterTheInterval` saw `Failed` instead of
+`Cancelled`: the fixture's fixed 5 s permit wait (`OwnedSourceWorker.permitTimeoutSeconds`) expired under the
+build's load before the test cancelled. The class passed 3 of 3 runs alone. The first full build also caught a
+real bug, fixed: on JS a pattern that does not compile throws the native `SyntaxError`, which is a Kotlin
+`Throwable` but no `Exception`, so `ColumnPatterns` catches `Throwable`. Without the fix, typing `(` would have
+broken the editor. After the review follow-up (below), the full build is green.
+
+- **`*` narrows and renames.** `WriterColumn.PayloadFields` is a data class: `ColumnPatterns` (allow, exclude) and
+  `renames`. Its notation is a bare `"*"` while it does neither; otherwise the map
+  `{path: "*", allow: [..], exclude: [..], as: {c1: value}}`, beside the `{path, as}` of a path column, so existing
+  notation reads as before. `ColumnPatterns` (kzen-auto-common) is Report's rule (a column is kept when Allow is
+  empty or an Allow pattern matches its whole name, and no Exclude pattern does). `exact(name)` escapes a name
+  into a pattern, and `toggled(name, include)` is what a checkbox writes:
+  - Unticking a column drops its exact Allow line, or adds one to Exclude (always when it was the only Allow line,
+    which would otherwise allow everything).
+  - Ticking removes that Exclude line, or adds an Allow line when Allow would miss the column.
+  - It gives null when a broader Exclude pattern still excludes the column; `excludedBy` names that pattern.
+  Payload names are `HeaderLabel.render()`.
+- **Server.** `WriterColumns` keeps each `*`'s kept indices per payload header (one `IntArray` per header
+  object), used by `forEachField`, `names()` (renames applied) and `FormatCells.layout()`. `staticError` reports a
+  pattern that does not compile ("Columns: Allow 1: …") and a static record contract left with no column.
+  `readsPayload()` replaces the old `PayloadFields`-object checks.
+- **Column editor.** `WriterColumnsEditor` was rewritten for Format, CsvWriter and ExportWriter.
+  - Collapsed by default to the names of the columns written, a rename as `c1 → value` (one line, the whole list
+    in its tooltip); the summary hides while the table shows.
+  - Expanded, a table (☐ | # | Column | Type | As) in the File table's look:
+    - Payload columns tick through `toggled`, disabled with the pattern's name when a broader Exclude holds them.
+    - Path columns untick to remove.
+    - Metadata and nested records expand, and ticking a scalar under them adds its path.
+  - Allow and Exclude are multi-line fields (`ColumnDraftField`, committing on blur) beside the table, with no
+    help paragraph.
+  - `ContractPathPicker` is no longer used here; Paths and Extract keep it.
+- **Run clock and rates.**
+  - Every Worker progress map carries `elapsed`, in ms since the run started (`JobConventions.progressElapsedKey`).
+    `EngineJobControl` stamps it from a run-scoped `startedNanos`, which `JobCarryover` keeps across a live edit.
+  - The client's `ProgressRate` gives each card its rate: over the last 5 s while the Worker runs, then the
+    run's average once it has an outcome. It starts again when a count goes back.
+  - The rates shown are Parse's MB/s and rows/s, Format's records/s, Write's MB/s (on disk), and File's MB/s in
+    its header and per reading row.
+  - A reading File row is its own progress bar: a `linearGradient` background in a wash of the done green, filled
+    to its percent; a done row stays fully filled. The mini bar went.
+- **Parse's columns.** Before Run, Parse's details carry the columns the sampled files hold
+  (`JobReadConventions.sampledColumnsKey`, `[{name, files}]`, of `sampledFilesKey` files), from
+  `DesignShapeInference` (each merged column with the inspected parts that hold it). The card shows
+  *Columns: station (2), temp (1), …* under Detected, the count in gray only for a column some files lack, its
+  tooltip naming them (*In 1 of 3 files: a.csv*); Detected and Columns have a margin under them.
+- **Write's files.** `WriteWorker` publishes `openFiles` and `writtenFiles` (`[{path, bytes}]`, absolute) in
+  `JobOutputConventions`, replacing `openName`. A periodic publish carries the bounded teaser
+  (`progressTeaserRowCount`, the latest); the final publish carries every file. Both are carried across a live
+  edit.
+  - With one file, the card header shows that file's absolute path, then its size and rate; with several, it
+    shows *N files · N open*.
+  - Under the fields, *Files (n)* (or *n of M shown*) lists path, size and *writing*.
+- **Docs.** kzen-auto `docs/architecture.md` "Bytes and Format" covers the `*` map form and `ColumnPatterns`;
+  "Write over Bytes" covers the file lists and `elapsed`. `job-js.yaml`'s `WriterColumnsEditor` comment now names
+  Format.
+- **Tests:**
+  - `ColumnPatternsTest`: whole-name match, `exact` escaping, toggle outcomes including the blocked case, and a
+    pattern that does not compile.
+  - `WriterColumnSpecTest`: map-form round trip, a bare `*` when nothing narrows, and the first edit of the
+    implicit `*` writing the list.
+  - `WriterColumnsTest`: header, fields and `FormatCells` over kept and renamed columns, and both static errors.
+  - `WriteWorkerTest`:
+    - open, then written, file by absolute path;
+    - a grouped run's final `writtenFiles` listing every file;
+    - `elapsed` present.
+  - `ProgressRateTest`, `OutputProgressTextTest` and `SampledColumnTest` (JS).
+  - `ParseWorkerAutomaticTest`: two files with different headers give each column with the files that hold it.
+- **Browser** (scratch project on port 8099, `FgJob`: File `measurements-10000000.txt` → Parse → Format(CSV) →
+  Write(gz) to a temp directory):
+  - Collapsed summary *every payload column (2)*.
+  - Unticking `c0` wrote `exclude: [c0]`; renaming `c1` wrote `as: {c1: value}`, and the summary became
+    *c1 → value · 1 of 2 payload columns*.
+  - While running, the headers showed:
+    - File *4% of 131.5 MB · 845.6 kB/s*, with its row filling;
+    - Parse *… · 845.6 kB/s · 430,080 rows · 62,744 rows/s*;
+    - Format *… · 62,733 records/s*;
+    - Write *C:\Users\…\fg4\out\test_20261010T115039.csv.gz · 497.7 kB · 91.8 kB/s* with *Files (1)*.
+  - Done in 3 min 10 s, with averages shown (Format *10,000,000 records · 46.1 MB · 52,647 records/s*). The file
+    begins `value` (c0 dropped, c1 renamed).
+  - After the user's review (same day, second pass): files `a.csv` (`station,temp`), `b.csv` (`station,humidity`)
+    and the 10M-row file: Parse shows *Columns: station (2), temp (1), humidity (1), c0 (1), c1 (1)* with the
+    tooltip; the read rows turn green and stay green; Format's summary *station, temp, humidity, c0, c1* hides when
+    the table opens. The `meta` row stays (the user's call).

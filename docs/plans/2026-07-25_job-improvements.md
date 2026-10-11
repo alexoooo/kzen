@@ -309,6 +309,147 @@ reuse outside DM6/DM7c's exclusive-transfer and alias/copy rules.
 Commands: `benchJob` at 1M by scenario, S1 at 4M, and `benchJob -PbenchEpsilon` for S0/S1 at the bounded default
 250K. The smoke suite passed all four correctness paths. No production source changed in J5a.
 
+### J5b ahead of its session: Parse reads a batch per trip (2026-10-10)
+
+A user run (File → Parse → Format → Write over a 10M-row file) showed ≈ 60k rows/s. A JFR profile of S4 showed that
+the engine thread sat idle ≈ 85% of the run. The cause was `DataReadCore.pull`: Parse handed each row's `hasNext` /
+`next` to the blocking pool and back. Channel transfers were already batched. Parse now pulls up to
+`Emitter.sendsBeforeCheckpoint()` items per trip with `DataReadCore.emitBatch`, and still claims each item just before
+its send. The trip ends at the next cadence checkpoint, because a live edit carries the cursor and nothing pulled may
+still be unsent. It also ends after an owned item (`SourceIngress`'s rule). A trip that finds the end reports it
+rather than asking again, because a reader's cursor closes itself there.
+
+- **S4 at 1M (3 runs):** `job-format-write` went from 68k to **145k rows/s** (6,875 ms median). Report runs at 1.47M.
+- **Still open:** with the hop gone, the engine is still idle about half the time; that cause is unknown and stays in
+  J5b.
+- **Not converted:** `ReadWorker` and the resume skip (`skipAvailable`) still use one trip per item.
+- **Tests:** `DataReadCoreTest` covers a batch per trip, the stop after an owned item, and the release of unsent
+  holds after a failed send. `ParseWorkerTest`'s cadence test now asserts that nothing pulled is unsent at any
+  checkpoint; a mutation that reads past the checkpoint fails it and both migration tests.
+
+### J5b diagnosis (2026-10-10)
+
+Goal (user): reach Report's speed, or get as close as possible. All measurements are S4 (`File → Parse → filter →
+Formula → Format → Write`) on a 20-thread Windows machine. The probes were temporary and reverted: JFR with
+`jdk.ThreadPark#threshold=0ms`, a counter on `runBlockingIo` callers, and a run with every blocking body inline.
+
+**1. Thread hand-offs, not computation, set the speed.** Each `JobControl.runBlockingIo` trip sends the Worker to
+the elastic pool and resumes it on an engine thread, two wake-ups costing ≈ 6 µs together on this machine. After the
+Parse fix, 99.8% of trips came from one call site: `WriteWorker.writeChunk`, one trip per chunk. `FormatChunker`
+makes **one chunk per record** (WR open question 3, "chunk coalescing"), so Write pays one hand-off per row.
+
+| S4, 1M rows | rows/s | vs Report |
+|---|---:|---:|
+| Before today (a trip per row in Parse and in Write) | 68k | 0.06 |
+| Parse batched (landed) | 145k | 0.10 |
+| Experiment: every blocking body inline (no hand-offs) | **837k** | **0.51** |
+| Report | 1.64M | 1.00 |
+
+With no hand-offs, the engine parks about once per batch (18.6k parks for 2M rows, versus ≈ 1M before), and the run
+is CPU-bound on ≈ 2.5 cores.
+
+**2. What remains is per-row work that should be per-batch or per-header.** These are shares of Job engine CPU in the
+inline run:
+
+- **≈ 14%: rebuilding the projection descriptor for every row.** `JobDataValues.projection` (from the filter,
+  Formula, and Format's `groupOf`) looks up `ColumnProjectionDescriptor.from` in a `ConcurrentHashMap` keyed by a
+  field list, then `bind` compares lists again. Both are full list `equals` / `hashCode` on each row. This
+  (`Intrinsics.areEqual`) is the top self frame, at 16%.
+- **≈ 7%: `FlatFileRecord.populateCaches`** hashes every field of every row with Murmur3 as it is read, whether or
+  not anything uses the hash.
+- **≈ 5%: `FlatRecordHeader.indexOf`**, a `HashMap` lookup by name on each field access (Formula's inputs,
+  `ColumnProjection`); the index could be resolved once per header.
+- **≈ 3%: `TypedDecoder.decode`** equality checks per cell.
+- **≈ 4%: framework per-element drive** (`TransformWorker`, leases), which is acceptable.
+
+By stage: Parse 29%, Format 21%, Formula 21%, filter 11%, Write 5%.
+
+**Plan, in order of payoff** (1–3 landed the same day, below):
+
+1. Remove the per-row Write hand-off. Format coalesces consecutive records of one output into a chunk of up to a
+   bounded size (e.g. one input batch or 64 KiB), with the header and footer rules unchanged. Alternatively, Write
+   writes each received batch in one trip. Expected: most of the gap to 837k.
+2. Cache the projection descriptor by header identity, so a row with the same header object skips the map and the
+   list comparison. Resolve field indexes once per header, not with `indexOf` per access.
+3. Hash `FlatFileRecord` lazily, on first use, instead of at read.
+4. Re-measure, then decide on the rest: parallelism (≈ 2.5 cores busy of 19), presizing, and headless mode.
+
+### J5b fixes 1–7 (2026-10-10)
+
+1. **A chunk per input batch.** `Format` sends the records of one input batch and group as one chunk:
+   `FormatChunker.chunk` fills its group's chunk, and `FormatChunker.flush` sends them from the new
+   `TransformWorker.onBatchEnd`. That hook runs once per wholly dispatched batch, before the output flush, so nothing
+   Format holds outlives a checkpoint. A chunk's `parent` is its first record's metadata. `Write` reads `parent` only
+   from an output's first chunk, so naming is unchanged. With per-row metadata (after a Formula), chunk metadata is
+   now built per chunk rather than per record. A chunk is bounded by its input batch, so there is no byte cap.
+2. **Column lookups once per contract.** `ColumnProjections` (`job/value/`) is a per-Worker memo keyed by the payload
+   contract's identity:
+   - it finds and checks the descriptor once;
+   - it resolves a flat record's column nodes once, not by name per read;
+   - `bind`'s check now compares the payload structural, identity first, without building the metadata-combined
+     contract.
+
+   It is used by Filter, ValueSetFilter, Formula, Format's Group by, Run, Summary, Pivot, Sort, Explore and
+   `WriterColumns`.
+3. **Lazy row caches.** Parse's rows fill their hash and number caches on first use (`FlatFileRecord.cachedHash`),
+   no longer at read (`ConfiguredDelimitedReader.read`, `RecordProjection.message`). This reverses WR10's "stays
+   eager (lazy would race under fan-out)". Jobs share no rows today; Phase 6's `TeeWorker` must `populateCaches` a
+   flat row before handing it to a second branch (noted there).
+4. **The payload object only when named.** A Job expression over a record with no native type has its fields as
+   `this` (generated accessors reading through the projection), so the payload as an object is reachable only by
+   the name `payload`. The compiler records that as `JobCalculatedExpression.readsPayload`. A caller passes null
+   instead of `JobDataValues.native(element)` when nothing it evaluates reads it: Filter, Formula, Format's Group by,
+   Run and Write's path template. A native receiver is the scope itself, so it is always read. A mention inside a
+   string or comment counts too, which costs a materialization but never misses one.
+5. **The delimited parser takes runs.** Before reading a character on its own, `Parser.readRecord` takes the
+   buffered characters that only extend the field in one copy (`CharacterInput.takeRun`): up to the next delimiter,
+   quote, CR or LF, or in a quoted field up to the next quote. A run stops at the next 1024-character checkpoint and
+   before a character that would exceed the record or field limit, so checkpoints, limit failures and spans are what
+   reading one character at a time gives. `RawRecord` keeps its open field's start rather than recomputing it per
+   character.
+6. **Decode classifies each column once.** `TypedDecoder` reads a per-column mode, null token and nullability from
+   arrays, rather than comparing each cell's `ScalarKind` (a boxed `Intrinsics.areEqual` per cell).
+7. **Delimited encode copies and skips the charset encoder.** `DelimitedRecordEncoder.appendField` copies a field in
+   one block (`FlatFileRecordField.getChars`, a new override of Java 25's `CharSequence.getChars`; `String`'s own)
+   and then examines the copy, quoting in place from the back when it must. A line of only ASCII in UTF-8, US-ASCII
+   or ISO-8859-1 is written a byte per character; any other line goes through the `CharsetEncoder` as before.
+
+| S4, 1M rows | job rows/s | vs Report |
+|---|---:|---:|
+| Parse batched | 145k | 0.10 |
+| + 1 (a chunk per batch) | 564k–574k | 0.45–0.47 |
+| + 2, 3 | 633k–769k | 0.57–0.63 |
+| + 4 | 531k–701k | 0.51–0.70 |
+| + 5–7 | 994k–997k | 0.82 |
+
+Absolute numbers swung with machine load (Report itself measured 0.80M–1.31M), so the ratio is the measure. The
+grouped variant moved the same way, from 0.41–0.43 to 0.55–0.62, and to 0.66–0.82 with 4. Fix 4's runs came while
+the IDEs were busy and spread widely, so its evidence is the profile: `JobDataValues.native` fell from ≈ 18% of Job
+samples to 0.2%. With 5–7 the grouped variant reads 0.77–0.89; Report ran at 1.21M–1.22M rows/s in both of those
+runs.
+
+**Tests.**
+- `FormatChunkerTest`: a chunk per flush, carrying its first record's metadata.
+- `FormatAllocationTest`: flushes per batch; fresh parent metadata now costs 0 B/record.
+- `FormatWorkerTest` and `WriteWorkerTest`: chunk counts are per batch. Write's gates sit at chunks 5 and 16.
+  The progress test waits out the 200 ms progress throttle once bytes are on disk; with about 20 chunks no publish
+  would otherwise land after the first flush.
+- `ColumnProjectionsTest`: new.
+- `JobExpressionCompilerTest`: an expression reads the payload object only when it names it.
+- `ConfiguredDelimitedReaderTest`: fields across the read buffer keep their content (quoted, with delimiters,
+  doubled quotes and line breaks), a typed failure's span after long runs, and limits at and past their bound.
+- `WriteWorkerTest`'s live edit now waits, before pausing, until upstream has stamped a chunk past the one Write
+  holds at the gate. With about 20 chunks a run, a loaded machine could otherwise pause before one was in flight.
+
+**What remains** (JFR after 1–7, inclusive shares of Job samples, which now include the run's set-up):
+- **≈ 20%: reading** (`ConfiguredDelimitedReader.read`): the parser's runs and the per-character step at each
+  field's end (≈ 14%), then copying cells into the row and decoding them (≈ 3%).
+- **≈ 14%: `FormatChunker.chunk`**, of which ≈ 12% is delimited encode: the field copy and scan, and the ASCII write.
+- **≈ 12%: Formula**, including its field reads (`JobExpressionValues.projected` → `boundary`, ≈ 3%) and the
+  ownership ledger's per-send `closeableRoot`.
+- **≈ 8%: Job graph definition** (dexx persistent maps under `GraphDefiner`): once per run, not per row.
+- **Not looked at:** running stages on more cores.
+
 ---
 
 ## Phase 6 — topology: fan-out + non-linear ergonomics
@@ -322,7 +463,9 @@ legible in the ordered-card UI.
 **Design decisions.**
 - **Fan-out via a `TeeWorker`, not multi-reader channels.** Single-reader is what makes typing,
   carryover and close semantics tractable — keep it. `TeeWorker`: one input, `outputs: List<ChannelOutput>`
-  (metadata `is: List, of: ChannelOutput`); forwards each element to every output.
+  (metadata `is: List, of: ChannelOutput`); forwards each element to every output. A flat row's caches fill on
+  first use (J5b fixes, 2026-10-10), so the tee fills them (`FlatFileRecord.populateCaches`) before a row reaches
+  a second branch.
   Under `DataValue`, the tee follows the landed rule: transfer at most one exclusive value and alias/copy every
   additional branch as required by backing lifetime. It does not recreate payload/flat-specific copying.
 - `JobChannelCreator` learns list-typed channel attributes: a `ListAttributeDefinition` of references
