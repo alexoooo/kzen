@@ -567,7 +567,9 @@ extension seam, and `MultiFileInputEditor` is already bound through it — so th
 largely exists. What changes is *what it edits*: the ordered picked files and their nullable per-file format /
 encoding overrides instead of a worker's raw `List<String>` ([model §2.2](2026-08-20_data-source-model.md#22-units-and-parts-are-ordered-self-describing-values)). The chooser's navigation state is separate
 (`browser.directory` / `browser.filter`) from the source's runtime directory-query fields, so removing the last
-explicit file cannot accidentally turn the last visited directory into the Worker's input. A JDBC source brings
+explicit file cannot accidentally turn the last visited directory into the Worker's input. *(2026-10-13: the
+runtime directory query — `directory` / `filter`, labelled "Folder to scan" — is removed; the picked files are the
+only selection, and `browser` is navigation state alone.)* A JDBC source brings
 a SQL editor the same way. **The Job controller itself has no file-specific code**: `FileSourceWorker` names a
 notation-contributed `FileSourceWorkerDisplay`, which composes the ordinary Worker card, promotes the metadata-
 selected `files` editor, and places execution-only attributes behind an Advanced disclosure. Pure DataSource

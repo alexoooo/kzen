@@ -97,7 +97,7 @@
 ### Non-goals (for now)
 - Automatically inserting `Parse` after `File`.
 - Grouping several values together (e.g. a data file with its sidecar). It would be a general transform later;
-  nothing groups files today, since "Name pattern" only extracts values from names.
+  nothing groups files today ("Name pattern" was removed 2026-10-13; an expression over `parent.name` takes its place).
 - Showing sample rows at design time. It is a natural extension of R5, but not required.
 - Design-time types through `Extract` (archive members). Allowed by the model; it can come later.
 

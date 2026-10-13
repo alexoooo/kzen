@@ -235,8 +235,8 @@ The target reader has never seen the source. Proposed surface wording for the `F
 | Emit: Items / Units | *(removed; becomes the "Whole file" format, §3.4)* | |
 | Format: Automatic | **File format** — Automatic / CSV / … / **Whole file (don't read)** | How to read the files. Automatic works it out from each file. Whole file passes them on unread, to copy or compress. |
 | Missing | **If a file is missing** | Stop / Skip it |
-| Directory + Filter | **Folder** / **Name filter** | Select every file in a folder whose name matches, instead of picking files one by one. |
-| GroupPattern | **Label files by name** | A pattern over the file name; what it captures becomes a column on every row from that file. |
+| Directory + Filter | *(removed 2026-10-13: a second, hidden way to select files that no use case needed; the picked files are the only selection)* | |
+| GroupPattern | *(removed 2026-10-13: an expression over `parent.name` does the same, e.g. in Format's Group by)* | |
 | Attributes: Ignore / As columns | **File labels** | Leave out / Add as columns |
 | SchemaMode: Ordered superset / Strict | **When files have different columns** | Combine them / Stop |
 | Role | **Part** *(hide unless a unit has more than one role)* | |
