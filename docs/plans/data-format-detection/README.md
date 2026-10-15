@@ -1,5 +1,12 @@
 # Automatic data-format detection — constituent implementation plan
 
+> **Superseded 2026-10-14 — files are read by name.** Content-based detection (magic bytes, probes, delimiter and
+> charset sniffing, content strengths) is removed. A file's name decides how it is read: a `.gz` / `.tgz` suffix
+> means gzip, and under Automatic the extension beneath it chooses the one catalog-visible format whose
+> `extensions` name it (`FileFormatNames`, kzen-auto-common); otherwise the file is carried unread and refused
+> with the reason when a reader opens it. See [`kzen-auto/docs/architecture.md`](../../../../kzen-auto/docs/architecture.md)
+> § Job and the scrub audit [`docs/audit/2026-10-14_scrub_5.5-unreported.md`](../../audit/2026-10-14_scrub_5.5-unreported.md).
+
 > **Status: complete — DR8a–DR8f landed 2026-09-03.** Design authority:
 > [`docs/analysis/2026-09-02_data-format-detection.md`](../../analysis/2026-09-02_data-format-detection.md),
 > including its incorporated review amendments. The completed configurable-reading arc at

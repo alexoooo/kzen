@@ -1,5 +1,12 @@
 # Automatic data-format detection and safe text fallback
 
+> **Superseded 2026-10-14 — files are read by name.** Content-based detection (magic bytes, probes, delimiter and
+> charset sniffing, content strengths) is removed. A file's name decides how it is read: a `.gz` / `.tgz` suffix
+> means gzip, and under Automatic the extension beneath it chooses the one catalog-visible format whose
+> `extensions` name it (`FileFormatNames`, kzen-auto-common); otherwise the file is carried unread and refused
+> with the reason when a reader opens it. See [`kzen-auto/docs/architecture.md`](../../../kzen-auto/docs/architecture.md)
+> § Job and the scrub audit [`docs/audit/2026-10-14_scrub_5.5-unreported.md`](../audit/2026-10-14_scrub_5.5-unreported.md).
+
 > **Status: proposed.** This analysis extends
 > [`2026-08-29_data-reading.md`](2026-08-29_data-reading.md) after the configured reader arc landed on
 > 2026-09-01. It preserves that design's provider-neutral content stack, immutable resolved-read identity,

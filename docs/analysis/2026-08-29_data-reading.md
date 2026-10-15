@@ -250,6 +250,7 @@ For the first implementation, the supported chain is `none` or one `gzip` decode
 list if composition is real and bounded; it must not claim arbitrary chains that cannot be validated or safely
 opened.
 
+*(Superseded 2026-10-14: only the file name decides — magic bytes are never read; see `FileFormatNames`.)*
 Filename extensions, provider metadata and magic bytes may suggest a default while the source/format is being
 resolved. They do not remain runtime precedence rules. By cursor-open time the resolved spec says `none` or
 `gzip`, and its digest includes that answer. Otherwise renaming an identical object or changing a provider hint can
