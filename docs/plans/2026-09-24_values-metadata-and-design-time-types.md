@@ -154,6 +154,10 @@
    has 30 s. The value limit is a fixed bound, labelled in the provenance ("Inferred from 256 of 900 values"). A
    pass the deadline cuts short is partial: the editor shows "Reading data…", asks again after a second, and reads
    on from what was already inspected.
+   > **Superseded 2026-10-15** (scrub audit `docs/audit/2026-10-14_scrub_5.5-unreported.md` §9 step 2: "No
+   > artificial limits anywhere"). A pass reads every value of a lane to the end, with no deadline, so a run types
+   > from the full set of columns. `DesignReader`, `DesignReadBudget`, `JobLaneSample` (now
+   > `JobLaneDescriptor.values`), `StepValidation.partial` and the editor's re-ask are removed.
 
 ## 7. Phases
 
@@ -210,6 +214,7 @@ design is its §4/§5 shape as refined below.
 - **Preview** shows a value's metadata, including `meta.parent`.
 
 ### VM3 — types before Run (2026-09-24)
+- *(The budget, the sample bound and `partial` below were removed on 2026-10-15; see §6.2.)*
 - **One reading service.** `DesignReader` (kzen-auto-jvm `server/data/design/`) is the only way validation looks at
   data. Each pass gets a `DesignReadSession` bounded by a `DesignReadBudget` (§6.2). The session records each read
   as `DesignEvidence`: what was looked at, plus a digest recheck. Part shapes and resolved read specs are cached
