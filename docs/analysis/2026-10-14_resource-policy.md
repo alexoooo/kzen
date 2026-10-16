@@ -1,7 +1,8 @@
 # Resources — one application-wide policy (problem definition)
 
-Status: problem definition only, for the user's review. No design or code yet. Facts below were checked in the code
-on 2026-10-14; `file:line` references are to that tree.
+Status: problem definition, reviewed. The design is `docs/plans/2026-10-16_resource-holds.md` (option A, agreed
+2026-10-16). Facts below were checked in the code on 2026-10-14; `file:line` references are to that tree. Since then
+scrub step 2 (`7c0b87e2`) removed the stall timer, `JobOwnershipReport` and `SnapshotPolicy` named in §1.4 and §3.2.
 
 ## 1. The problem
 
