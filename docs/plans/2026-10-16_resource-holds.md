@@ -1,6 +1,6 @@
 # Resource holds — one disposal mechanism (RH)
 
-> **Status: design agreed in discussion 2026-10-16, not started.** Follows the problem definition in
+> **Status: landed 2026-10-16 (RH1–RH5; as-built in §8, deviations marked there).** Follows the problem definition in
 > `docs/analysis/2026-10-14_resource-policy.md` (requirements R1–R10 are cited from there). The user chose
 > option A of the options presented on 2026-10-16: *one hold-counted resource entry in the engine; frames are
 > holders*. Facts about the code were checked on 2026-10-16.
@@ -347,4 +347,118 @@ native (§3.1), never per hold and never on the unowned path.
 
 ## 8. As-built
 
-*(appended per row as it lands)*
+### RH1 — core and engine (kzen-lib), 2026-10-16
+
+- `exec/engine/resource/`: `Resource(native?, closer?, onClosed?)` (hold-counted, close is a single claim, a
+  throwing closer leaves the entry closed and the failure is thrown from the closing release; `detach()`;
+  `Resource.borrowed(native)` has no closer and never closes), `Hold` (+ `none`, `releaseAll`), `Holder(name)`,
+  `Held(value, hold)`, `ResourceOwners` (identity set; `plus`, `hold` with rollback through an internal
+  `CompositeHold`), `ResourceRegistry(onChange)` (`adopt`, `register`, `hold(value, holder): Held?`, `entryOf`,
+  `live`, `holdsByHolder`, `holdsOf`). All in `commonMain` over a new `platform/collect/identityMap()`
+  expect/actual (JVM `IdentityHashMap`, JS `HashMap`), so `Execution.hold(value)` / `Execution.resources` sit on
+  the common interface. **Deviation:** only an `AutoCloseable` native is identity-indexed (attach on re-adoption,
+  first closer wins); a non-closeable native with an explicit closer and an anonymous teardown are separate
+  unindexed live entries — this keeps today's "two closers for the same string" `RunEngineContextTest` behaviour.
+- `DataValue(access, root, metadata?, owners?)`; `withOwners`, `child` and `withMetadata` keep owners, an
+  overlay record merges its base's and values' owners; `requireOpen()` fails by name through a closed owner;
+  `native()` checks first. `NativeLivenessGuard` and `DefaultDataAdapterRegistry.livenessGuard` are gone.
+  `FrameDisposal(policy, closer)` has no `claim`; `RetainedBinding.key` is nullable (anonymous keep-on-failure
+  is retained and closeable via `releaseRetained(node, null)` — the old "nothing is retained" is gone).
+- `RunEngine`: `FrameHold(policy, resource?, hold)` per binding / anonymous disposal / value hold, frame holder
+  `"<stableId>@<nodeId>"`, `registry` dirty-flags the snapshot, `settleFrame` restated over holds (Auto release,
+  Manual `putIfAbsent` else retained, root/barrier retained, KeepOnFailure retained on failure), `settleOutputs`
+  takes the receiver's hold on every returned value before the child settles (an unrecorded `AutoCloseable` is
+  adopted there; the root has no receiver so its owned returns close at its settle), `holdFor` off-lock,
+  `dispose()` releases live frames' holds and leaves `retained`, migrate lifts frame holds and `sweepOrphans`
+  releases an unclaimed capture's. `RunState.resources: List<ResourceState>` (description, borrowed, holds by
+  holder name). `Resource` allocates its holder map on the first hold and no close signal unless awaited (RH4's
+  per-trip cost).
+- Tests: `ResourceRegistryTest` (8, replaces `RunOwnershipLedgerTest`), `RunEngineHoldTest` (9),
+  `RunEngineContextTest` adjusted for the retained anonymous keep-on-failure. `build publishToMavenLocal` green.
+
+### RH2 + RH4 — Job holders and `Recyclable` (kzen-auto), 2026-10-16
+
+- Deleted: `exec/job/ownership/*`, `ValueLease`, `JobControlOwnership`, `JobControl.snapshot`, the owned-result
+  refusal, `JobCarryover.ledger` / `closeAll`, `Recyclable.of` / `forfeitDerived` / `Token`,
+  `RecyclableAllocationTest`. `JobControl.retain(value): Hold` (default `Hold.none`).
+- New: `exec/job/RunResourceControl` (`resources`, `holdForCallback`), `JobControl.resources()`,
+  `BlockingAcquisitions.runBlockingIoAcquiring` (releases owned acquisitions when a cancel discards the
+  blocking body's return — the ledger's `closeAll` used to cover that), `WorkerBase.releaseCarried()` (a
+  failed or cancelled expanding transform's detached batch), `JobChannel.bindResources` / `releaseHeld` /
+  `onUndeliveredElement` (a cancelled receiver's batch holds, unless `Batch.carried`). Holders: channels and
+  Workers by their notation location, source streams by the Worker's, `"producer"` for items pulled before
+  send, `"forfeited"` for forfeits. `JobDataValues.adapters = DefaultDataAdapterRegistry()`; `native` /
+  `boundary` / `callbackObject` call `requireOpen()`, navigation via `child`; `lift(Borrowed)` wraps a
+  `Resource.borrowed` owner. `FormulaWorker` / `JavaTransformWorker` outputs inherit input owners via
+  `withOwners`.
+- Semantics landed as planned: a top-level Result over an owned native is the live value, closed at the Job
+  root's settle (`aRootResultIsTheLiveOwnedValueClosedOnceAtTheRootsSettle`); a hosted Result is live in the
+  hosting frame; owned elements (pooled included) flush through `JobChannel.send` at once; a close failure at a
+  Worker frame's settle is logged by the engine rather than folded into the failure.
+- **Deviation (RH4):** `forfeit` is a permanent hold under `Holder("forfeited")`, not `detach()` — a detached
+  owner would make the still-valid value's `requireOpen()` fail while its callback is reading it; a forfeited
+  object is simply never recycled. A `Recyclable` reissues a fresh `Resource` per trip out of the pool (a closed
+  entry refuses holds, which is the never-read-after-recycle rule), so `FormatAllocationTest`'s steady-state
+  budget is per chunk rather than zero (zero per record): 640 B per chunk measured after the `Resource` trim,
+  budget twice that.
+  A pooled object's resource is built by the `Recyclable`, not adopted through the registry (it is not
+  `AutoCloseable`), so pooled buffers are absent from `live()` / `RunState.resources` and from a Worker's
+  progress `holds` — the live view shows real resources, not every chunk in flight.
+- **Deviations (RH2):** `JobRun` still releases the channels' own holds at teardown (`releaseChannelHolds` →
+  `JobChannel.releaseHeld`, skipped when migrating) — narrower than the old `closeAll` (channel holds only,
+  never "every live entry"), needed because a channel is not a frame and has no settle. `retain` is a frame
+  hold (holder `<stableId>@<nodeId>`) while `holdForCallback` holds under the Worker's location, so progress
+  `holds` counts callback holds only. `yieldResult` lifts the kept element through `JobDataValues.boundary`
+  (forfeiting a pooled one) and re-attaches its owners with `withOwners`; the single remaining refusal in
+  `retain` / `yieldResult` is a `LentElement`.
+- Tests: fixtures moved to `objects/job/worker/test/`, route tests to `exec/job/` (`ResourceBoundaryTest`,
+  `ResourceTeardownTest`, `OwnedRouteTest`, `OwnedSourceRouteTest`, `PathProjectionRouteTest`),
+  `OwnershipOverheadTest` in `objects/job/channel/` (4.0x gate, measured 3 ms vs 4 ms over 300,000 elements),
+  `JobChannelRecyclableTest` / `RecyclableRouteTest` gained cancel cases, new yamls
+  `owned-boundary-hosted-child.yaml`, `owned-boundary-hosted-result.yaml`, `recycle-cancel-expanding.yaml`.
+  `FormulaStepTest` canary, `:kzen-auto-plugin:publishToMavenLocal`, full `./gradlew build` green.
+
+### RH3 — Script and Flow adopt (kzen-auto), 2026-10-16
+
+- `ScriptRunContext.record(stableId, value)` is the one write to the value graph (`recordValue`, `markDone`,
+  `adoptOutcome`): `execution.hold(value)`, store `Held.value` in `stepValues`, keep the `Hold` in `stepHolds`,
+  then release the slot's previous hold (hold-before-release). `FlowRun.produced` does the same per vertex
+  (`vertexHolds`: message plus undrained batch remainder as one list), released when the vertex next produces;
+  message clears at a loop iteration or run end touch no hold. `outputBindings()` unchanged — it reads held
+  values. `RunStep`, `BrowserOpenStep`, `BindStep`, `DisposeAtSettleStep`, `openResource` unchanged.
+- Migration: the engine already lifts the holds (`LiftedRegistrations.frameHolds`); `ScriptMigrationState.stepHolds`
+  / `FlowMigrationState.vertexHolds` carry the references so the rebuilt run releases the stale hold on
+  re-record (`adoptOutcome` re-records a replayed outcome, net one hold).
+- **Bounds found:** the host-boundary hold on a `RunStep`'s result is the caller frame's, released at the
+  caller's settle — a sub-Script hosted inside a loop keeps each iteration's returned closeable open until the
+  loop's Script settles (engine-side follow-up, not RH3); the Script boundary (`boundary()` + `lift()`) re-attaches
+  an `AutoCloseable` root by identity but drops a derived non-closeable value's owners (pre-existing).
+- Tests: `ScriptResourceHoldTest` (live downstream + closes at settle; loop supersession closes each iteration;
+  sub-Script result live in caller, closes with caller; survives a live edit; carried loop hold released on
+  re-record after a live edit), `FlowResourceHoldTest` (owned vertex output live downstream, closes at settle),
+  `ScriptExtensibilityTest` unchanged; fixtures under `notation/test/script/resource/` and
+  `flow-closeable-test.yaml`, test steps/vertices under `exec/script/test/`, `exec/flow/test/`.
+  `FormatAllocationTest` re-measured at 640 B per chunk, budget `2 × chunks × 640 B`. `:kzen-auto-plugin:publishToMavenLocal`
+  then full `./gradlew build` green (2168 tests).
+
+### RH5 — docs and downstream, 2026-10-16
+
+- kzen-lib `docs/logic-spec.md` §5/§6/§7 and appendix restated over holds (settlement table kept; anonymous
+  keep-on-failure retained-and-closeable; host boundary; `RunState.resources`; type table gains the `resource/`
+  row), `docs/architecture.md` (Resource holds concept row, data model, package map). kzen-auto `AGENTS.md`
+  (E9 / WR2 / Result bullets rewritten, new Script-and-Flow bullet), `docs/architecture.md` § 1 Job E9 + WR2
+  block and a new "Script and Flow hold what they record" note, browser-handle sentence. Analysis status line
+  points here. Master ledger RH1–RH5 ticked.
+- kzen-project: rebuilt green from its own directory after `kotlinUpgradeYarnLock` — its stored lock predated
+  FJ3's `@tanstack/virtual-core` (an FJ3 leftover, not RH); the regenerated `kotlin-js-store/yarn.lock` is the
+  only kzen-project change.
+- kzen-sample: no `snapshot` call sites existed. `itch-plugin/plugin` `mvnw install` green; `spring-embed/frontend`
+  published; `spring-embed/backend` compiles after one pre-existing fix — `KzenWorkspace` now passes the
+  `codeCacheRoot` argument `KzenAutoConfig` gained on 2026-09-25. Two backend ITs still fail for reasons older
+  than RH, left for their owners: `HostPackagedIT.catalogPreparesAndRunsDatedTypedAnalysisThroughTheProxy`
+  reads `test` / `checked` as preview children while `PreviewNode` has carried them in its `metadata` node since
+  2026-09-24 (VM1–VM3); `HostGovernedIT.accumulatorRetainingOwnedSymbolDaysStalls…` awaits the
+  `stalled: No progress while owned natives are held` warning that scrub step 2 (`7c0b87e2`) removed — under
+  the current rule a run that cannot progress simply waits until cancelled, so the test's first half needs a new
+  assertion, which is the sample's call.
+
